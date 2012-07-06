@@ -44,8 +44,8 @@ new(_Id) ->
 %%
 -spec(run(get, any(), any(), any()) ->
              {ok, any()} | {error, any(), any()}).
-run(get, KeyGen, _ValueGen, State) ->
-    Key = KeyGen(),
+run(get,_KeyGen, _ValueGen, State) ->
+    %% Key = KeyGen(),
     {ok, State};
     %% case leo_redundant_manager_api:get_redundancies_by_key(integer_to_list(Key)) of
     %%     {ok, _} ->

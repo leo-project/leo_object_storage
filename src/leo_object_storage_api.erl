@@ -59,20 +59,27 @@ new(DeviceNumber, NumOfStorages, RootPath) ->
     io:format("~w:~w - ~w ~w ~p~n",[?MODULE, ?LINE, DeviceNumber, NumOfStorages, RootPath]),
 
     ok = start_app(),
-    case (string:len(RootPath) == string:rstr(RootPath, "/")) of
-        true  -> NewRootPath = RootPath;
-        false -> NewRootPath = RootPath ++ "/"
-    end,
+    RootPath1 =
+        case (string:len(RootPath) == string:rstr(RootPath, "/")) of
+            true  -> RootPath;
+            false -> RootPath ++ "/"
+        end,
 
-    case application:get_env(?APP_NAME, object_storage) of
-        {ok, ObjectStorage} -> ObjectStorageMod = object_storage_module(ObjectStorage);
-        _ -> ObjectStorageMod = object_storage_module(?DEF_OBJECT_STORAGE)
-    end,
+    ObjStorage1 =
+        case application:get_env(?APP_NAME, object_storage) of
+            {ok, ObjectStorage} ->
+                object_storage_module(ObjectStorage);
+            _ ->
+                object_storage_module(?DEF_OBJECT_STORAGE)
+        end,
 
-    case application:get_env(?APP_NAME, metadata_storage) of
-        {ok, MetadataDB} -> MetadataDB;
-        _ -> MetadataDB = ?DEF_METADATA_DB
-    end,
+    MetaDB1 =
+        case application:get_env(?APP_NAME, metadata_storage) of
+            {ok, MetaDB} ->
+                MetaDB;
+            _ ->
+                ?DEF_METADATA_DB
+        end,
 
     Ret = lists:map(
             fun(StorageNumber) ->
@@ -84,10 +91,10 @@ new(DeviceNumber, NumOfStorages, RootPath) ->
                                             ++ "_" ++ integer_to_list(StorageNumber)),
 
                     case supervisor:start_child(leo_object_storage_sup,
-                                                [Id, MetaDBId, DeviceNumber, StorageNumber, ObjectStorageMod, NewRootPath]) of
+                                                [Id, MetaDBId, DeviceNumber, StorageNumber, ObjStorage1, RootPath1]) of
                         {ok, _Pid} ->
-                            ok = leo_backend_db_api:new(MetaDBId, 1, MetadataDB,
-                                                        NewRootPath
+                            ok = leo_backend_db_api:new(MetaDBId, 1, MetaDB1,
+                                                        RootPath1
                                                         ++ ?DEF_METADATA_STORAGE_SUB_DIR
                                                         ++ integer_to_list(StorageNumber)),
                             Id;

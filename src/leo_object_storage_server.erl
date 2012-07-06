@@ -373,29 +373,29 @@ compact_fun(State) ->
     #backend_info{backend       = Module,
                   file_path     = FilePath} = StorageInfo,
 
-    case calc_remain_disksize(MetaDBId, FilePath) of
-        {ok, RemainSize} ->
-            case (RemainSize > 0) of
-                true ->
-                    TmpPath = gen_raw_file_path(FilePath),
-                    Obj = Module:new(MetaDBId, StorageInfo),
+    Res = case calc_remain_disksize(MetaDBId, FilePath) of
+              {ok, RemainSize} ->
+                  case (RemainSize > 0) of
+                      true ->
+                          TmpPath = gen_raw_file_path(FilePath),
+                          Obj = Module:new(MetaDBId, StorageInfo),
 
-                    case Obj:open(TmpPath) of
-                        {ok, [TmpWriteHandler, TmpReadHandler]} ->
-                            BackendInfo = State#state.object_storage,
-                            Res = {ok, State#state{object_storage = BackendInfo#backend_info{
+                          case Obj:open(TmpPath) of
+                              {ok, [TmpWriteHandler, TmpReadHandler]} ->
+                                  BackendInfo = State#state.object_storage,
+                                  {ok, State#state{object_storage = BackendInfo#backend_info{
                                                                       tmp_file_path_raw = TmpPath,
                                                                       tmp_write_handler = TmpWriteHandler,
                                                                       tmp_read_handler  = TmpReadHandler}}};
-                        Error ->
-                            Res = {Error, State}
-                    end;
-                false ->
-                    Res = {{error, system_limit}, State}
-            end;
-        Error ->
-            Res = {Error, State}
-    end,
+                              Error ->
+                                  {Error, State}
+                          end;
+                      false ->
+                          {{error, system_limit}, State}
+                  end;
+              Error ->
+                  {Error, State}
+          end,
     compact_fun1(Res).
 
 
@@ -411,21 +411,20 @@ compact_fun1({ok, State}) ->
                   tmp_write_handler = TmpWriteHandler} = StorageInfo,
 
     Obj = Module:new(MetaDBId, StorageInfo),
-
-    case Obj:compact_get(ReadHandler) of
-        {ok, Metadata, [_HeaderValue, KeyValue, BodyValue, NextOffset]} ->
-            case leo_backend_db_api:compact_start(MetaDBId) of
-                ok ->
-                    Ret = do_compact(Metadata, [KeyValue, BodyValue, NextOffset], State),
-                    Obj:close(WriteHandler,    ReadHandler),
-                    Obj:close(TmpWriteHandler, TmpReadHandler),
-                    Res = Ret;
-                Error0 ->
-                    Res = Error0
-            end;
-        Error1 ->
-            Res = Error1
-    end,
+    Res = case Obj:compact_get(ReadHandler) of
+              {ok, Metadata, [_HeaderValue, KeyValue, BodyValue, NextOffset]} ->
+                  case leo_backend_db_api:compact_start(MetaDBId) of
+                      ok ->
+                          Ret = do_compact(Metadata, [KeyValue, BodyValue, NextOffset], State),
+                          Obj:close(WriteHandler,    ReadHandler),
+                          Obj:close(TmpWriteHandler, TmpReadHandler),
+                          Ret;
+                      Error0 ->
+                          Error0
+                  end;
+              Error1 ->
+                  Error1
+          end,
     compact_fun2({Res, State});
 
 compact_fun1({Error,_State}) ->
@@ -539,11 +538,12 @@ is_deleted_rec(_MetaDBId,_Meta0,_Meta1) ->
              {ok, any()} | {error, any()}).
 do_stats(MetaDBId, Obj, ReadHandler, Metadata, NextOffset, #storage_stats{total_num  = ObjTotal,
                                                                           active_num = ObjActive} = StorageStats) ->
-    case is_deleted_rec(MetaDBId, Metadata) of
-        true  -> NewStorageStats = StorageStats#storage_stats{total_num  = ObjTotal  + 1};
-        false -> NewStorageStats = StorageStats#storage_stats{total_num  = ObjTotal  + 1,
-                                                              active_num = ObjActive + 1}
-    end,
+    NewStorageStats =
+        case is_deleted_rec(MetaDBId, Metadata) of
+            true  -> StorageStats#storage_stats{total_num  = ObjTotal  + 1};
+            false -> StorageStats#storage_stats{total_num  = ObjTotal  + 1,
+                                                active_num = ObjActive + 1}
+        end,
 
     case Obj:compact_get(ReadHandler, NextOffset) of
         {ok, NewMetadata, [_HeaderValue, _NewKeyValue, _NewBodyValue, NewNextOffset]} ->
