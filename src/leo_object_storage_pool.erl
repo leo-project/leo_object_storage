@@ -39,7 +39,7 @@
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
-%% @doc Create a process.
+%% @doc Create a process
 %%
 -spec(new(#object{}) ->
              {ok, pid()}).
@@ -63,7 +63,7 @@ new(Object, Timeout) ->
                                          timestamp = Timestamp}, Object, Timeout]).
 
 
-%% @doc Receiver.
+%% @doc Receiver
 %%
 -spec(loop(string(), #metadata{}, #object{}, integer()) ->
              ok).
@@ -86,7 +86,7 @@ loop(Key, Meta, DataObj, Timeout) ->
     end.
 
 
-%% @doc Destroy this process.
+%% @doc Destroy own process
 %%
 -spec(destroy(pid) ->
              ok).
@@ -100,7 +100,7 @@ destroy(Pid) ->
     ok.
 
 
-%% @doc Retrieve an Object.
+%% @doc Retrieve an object
 %%
 -spec(get(pid()) ->
              any() | not_found).
@@ -119,6 +119,8 @@ get(Pid) ->
     end.
 
 
+%% @doc Set ring-hach in own process
+%%
 set_ring_hash(Pid, RingHash) ->
     case erlang:is_process_alive(Pid) of
         true ->
@@ -133,7 +135,8 @@ set_ring_hash(Pid, RingHash) ->
             not_found
     end.
 
-%% @doc Retrieve attributes.
+
+%% @doc Retrieve attributes from own process
 %%
 -spec(head(pid()) ->
              any() | not_found).
@@ -151,9 +154,12 @@ head(Pid) ->
             not_found
     end.
 
+
 %%--------------------------------------------------------------------
 %% INNNER FUNCTIONS
 %%--------------------------------------------------------------------
+%% @doc destroy own process
+%% @private
 destroy_fun() ->
     garbage_collect(self()),
     exit(self(), destroy).

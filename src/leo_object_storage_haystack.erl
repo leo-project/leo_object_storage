@@ -101,7 +101,7 @@ close(WriteHandler, ReadHandler) ->
     ok.
 
 
-%% @doc put an object and a metadata.
+%% @doc Insert an object and a metadata into the object-storage
 %%
 -spec(put(pid()) ->
              ok | {error, any()}).
@@ -109,7 +109,7 @@ put(ObjectPool) ->
     put_fun(first, ObjectPool).
 
 
-%% @doc Retrieve an object and a metadata.
+%% @doc Retrieve an object and a metadata from the object-storage
 %%
 -spec(get(KeyBin::binary()) ->
              {ok, #metadata{}, pid()} | {error, any()}).
@@ -117,7 +117,7 @@ get(KeyBin) ->
     get_fun(KeyBin).
 
 
-%% @doc Remove an object and a metadata.
+%% @doc Remove an object and a metadata from the object-storage
 %%
 -spec(delete(ObjectPool::pid()) ->
              ok | {error, any()}).
@@ -125,7 +125,7 @@ delete(ObjectPool) ->
     put_fun(first, ObjectPool).
 
 
-%% @doc Retrieve a metada from backend_db.
+%% @doc Retrieve a metada from backend_db from the object-storage
 %%
 -spec(head(KeyBin::binary()) ->
              {ok, #metadata{}} | not_found | {error, any()}).
@@ -140,7 +140,7 @@ head(KeyBin) ->
     end.
 
 
-%% @doc Fetch objects from backend-db.
+%% @doc Fetch objects from the object-storage
 %%
 -spec(fetch(binary(), function()) ->
              ok | {error, any()}).
@@ -151,6 +151,8 @@ fetch(KeyBin, Fun) ->
 %%--------------------------------------------------------------------
 %% INNER FUNCTIONS
 %%--------------------------------------------------------------------
+%% @doc Create an object-container and metadata into the object-storage
+%% @private
 create_file(FilePath) ->
     case catch file:open(FilePath, [raw, write,  binary, append]) of
         {ok, PutFileHandler} ->
@@ -174,6 +176,9 @@ create_file(FilePath) ->
             {error, Cause}
     end.
 
+
+%% @doc Open an object-container (*.avs) from the object-storage
+%% @private
 open_fun(FilePath) ->
     open_fun(FilePath, 0).
 
@@ -204,7 +209,7 @@ open_fun(FilePath, RetryTimes) ->
 %%--------------------------------------------------------------------
 %% OBJECT OPERATIONS.
 %%--------------------------------------------------------------------
-%% @doc Retrieve an object from object-container.
+%% @doc Retrieve an object from object-storage
 %% @private
 get_fun(KeyBin) ->
     case catch leo_backend_db_api:get(MetaDBId, KeyBin) of
@@ -268,8 +273,8 @@ get_fun1(#metadata{key      = Key,
     end.
 
 
-%% @doc
-%%
+%% @doc Insert a super-block into an object container (*.avs)
+%% @private
 put_super_block(ObjectStorageWriteHandler) ->
     case file:pwrite(ObjectStorageWriteHandler, 0, ?VS_SUPER_BLOCK) of
         ok ->
@@ -282,8 +287,8 @@ put_super_block(ObjectStorageWriteHandler) ->
     end.
 
 
-%% @doc
-%%
+%% @doc Insert an object into the object-storage
+%% @private
 put_fun(first, ObjectPool) ->
     case catch leo_object_storage_pool:get(ObjectPool) of
         {'EXIT', Cause} ->
@@ -383,8 +388,8 @@ put_fun(finally, Needle, #metadata{key      = Key,
 %%--------------------------------------------------------------------
 %% COMPACTION FUNCTIONS
 %%--------------------------------------------------------------------
-%% @doc Input an object into the object-container when compacting.
-%%
+%% @doc Insert an object into the object-container when compacting
+%% @private
 -spec(compact_put(pid(), #metadata{}, binary(), binary()) ->
              ok | {error, any()}).
 compact_put(WriteHandler, #metadata{key       = _Key,
@@ -427,7 +432,7 @@ compact_put(WriteHandler, #metadata{key       = _Key,
 
 
 %% @doc Retrieve a file from object-container when compacting.
-%%
+%% @private
 -spec(compact_get(pid()) ->
              ok | {error, any()}).
 compact_get(ReadHandler) ->

@@ -66,48 +66,48 @@ start_link(Id, MetaDBId, DeviceNumber, StorageNumber, ObjectStorageMod, RootPath
               [Id,  MetaDBId, DeviceNumber, StorageNumber, ObjectStorageMod, RootPath]),
     gen_server:start_link({local, Id}, ?MODULE, [Id, MetaDBId, DeviceNumber, StorageNumber, ObjectStorageMod, RootPath], []).
 
-%% @doc stop this server.
+%% @doc Stop this server
 %%
--spec(stop(Id::atom()) -> ok).
+-spec(stop(atom()) -> ok).
 stop(Id) ->
     gen_server:call(Id, stop).
 
 %%--------------------------------------------------------------------
 %% API - object operations.
 %%--------------------------------------------------------------------
-%% @doc put an object and an object's metadata.
+%% @doc Insert an object and an object's metadata into the object-storage
 %%
--spec(put(Id::atom(), ObjectPool::pid()) ->
+-spec(put(atom(), pid()) ->
              ok | {error, any()}).
 put(Id, ObjectPool) ->
     gen_server:call(Id, {put, ObjectPool}).
 
 
-%% @doc get an object.
+%% @doc Retrieve an object from the object-storage
 %%
--spec(get(Id::atom(), KeyBin::binary()) ->
+-spec(get(atom(), binary()) ->
              {ok, #metadata{}, list()} | not_found | {error, any()}).
 get(Id, KeyBin) ->
     gen_server:call(Id, {get, KeyBin}).
 
 
-%% @doc logical-delete.
+%% @doc Remove an object from the object-storage - (logical-delete)
 %%
--spec(delete(Id::atom(), ObjectPool::pid()) ->
+-spec(delete(atom(), pid()) ->
              ok | {error, any()}).
 delete(Id, ObjectPool) ->
     gen_server:call(Id, {delete, ObjectPool}).
 
 
-%% @doc get an object's metadata.
+%% @doc Retrieve an object's metadata from the object-storage
 %%
--spec(head(Id::atom(), KeyBin::binary()) ->
+-spec(head(atom(), binary()) ->
              {ok, #metadata{}} | {error, any()}).
 head(Id, KeyBin) ->
     gen_server:call(Id, {head, KeyBin}).
 
 
-%% @doc
+%% @doc Retrieve objects from the object-storage by Key and Function
 %%
 -spec(fetch(atom(), binary(), function()) ->
              {ok, list()} | {error, any()}).
@@ -120,7 +120,7 @@ fetch(Id, KeyBin, Fun) ->
 %%--------------------------------------------------------------------
 %% @doc compaction/start prepare(check disk usage, mk temporary file...)
 %%
--spec(compact(Id::atom()) ->
+-spec(compact(atom()) ->
              ok |
              {error, any()}).
 compact(Id) ->
@@ -131,7 +131,7 @@ compact(Id) ->
 %%--------------------------------------------------------------------
 %% @doc get the storage stats specfied by Id which contains number of (active)object and so on.
 %%
--spec(stats(Id::atom()) ->
+-spec(stats(atom()) ->
              {ok, #storage_stats{}} |
              {error, any()}).
 stats(Id) ->
@@ -139,7 +139,7 @@ stats(Id) ->
 
 %% @doc data synchronize.
 %%
--spec(datasync(Id::atom()) -> ok).
+-spec(datasync(atom()) -> ok).
 datasync(Id) ->
     gen_server:cast(Id, {datasync, Id}).
 
@@ -200,6 +200,7 @@ handle_call({put, ObjectPool}, _From, #state{meta_db_id     = MetaDBId,
     erlang:garbage_collect(self()),
 
     {reply, Reply, NewState};
+
 
 handle_call({get, KeyBin}, _From, #state{meta_db_id     = MetaDBId,
                                          object_storage = StorageInfo} = State) ->
@@ -267,6 +268,7 @@ handle_call(compact, _From, State) ->
     {Reply, NewState} = compact_fun(State),
     {reply, Reply, NewState}.
 
+
 %% Function: handle_cast(Msg, State) -> {noreply, State}          |
 %%                                      {noreply, State, Timeout} |
 %%                                      {stop, Reason, State}
@@ -333,8 +335,8 @@ after_proc(Ret, #state{meta_db_id = MetaDBId,
 %%--------------------------------------------------------------------
 %% @doc create symbolic link and directory.
 %% @private
--spec(get_raw_path(object, ObjectStorageRootDir::string(), SymLinkPath::string()) ->
-             {ok, RawPath::string()} | {error, any()}).
+-spec(get_raw_path(object, string(), string()) ->
+             {ok, string()} | {error, any()}).
 get_raw_path(object, ObjectStorageRootDir, SymLinkPath) ->
     case filelib:ensure_dir(ObjectStorageRootDir) of
         ok ->
@@ -492,11 +494,9 @@ calc_remain_disksize(MetaDBId, FilePath) ->
                 MetaSize ->
                     AvsSize = filelib:file_size(FilePath),
                     Remain = leo_utils:file_get_remain_disk(MountPath),
-
                     %% ?info("handle_call/3",
                     %%       "(compact_start) mount_path: ~p, remain:~p meta_dir:~p meta_size:~p avs_size:~p rec:~p",
                     %%       [MountPath, Remain, MetaDir, MetaSize, AvsSize]),
-
                     {ok, Remain - (AvsSize + MetaSize) * 1.5}
             end;
         Error ->
