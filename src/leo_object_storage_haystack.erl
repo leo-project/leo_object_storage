@@ -46,13 +46,14 @@
         ]).
 
 -define(ERR_TYPE_TIMEOUT, timeout).
--define(VS_PART_OF_HEADER, <<"CRC:32,KSIZE:8,DSIZE:32,OFFSET:32,ADDRID:32,VCLOCK:32,TIMESTAMP:56,DEL:8",13,10>>).
+-define(VS_PART_OF_HEADER, <<"CHKSUM:128,KSIZE:8,DSIZE:32,OFFSET:32,ADDRID:32,VCLOCK:32,TIMESTAMP:56,DEL:8",13,10>>).
 -define(VS_PART_OF_BODY,   <<"KEY/binary,DATA/binary",13,10>>).
 -define(VS_PART_OF_FOOTER, <<"PADDING:64",13,10>>).
 -define(VS_SUPER_BLOCK,    <<?VS_PART_OF_HEADER/binary,
                              ?VS_PART_OF_BODY/binary,
                              ?VS_PART_OF_FOOTER/binary>>).
--define(BLEN_CRC,     32).
+
+-define(BLEN_CHKSUM,  128).
 -define(BLEN_KSIZE,   16).
 -define(BLEN_MSIZE,   32).
 -define(BLEN_DSIZE,   32).
@@ -66,7 +67,8 @@
 -define(BLEN_TS_N,     8).
 -define(BLEN_TS_S,     8).
 -define(BLEN_DEL,      8).
--define(BLEN_HEADER, 432).
+
+-define(BLEN_HEADER, 528).
 -define(LEN_PADDING,   8).
 
 
@@ -243,11 +245,9 @@ get_fun1(#metadata{key      = Key,
             case byte_size(Bin) of
                 TotalSize ->
                     <<_Header:HeaderSize/binary,
-                      KeyBin:KeySize/binary, ValueBin:ObjectSize/binary, _Footer/binary>> = Bin,
+                      _KeyBin:KeySize/binary, ValueBin:ObjectSize/binary, _Footer/binary>> = Bin,
 
-                    case erlang:crc32(
-                           term_to_binary(
-                             {KeySize, ObjectSize, AddrId, KeyBin, ValueBin})) of
+                    case leo_hex:hex_to_integer(leo_hex:binary_to_hex(erlang:md5(ValueBin))) of
                         Checksum ->
                             ObjectPool = leo_object_storage_pool:new(#object{key     = Key,
                                                                              addr_id = AddrId,
@@ -299,18 +299,12 @@ put_fun(first, ObjectPool) ->
         not_found ->
             {error, ?ERR_TYPE_TIMEOUT};
 
-        #object{addr_id = AddrId,
-                key     = Key,
-                data    = ValueBin,
-                dsize   = Size} = Object ->
+        #object{data    = ValueBin} = Object ->
             #backend_info{write_handler = ObjectStorageWriteHandler} = StorageInfo,
 
             case file:position(ObjectStorageWriteHandler, eof) of
                 {ok, Offset} ->
-                    Checksum = erlang:crc32(
-                                 term_to_binary(
-                                   {length(Key), Size, AddrId, list_to_binary(Key), ValueBin})),
-
+                    Checksum = leo_hex:hex_to_integer(leo_hex:binary_to_hex(erlang:md5(ValueBin))),
                     put_fun(next, Object#object{checksum = Checksum,
                                                 offset   =  Offset});
                 {error, Cause} ->
@@ -340,7 +334,7 @@ put_fun(next, #object{addr_id    = AddrId,
     KSize   = erlang:byte_size(KeyBin),
     Padding = <<0:64>>,
     Bin = <<KeyBin/binary, Body/binary, Padding/binary>>,
-    Needle = <<Checksum:?BLEN_CRC,
+    Needle = <<Checksum:?BLEN_CHKSUM,
                KSize:?BLEN_KSIZE, DSize:?BLEN_DSIZE, MSize:?BLEN_MSIZE, Offset:?BLEN_OFFSET,
                AddrId:?BLEN_ADDRID,
                Clock:?BLEN_VCLOCK,
@@ -406,7 +400,7 @@ compact_put(WriteHandler, #metadata{key       = _Key,
             {{Year,Month,Day},{Hour,Min,Second}} = calendar:gregorian_seconds_to_datetime(Timestamp),
             Padding = <<0:64>>,
             Bin = <<KeyBin/binary, BodyBin/binary, Padding/binary>>,
-            Needle = <<Checksum:?BLEN_CRC,
+            Needle = <<Checksum:?BLEN_CHKSUM,
                        KSize:?BLEN_KSIZE, DSize:?BLEN_DSIZE, MSize:?BLEN_MSIZE, Offset:?BLEN_OFFSET,
                        AddrId:?BLEN_ADDRID,
                        NumOfClock:?BLEN_VCLOCK,
@@ -469,7 +463,7 @@ compact_get(ReadHandler, Offset) ->
 -spec(compact_get(pid(), integer(), integer(), binary()) ->
              ok | {error, any()}).
 compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
-    <<Checksum:?BLEN_CRC,
+    <<Checksum:?BLEN_CHKSUM,
       KSize:?BLEN_KSIZE, DSize:?BLEN_DSIZE, MSize:?BLEN_MSIZE, OrgOffset:?BLEN_OFFSET,
       AddrId:?BLEN_ADDRID/integer,
       NumOfClock:?BLEN_VCLOCK,
@@ -484,8 +478,7 @@ compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
             case RemainLen of
                 RemainSize ->
                     <<KeyValue:KSize/binary, BodyValue:DSize/binary, _Footer/binary>> = RemainBin,
-                    case erlang:crc32(term_to_binary(
-                                        {KSize, DSize, AddrId, KeyValue, BodyValue})) of
+                    case leo_hex:hex_to_integer(leo_hex:binary_to_hex(erlang:md5(BodyValue))) of
                         Checksum ->
                             Timestamp = calendar:datetime_to_gregorian_seconds(
                                           {{Year, Month, Day}, {Hour, Min, Second}}),

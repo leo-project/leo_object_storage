@@ -68,7 +68,7 @@
 -record(object, {
           method,
           key        = []     :: list(),
-          addr_id    = 0      :: integer(),
+          addr_id    = 0      :: integer(), %% MD5 > hex-to-integer
           data       = <<>>   :: binary(),
           meta       = <<>>   :: binary(),
           dsize      = 0      :: integer(),
@@ -76,7 +76,7 @@
           offset     = 0      :: integer(),
           clock      = 0      :: integer(),
           timestamp  = 0      :: integer(),
-          checksum   = 0      :: integer(),
+          checksum   = 0      :: integer(), %% MD5 > hex-to-integer
           req_id     = 0      :: integer(),
           ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
           del        = 0      :: integer()
