@@ -46,32 +46,39 @@
         ]).
 
 -define(ERR_TYPE_TIMEOUT, timeout).
--define(VS_PART_OF_HEADER, <<"CHKSUM:128,KSIZE:16,BLEN_MSIZE:32,DSIZE:32,OFFSET:64,ADDRID:128,CLOCK:64,TIMESTAMP:56,DEL:8,BUF:496",13,10>>).
--define(VS_PART_OF_BODY,   <<"KEY/binary,DATA/binary",13,10>>).
--define(VS_PART_OF_FOOTER, <<"PADDING:64",13,10>>).
--define(VS_SUPER_BLOCK,    <<?VS_PART_OF_HEADER/binary,
-                             ?VS_PART_OF_BODY/binary,
-                             ?VS_PART_OF_FOOTER/binary>>).
+
 
 %% ------------------------ %%
--define(BLEN_CHKSUM,  128). %% chechsum (MD5)
--define(BLEN_KSIZE,    16). %% key size
--define(BLEN_MSIZE,    32). %% custome-metadata size
--define(BLEN_DSIZE,    32). %% file size
--define(BLEN_OFFSET,   64). %% offset
--define(BLEN_ADDRID,  128). %% ring-address id
--define(BLEN_CLOCK,    64). %% clock
--define(BLEN_TS_Y,     16). %% timestamp-year
--define(BLEN_TS_M,      8). %% timestamp-month
--define(BLEN_TS_D,      8). %% timestamp-day
--define(BLEN_TS_H,      8). %% timestamp-hour
--define(BLEN_TS_N,      8). %% timestamp-min
--define(BLEN_TS_S,      8). %% timestamp-sec
--define(BLEN_DEL,       8). %% delete flag
--define(BLEN_BUF,     496). %% buffer
+%%       AVS-Related
 %% ------------------------ %%
--define(BLEN_HEADER, 1024).
--define(LEN_PADDING,    8).
+-define(AVS_HEADER_VSN,     <<"vsn:2.1",13,10>>).
+-define(AVS_PART_OF_HEADER, <<"CHKSUM:128,KSIZE:16,BLEN_MSIZE:32,DSIZE:32,OFFSET:64,ADDRID:128,CLOCK:64,TIMESTAMP:56,DEL:8,BUF:496",13,10>>).
+-define(AVS_PART_OF_BODY,   <<"KEY/binary,DATA/binary",13,10>>).
+-define(AVS_PART_OF_FOOTER, <<"PADDING:64",13,10>>).
+-define(AVS_SUPER_BLOCK,     <<?AVS_HEADER_VSN/binary,
+                               ?AVS_PART_OF_HEADER/binary,
+                               ?AVS_PART_OF_BODY/binary,
+                               ?AVS_PART_OF_FOOTER/binary>>).
+%% ------------------------ %%
+-define(BLEN_CHKSUM,       128). %% chechsum (MD5)
+-define(BLEN_KSIZE,         16). %% key size
+-define(BLEN_MSIZE,         32). %% custome-metadata size
+-define(BLEN_DSIZE,         32). %% file size
+-define(BLEN_OFFSET,        64). %% offset
+-define(BLEN_ADDRID,       128). %% ring-address id
+-define(BLEN_CLOCK,         64). %% clock
+-define(BLEN_TS_Y,          16). %% timestamp-year
+-define(BLEN_TS_M,           8). %% timestamp-month
+-define(BLEN_TS_D,           8). %% timestamp-day
+-define(BLEN_TS_H,           8). %% timestamp-hour
+-define(BLEN_TS_N,           8). %% timestamp-min
+-define(BLEN_TS_S,           8). %% timestamp-sec
+-define(BLEN_DEL,            8). %% delete flag
+-define(BLEN_BUF,          496). %% buffer
+%% ----------------------------- %%
+-define(BLEN_HEADER,      1024). %% 128 Byte
+-define(LEN_PADDING,         8). %% footer
+%% ----------------------------- %%
 
 
 %%--------------------------------------------------------------------
@@ -278,7 +285,7 @@ get_fun1(#metadata{key      = Key,
 %% @doc Insert a super-block into an object container (*.avs)
 %% @private
 put_super_block(ObjectStorageWriteHandler) ->
-    case file:pwrite(ObjectStorageWriteHandler, 0, ?VS_SUPER_BLOCK) of
+    case file:pwrite(ObjectStorageWriteHandler, 0, ?AVS_SUPER_BLOCK) of
         ok ->
             {ok, ObjectStorageWriteHandler};
         {error, Cause} ->
@@ -449,7 +456,7 @@ compact_put(WriteHandler, #metadata{key       = Key,
 -spec(compact_get(pid()) ->
              ok | {error, any()}).
 compact_get(ReadHandler) ->
-    compact_get(ReadHandler, byte_size(?VS_SUPER_BLOCK)).
+    compact_get(ReadHandler, byte_size(?AVS_SUPER_BLOCK)).
 
 -spec(compact_get(pid(), integer()) ->
              ok | {error, any()}).
