@@ -46,30 +46,32 @@
         ]).
 
 -define(ERR_TYPE_TIMEOUT, timeout).
--define(VS_PART_OF_HEADER, <<"CHKSUM:128,KSIZE:8,DSIZE:32,OFFSET:32,ADDRID:32,VCLOCK:32,TIMESTAMP:56,DEL:8",13,10>>).
+-define(VS_PART_OF_HEADER, <<"CHKSUM:128,KSIZE:16,BLEN_MSIZE:32,DSIZE:32,OFFSET:64,ADDRID:128,CLOCK:64,TIMESTAMP:56,DEL:8,BUF:496",13,10>>).
 -define(VS_PART_OF_BODY,   <<"KEY/binary,DATA/binary",13,10>>).
 -define(VS_PART_OF_FOOTER, <<"PADDING:64",13,10>>).
 -define(VS_SUPER_BLOCK,    <<?VS_PART_OF_HEADER/binary,
                              ?VS_PART_OF_BODY/binary,
                              ?VS_PART_OF_FOOTER/binary>>).
 
--define(BLEN_CHKSUM,  128).
--define(BLEN_KSIZE,   16).
--define(BLEN_MSIZE,   32).
--define(BLEN_DSIZE,   32).
--define(BLEN_OFFSET,  64).
--define(BLEN_ADDRID,  128).
--define(BLEN_VCLOCK,  64).
--define(BLEN_TS_Y,    16).
--define(BLEN_TS_M,     8).
--define(BLEN_TS_D,     8).
--define(BLEN_TS_H,     8).
--define(BLEN_TS_N,     8).
--define(BLEN_TS_S,     8).
--define(BLEN_DEL,      8).
-
--define(BLEN_HEADER, 528).
--define(LEN_PADDING,   8).
+%% ------------------------ %%
+-define(BLEN_CHKSUM,  128). %% chechsum (MD5)
+-define(BLEN_KSIZE,    16). %% key size
+-define(BLEN_MSIZE,    32). %% custome-metadata size
+-define(BLEN_DSIZE,    32). %% file size
+-define(BLEN_OFFSET,   64). %% offset
+-define(BLEN_ADDRID,  128). %% ring-address id
+-define(BLEN_CLOCK,    64). %% clock
+-define(BLEN_TS_Y,     16). %% timestamp-year
+-define(BLEN_TS_M,      8). %% timestamp-month
+-define(BLEN_TS_D,      8). %% timestamp-day
+-define(BLEN_TS_H,      8). %% timestamp-hour
+-define(BLEN_TS_N,      8). %% timestamp-min
+-define(BLEN_TS_S,      8). %% timestamp-sec
+-define(BLEN_DEL,       8). %% delete flag
+-define(BLEN_BUF,     496). %% buffer
+%% ------------------------ %%
+-define(BLEN_HEADER, 1024).
+-define(LEN_PADDING,    8).
 
 
 %%--------------------------------------------------------------------
@@ -287,6 +289,36 @@ put_super_block(ObjectStorageWriteHandler) ->
     end.
 
 
+%% @doc Create a needle
+%% @private
+create_needle(#object{addr_id    = AddrId,
+                      key_bin    = KeyBin,
+                      ksize      = KSize,
+                      dsize      = DSize,
+                      msize      = MSize,
+                      meta       = _MBin,
+                      data       = Body,
+                      clock      = Clock,
+                      offset     = Offset,
+                      timestamp  = Timestamp,
+                      checksum   = Checksum,
+                      del        = Del}) ->
+    {{Year,Month,Day},{Hour,Min,Second}} =
+        calendar:gregorian_seconds_to_datetime(Timestamp),
+
+    Padding = <<0:64>>,
+    Bin = <<KeyBin/binary, Body/binary, Padding/binary>>,
+    Needle = <<Checksum:?BLEN_CHKSUM,
+               KSize:?BLEN_KSIZE, DSize:?BLEN_DSIZE, MSize:?BLEN_MSIZE, Offset:?BLEN_OFFSET,
+               AddrId:?BLEN_ADDRID,
+               Clock:?BLEN_CLOCK,
+               Year:?BLEN_TS_Y, Month:?BLEN_TS_M, Day:?BLEN_TS_D,
+               Hour:?BLEN_TS_H, Min:?BLEN_TS_N,   Second:?BLEN_TS_S,
+               Del:?BLEN_DEL, 0:?BLEN_BUF,
+               Bin/binary>>,
+    Needle.
+
+
 %% @doc Insert an object into the object-storage
 %% @private
 put_fun(first, ObjectPool) ->
@@ -317,32 +349,17 @@ put_fun(first, ObjectPool) ->
 
 put_fun(next, #object{addr_id    = AddrId,
                       key        = Key,
+                      ksize      = KSize,
                       dsize      = DSize,
                       msize      = MSize,
                       meta       = _MBin,
-                      data       = Body,
                       clock      = Clock,
                       offset     = Offset,
                       timestamp  = Timestamp,
                       checksum   = Checksum,
                       ring_hash  = RingHash,
-                      del        = Del}) ->
-    {{Year,Month,Day},{Hour,Min,Second}} =
-        calendar:gregorian_seconds_to_datetime(Timestamp),
-
-    KeyBin  = erlang:list_to_binary(Key),
-    KSize   = erlang:byte_size(KeyBin),
-    Padding = <<0:64>>,
-    Bin = <<KeyBin/binary, Body/binary, Padding/binary>>,
-    Needle = <<Checksum:?BLEN_CHKSUM,
-               KSize:?BLEN_KSIZE, DSize:?BLEN_DSIZE, MSize:?BLEN_MSIZE, Offset:?BLEN_OFFSET,
-               AddrId:?BLEN_ADDRID,
-               Clock:?BLEN_VCLOCK,
-               Year:?BLEN_TS_Y, Month:?BLEN_TS_M, Day:?BLEN_TS_D,
-               Hour:?BLEN_TS_H, Min:?BLEN_TS_N,   Second:?BLEN_TS_S,
-               Del:?BLEN_DEL,
-               Bin/binary>>,
-
+                      del        = Del} = Object) ->
+    Needle = create_needle(Object),
     Meta = #metadata{key       = Key,
                      addr_id   = AddrId,
                      ksize     = KSize,
@@ -386,28 +403,30 @@ put_fun(finally, Needle, #metadata{key      = Key,
 %% @private
 -spec(compact_put(pid(), #metadata{}, binary(), binary()) ->
              ok | {error, any()}).
-compact_put(WriteHandler, #metadata{key       = _Key,
+compact_put(WriteHandler, #metadata{key       = Key,
                                     addr_id   = AddrId,
                                     ksize     = KSize,
                                     msize     = MSize,
                                     dsize     = DSize,
-                                    clock     = NumOfClock,
+                                    clock     = Clock,
                                     timestamp = Timestamp,
                                     checksum  = Checksum,
                                     del       = Del} = _Meta, KeyBin, BodyBin) ->
     case file:position(WriteHandler, eof) of
         {ok, Offset} ->
-            {{Year,Month,Day},{Hour,Min,Second}} = calendar:gregorian_seconds_to_datetime(Timestamp),
-            Padding = <<0:64>>,
-            Bin = <<KeyBin/binary, BodyBin/binary, Padding/binary>>,
-            Needle = <<Checksum:?BLEN_CHKSUM,
-                       KSize:?BLEN_KSIZE, DSize:?BLEN_DSIZE, MSize:?BLEN_MSIZE, Offset:?BLEN_OFFSET,
-                       AddrId:?BLEN_ADDRID,
-                       NumOfClock:?BLEN_VCLOCK,
-                       Year:?BLEN_TS_Y, Month:?BLEN_TS_M, Day:?BLEN_TS_D,
-                       Hour:?BLEN_TS_H, Min:?BLEN_TS_N,   Second:?BLEN_TS_S,
-                       Del:?BLEN_DEL,
-                       Bin/binary>>,
+            Needle = create_needle(#object{addr_id    = AddrId,
+                                           key        = Key,
+                                           key_bin    = KeyBin,
+                                           ksize      = KSize,
+                                           dsize      = DSize,
+                                           msize      = MSize,
+                                           data       = BodyBin,
+                                           clock      = Clock,
+                                           offset     = Offset,
+                                           timestamp  = Timestamp,
+                                           checksum   = Checksum,
+                                           del        = Del}),
+
             case file:pwrite(WriteHandler, Offset, Needle) of
                 ok ->
                     {ok, Offset};
@@ -436,10 +455,10 @@ compact_get(ReadHandler) ->
              ok | {error, any()}).
 compact_get(ReadHandler, Offset) ->
     HeaderSize = erlang:round(?BLEN_HEADER/8),
+
     case file:pread(ReadHandler, Offset, HeaderSize) of
         {ok, HeaderBin} ->
-            BinLen = byte_size(HeaderBin),
-            case BinLen of
+            case byte_size(HeaderBin) of
                 HeaderSize ->
                     compact_get(ReadHandler, Offset, HeaderSize, HeaderBin);
                 _ ->
@@ -465,11 +484,12 @@ compact_get(ReadHandler, Offset) ->
 compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
     <<Checksum:?BLEN_CHKSUM,
       KSize:?BLEN_KSIZE, DSize:?BLEN_DSIZE, MSize:?BLEN_MSIZE, OrgOffset:?BLEN_OFFSET,
-      AddrId:?BLEN_ADDRID/integer,
-      NumOfClock:?BLEN_VCLOCK,
+      AddrId:?BLEN_ADDRID/integer, NumOfClock:?BLEN_CLOCK,
       Year:?BLEN_TS_Y, Month:?BLEN_TS_M, Day:?BLEN_TS_D,
       Hour:?BLEN_TS_H, Min:?BLEN_TS_N,   Second:?BLEN_TS_S,
-      Del:?BLEN_DEL>> = HeaderBin,
+      Del:?BLEN_DEL,
+      _Buffer:?BLEN_BUF>> = HeaderBin,
+
     RemainSize = KSize + DSize + ?LEN_PADDING,
 
     case file:pread(ReadHandler, Offset + HeaderSize, RemainSize) of

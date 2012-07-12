@@ -50,6 +50,8 @@ setup() ->
     Path.
 
 teardown(Path) ->
+    %% ?debugVal(os:cmd("ls -l " ++ Path ++ "/object/")),
+    %% ?debugVal(os:cmd("ls -l " ++ Path ++ "/metadata/")),
     os:cmd("rm -rf " ++ Path),
     ok.
 

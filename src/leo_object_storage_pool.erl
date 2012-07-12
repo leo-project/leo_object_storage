@@ -51,16 +51,24 @@ new(Object) ->
 new(#object{clock = 0} = Object, Timeout) ->
     new(Object#object{clock = leo_utils:clock()}, Timeout);
 
-new(Object, Timeout) ->
+new(Object0, Timeout) ->
+    Key = Object0#object.key,
+    KeyBin  = erlang:list_to_binary(Key),
+    Object1 = Object0#object{
+                key_bin = KeyBin,
+                ksize   = erlang:byte_size(KeyBin)},
+
     #object{key       = Key,
             addr_id   = AddrId,
-            dsize     = Size,
-            timestamp = Timestamp} = Object,
+            ksize     = KSize,
+            dsize     = DSize,
+            timestamp = Timestamp} = Object1,
 
     spawn(?MODULE, loop, [Key, #metadata{key       = Key,
                                          addr_id   = AddrId,
-                                         dsize     = Size,
-                                         timestamp = Timestamp}, Object, Timeout]).
+                                         ksize     = KSize,
+                                         dsize     = DSize,
+                                         timestamp = Timestamp}, Object1, Timeout]).
 
 
 %% @doc Receiver
