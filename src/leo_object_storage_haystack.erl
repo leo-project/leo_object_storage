@@ -51,7 +51,7 @@
 %% ------------------------ %%
 %%       AVS-Related
 %% ------------------------ %%
--define(AVS_HEADER_VSN,     <<"vsn:2.1",13,10>>).
+-define(AVS_HEADER_VSN,     <<"LeoFS AVS-2.1",13,10>>).
 -define(AVS_PART_OF_HEADER, <<"CHKSUM:128,KSIZE:16,BLEN_MSIZE:32,DSIZE:32,OFFSET:64,ADDRID:128,CLOCK:64,TIMESTAMP:56,DEL:8,BUF:496",13,10>>).
 -define(AVS_PART_OF_BODY,   <<"KEY/binary,DATA/binary",13,10>>).
 -define(AVS_PART_OF_FOOTER, <<"PADDING:64",13,10>>).
