@@ -27,7 +27,7 @@
 
 -author('Yosuke Hara').
 -author('Yoshiyuki Kanno').
--vsn('0.9.0').
+-vsn('0.9.1').
 
 -include("leo_object_storage.hrl").
 -include_lib("kernel/include/file.hrl").

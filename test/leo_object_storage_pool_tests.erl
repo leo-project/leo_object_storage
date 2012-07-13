@@ -26,7 +26,7 @@
 %%====================================================================
 -module(leo_object_storage_pool_tests).
 -author('yosuke hara').
--vsn('0.9.0').
+-vsn('0.9.1').
 
 -include("leo_object_storage.hrl").
 
