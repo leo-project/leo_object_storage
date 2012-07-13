@@ -26,7 +26,7 @@
 -module(leo_object_storage_api).
 
 -author('Yosuke Hara').
--vsn('0.9.0').
+-vsn('0.9.1').
 
 -include("leo_object_storage.hrl").
 
@@ -47,23 +47,30 @@
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
-%% @doc create storage-processes.
+%% @doc Create a storage-processes
 %%
--spec(new(DeviceNumber::integer(), NumOfStorages::integer(), RootPath::string()) ->
+-spec(new(integer(), integer(), string()) ->
              ok | {error, any()}).
 new(_, 0, _) ->
     {error, badarg};
 new(_, _, []) ->
     {error, badarg};
-new(DeviceNumber, NumOfStorages, RootPath) ->
-    io:format("~w:~w - ~w ~w ~p~n",[?MODULE, ?LINE, DeviceNumber, NumOfStorages, RootPath]),
-
+new(DeviceNumber, NumOfStorages, Path0) ->
+    io:format("~w:~w - ~w ~w ~p~n",[?MODULE, ?LINE, DeviceNumber, NumOfStorages, Path0]),
     ok = start_app(),
-    RootPath1 =
-        case (string:len(RootPath) == string:rstr(RootPath, "/")) of
-            true  -> RootPath;
-            false -> RootPath ++ "/"
-        end,
+
+    {ok, Curr} = file:get_cwd(),
+    Path1 = case Path0 of
+                "/"   ++ _Rest -> Path0;
+                "../" ++ _Rest -> Path0;
+                "./"  ++  Rest -> Curr ++ "/" ++ Rest;
+                _              -> Curr ++ "/" ++ Path0
+            end,
+
+    Path2 = case (string:len(Path1) == string:rstr(Path1, "/")) of
+                true  -> Path1;
+                false -> Path1 ++ "/"
+            end,
 
     ObjStorage1 =
         case application:get_env(?APP_NAME, object_storage) of
@@ -91,10 +98,10 @@ new(DeviceNumber, NumOfStorages, RootPath) ->
                                             ++ "_" ++ integer_to_list(StorageNumber)),
 
                     case supervisor:start_child(leo_object_storage_sup,
-                                                [Id, MetaDBId, DeviceNumber, StorageNumber, ObjStorage1, RootPath1]) of
+                                                [Id, MetaDBId, DeviceNumber, StorageNumber, ObjStorage1, Path2]) of
                         {ok, _Pid} ->
                             ok = leo_backend_db_api:new(MetaDBId, 1, MetaDB1,
-                                                        RootPath1
+                                                        Path2
                                                         ++ ?DEF_METADATA_STORAGE_SUB_DIR
                                                         ++ integer_to_list(StorageNumber)),
                             Id;
@@ -124,7 +131,7 @@ new(DeviceNumber, NumOfStorages, RootPath) ->
     end.
 
 
-%% @doc put an object.
+%% @doc Insert an object into the object-storage
 %% @param KeyBin = <<{$VNODE_ID, $OBJ_KEY}>>
 %%
 -spec(put(binary(), pid()) ->
@@ -133,7 +140,7 @@ put(KeyBin, ObjectPool) ->
     do_request(put, [KeyBin, ObjectPool]).
 
 
-%% @doc get an object and a metadata.
+%% @doc Retrieve an object and a metadata from the object-storage
 %%
 -spec(get(binary()) ->
              {ok, list()} | not_found | {error, any()}).
@@ -141,7 +148,7 @@ get(KeyBin) ->
     do_request(get, [KeyBin]).
 
 
-%% @doc delete an object.
+%% @doc Remove an object from the object-storage
 %%
 -spec(delete(binary(), pid()) ->
              ok | {error, any()}).
@@ -149,7 +156,7 @@ delete(KeyBin, ObjectPool) ->
     do_request(delete, [KeyBin, ObjectPool]).
 
 
-%% @doc get a metadata.
+%% @doc Retrieve a metadata from the object-storage
 %%
 -spec(head(KeyBin::binary()) ->
              {ok, metadata} | {error, any()}).
@@ -157,7 +164,7 @@ head(KeyBin) ->
     do_request(head, [KeyBin]).
 
 
-%% @doc Fetch objects by ring-address-id.
+%% @doc Fetch objects by ring-address-id
 %%
 -spec(fetch_by_addr_id(integer(), function()) ->
              {ok, list()} | not_found).
@@ -179,7 +186,7 @@ fetch_by_addr_id(AddrId, Fun) ->
     end.
 
 
-%% @doc Fetch objects by ring-address-id.
+%% @doc Fetch objects by key (object-name)
 %%
 -spec(fetch_by_key(string(), function()) ->
              {ok, list()} | not_found).
@@ -201,7 +208,7 @@ fetch_by_key(Key, Fun) ->
     end.
 
 
-%% @doc compacte object-storage and metadata.
+%% @doc Compact object-storage and metadata
 -spec(compact() ->
              ok | list()).
 compact() ->
@@ -218,7 +225,7 @@ compact() ->
               end, [], List)
     end.
 
-%% @doc get storage stats
+%% @doc Retrieve the storage stats
 -spec(stats() ->
              {ok, list()} | not_found).
 stats() ->
@@ -235,8 +242,8 @@ stats() ->
 %%--------------------------------------------------------------------
 %% INNTERNAL FUNCTIONS
 %%--------------------------------------------------------------------
-%% @doc start object storage application.
-%%
+%% @doc Launch the object storage application
+%% @private
 -spec(start_app() ->
              ok | {error, any()}).
 start_app() ->
@@ -252,8 +259,8 @@ start_app() ->
     end.
 
 
-%% @doc get an object storage module name.
-%%
+%% @doc Retrieve an object storage module name
+%% @private
 -spec(object_storage_module(atom()) ->
              atom()).
 object_storage_module(haystack) ->
@@ -262,8 +269,8 @@ object_storage_module(_) ->
     undefined.
 
 
-%% @doc get an object storage process-id.
-%%
+%% @doc Retrieve an object storage process-id
+%% @private
 -spec(get_object_storage_pid(all | binary()) ->
              atom()).
 get_object_storage_pid(Arg) ->
@@ -278,7 +285,10 @@ get_object_storage_pid(Arg) ->
             Id
     end.
 
--spec(get_pid_status(Pid::atom()) -> running | idle ).
+
+%% @doc Retrieve the status of object of pid
+%% @private
+-spec(get_pid_status(pid()) -> running | idle ).
 get_pid_status(Pid) ->
     case application:get_env(?APP_NAME, Pid) of
         undefined ->
@@ -286,9 +296,11 @@ get_pid_status(Pid) ->
         {ok, Status} ->
             Status
     end.
-%% @doc request an operation.
-%%
--spec(do_request(Mehtod::type_of_method(), Args::list()) ->
+
+
+%% @doc Request an operation
+%% @private
+-spec(do_request(type_of_method(), list()) ->
              ok | {ok, list()} | {error, any()}).
 do_request(get, [KeyBin]) ->
     ?SERVER_MODULE:get(get_object_storage_pid(KeyBin), KeyBin);

@@ -26,7 +26,7 @@
 %%====================================================================
 -module(leo_object_storage_api_tests).
 -author('yosuke hara').
--vsn('0.9.0').
+-vsn('0.9.1').
 
 -include("leo_object_storage.hrl").
 
@@ -46,11 +46,12 @@ all_test_() ->
                           ]]}.
 
 setup() ->
-    S = os:cmd("pwd"),
-    Path = string:substr(S, 1, length(S) -1) ++ "/avs",
+    Path = "./avs",
     Path.
 
 teardown(Path) ->
+    %% ?debugVal(os:cmd("ls -l " ++ Path ++ "/object/")),
+    %% ?debugVal(os:cmd("ls -l " ++ Path ++ "/metadata/")),
     os:cmd("rm -rf " ++ Path),
     ok.
 

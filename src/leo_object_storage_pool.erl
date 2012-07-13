@@ -26,7 +26,7 @@
 -module(leo_object_storage_pool).
 
 -author('Yosuke Hara').
--vsn('0.9.0').
+-vsn('0.9.1').
 
 -include("leo_object_storage.hrl").
 
@@ -39,7 +39,7 @@
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
-%% @doc Create a process.
+%% @doc Create a process
 %%
 -spec(new(#object{}) ->
              {ok, pid()}).
@@ -51,19 +51,27 @@ new(Object) ->
 new(#object{clock = 0} = Object, Timeout) ->
     new(Object#object{clock = leo_utils:clock()}, Timeout);
 
-new(Object, Timeout) ->
+new(Object0, Timeout) ->
+    Key = Object0#object.key,
+    KeyBin  = erlang:list_to_binary(Key),
+    Object1 = Object0#object{
+                key_bin = KeyBin,
+                ksize   = erlang:byte_size(KeyBin)},
+
     #object{key       = Key,
             addr_id   = AddrId,
-            dsize     = Size,
-            timestamp = Timestamp} = Object,
+            ksize     = KSize,
+            dsize     = DSize,
+            timestamp = Timestamp} = Object1,
 
     spawn(?MODULE, loop, [Key, #metadata{key       = Key,
                                          addr_id   = AddrId,
-                                         dsize     = Size,
-                                         timestamp = Timestamp}, Object, Timeout]).
+                                         ksize     = KSize,
+                                         dsize     = DSize,
+                                         timestamp = Timestamp}, Object1, Timeout]).
 
 
-%% @doc Receiver.
+%% @doc Receiver
 %%
 -spec(loop(string(), #metadata{}, #object{}, integer()) ->
              ok).
@@ -86,7 +94,7 @@ loop(Key, Meta, DataObj, Timeout) ->
     end.
 
 
-%% @doc Destroy this process.
+%% @doc Destroy own process
 %%
 -spec(destroy(pid) ->
              ok).
@@ -100,7 +108,7 @@ destroy(Pid) ->
     ok.
 
 
-%% @doc Retrieve an Object.
+%% @doc Retrieve an object
 %%
 -spec(get(pid()) ->
              any() | not_found).
@@ -119,6 +127,8 @@ get(Pid) ->
     end.
 
 
+%% @doc Set ring-hach in own process
+%%
 set_ring_hash(Pid, RingHash) ->
     case erlang:is_process_alive(Pid) of
         true ->
@@ -133,7 +143,8 @@ set_ring_hash(Pid, RingHash) ->
             not_found
     end.
 
-%% @doc Retrieve attributes.
+
+%% @doc Retrieve attributes from own process
 %%
 -spec(head(pid()) ->
              any() | not_found).
@@ -151,9 +162,12 @@ head(Pid) ->
             not_found
     end.
 
+
 %%--------------------------------------------------------------------
 %% INNNER FUNCTIONS
 %%--------------------------------------------------------------------
+%% @doc destroy own process
+%% @private
 destroy_fun() ->
     garbage_collect(self()),
     exit(self(), destroy).
