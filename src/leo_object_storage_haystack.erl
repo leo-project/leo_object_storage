@@ -94,11 +94,11 @@ open(FilePath) ->
             case open_fun(FilePath) of
                 {ok, ReadHandler} ->
                     {ok, [WriteHandler, ReadHandler]};
-                {error, Why} ->
-                    {error, Why}
+                Error ->
+                    Error
             end;
-        {error, Cause} ->
-            {error, Cause}
+        Error ->
+            Error
     end.
 
 
@@ -117,7 +117,7 @@ close(WriteHandler, ReadHandler) ->
 -spec(put(pid()) ->
              ok | {error, any()}).
 put(ObjectPool) ->
-    put_fun(first, ObjectPool).
+    put_fun0(ObjectPool).
 
 
 %% @doc Retrieve an object and a metadata from the object-storage
@@ -133,7 +133,7 @@ get(KeyBin) ->
 -spec(delete(ObjectPool::pid()) ->
              ok | {error, any()}).
 delete(ObjectPool) ->
-    put_fun(first, ObjectPool).
+    put_fun0(ObjectPool).
 
 
 %% @doc Retrieve a metada from backend_db from the object-storage
@@ -173,6 +173,9 @@ create_file(FilePath) ->
                 {ok,_Offset} ->
                     {ok, PutFileHandler};
                 {error, Cause} ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING}, {function, "create_file/1"},
+                                            {line, ?LINE}, {body, Cause}]),
                     {error, Cause}
             end;
         {error, Cause} ->
@@ -270,9 +273,6 @@ get_fun1(#metadata{key      = Key,
                     {error, ?ERROR_DATA_SIZE_DID_NOT_MATCH}
             end;
         eof = Cause ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "get_fun/1"},
-                                    {line, ?LINE}, {body, Cause}]),
             {error, Cause};
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
@@ -328,44 +328,62 @@ create_needle(#object{addr_id    = AddrId,
 
 %% @doc Insert an object into the object-storage
 %% @private
-put_fun(first, ObjectPool) ->
+put_fun0(ObjectPool) ->
     case catch leo_object_storage_pool:get(ObjectPool) of
         {'EXIT', Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "put_fun/2"},
+                                   [{module, ?MODULE_STRING}, {function, "put_fun0/1"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, ?ERR_TYPE_TIMEOUT};
         not_found ->
             {error, ?ERR_TYPE_TIMEOUT};
 
-        #object{data    = ValueBin} = Object ->
-            #backend_info{write_handler = ObjectStorageWriteHandler} = StorageInfo,
+        #object{addr_id  = AddrId,
+                key      = Key,
+                checksum = Checksum0} = Object ->
+            Ret = case head(term_to_binary({AddrId, Key})) of
+                      {ok, MetadataBin} ->
+                          #metadata{checksum = Checksum1} = binary_to_term(MetadataBin),
+                          case (Checksum0 == Checksum1) of
+                              true ->
+                                  match;
+                              false ->
+                                  not_match
+                          end;
+                      _ ->
+                          not_match
+                  end,
 
-            case file:position(ObjectStorageWriteHandler, eof) of
-                {ok, Offset} ->
-                    Checksum = leo_hex:hex_to_integer(leo_hex:binary_to_hex(erlang:md5(ValueBin))),
-                    put_fun(next, Object#object{checksum = Checksum,
-                                                offset   =  Offset});
-                {error, Cause} ->
-                    error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING}, {function, "put_fun/2"},
-                                            {line, ?LINE}, {body, Cause}]),
-                    {error, Cause}
+            case Ret of
+                match ->
+                    ok;
+                not_match ->
+                    #backend_info{write_handler = ObjectStorageWriteHandler} = StorageInfo,
+
+                    case file:position(ObjectStorageWriteHandler, eof) of
+                        {ok, Offset} ->
+                            put_fun1(Object#object{offset = Offset});
+                        {error, Cause} ->
+                            error_logger:error_msg("~p,~p,~p,~p~n",
+                                                   [{module, ?MODULE_STRING}, {function, "put_fun0/1"},
+                                                    {line, ?LINE}, {body, Cause}]),
+                            {error, Cause}
+                    end
             end
-    end;
+    end.
 
-put_fun(next, #object{addr_id    = AddrId,
-                      key        = Key,
-                      ksize      = KSize,
-                      dsize      = DSize,
-                      msize      = MSize,
-                      meta       = _MBin,
-                      clock      = Clock,
-                      offset     = Offset,
-                      timestamp  = Timestamp,
-                      checksum   = Checksum,
-                      ring_hash  = RingHash,
-                      del        = Del} = Object) ->
+put_fun1(#object{addr_id    = AddrId,
+                 key        = Key,
+                 ksize      = KSize,
+                 dsize      = DSize,
+                 msize      = MSize,
+                 meta       = _MBin,
+                 clock      = Clock,
+                 offset     = Offset,
+                 timestamp  = Timestamp,
+                 checksum   = Checksum,
+                 ring_hash  = RingHash,
+                 del        = Del} = Object) ->
     Needle = create_needle(Object),
     Meta = #metadata{key       = Key,
                      addr_id   = AddrId,
@@ -378,11 +396,11 @@ put_fun(next, #object{addr_id    = AddrId,
                      checksum  = Checksum,
                      ring_hash = RingHash,
                      del       = Del},
-    put_fun(finally, Needle, Meta).
+    put_fun2(Needle, Meta).
 
-put_fun(finally, Needle, #metadata{key      = Key,
-                                   addr_id  = AddrId,
-                                   offset   = Offset} = Meta) ->
+put_fun2(Needle, #metadata{key      = Key,
+                           addr_id  = AddrId,
+                           offset   = Offset} = Meta) ->
     #backend_info{write_handler = WriteHandler} = StorageInfo,
 
     case file:pwrite(WriteHandler, Offset, Needle) of
@@ -393,7 +411,7 @@ put_fun(finally, Needle, #metadata{key      = Key,
                     ok;
                 {'EXIT', Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING}, {function, "put_fun/3"},
+                                           [{module, ?MODULE_STRING}, {function, "put_fun2/2"},
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause};
                 Error ->
@@ -472,9 +490,6 @@ compact_get(ReadHandler, Offset) ->
                     {error, ?ERROR_DATA_SIZE_DID_NOT_MATCH}
             end;
         eof = Cause ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "compact_get/2"},
-                                    {line, ?LINE}, {body, Cause}]),
             {error, Cause};
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
@@ -528,9 +543,6 @@ compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
                     {error, ?ERROR_DATA_SIZE_DID_NOT_MATCH}
             end;
         eof = Cause ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "compact_get/4"},
-                                    {line, ?LINE}, {body, Cause}]),
             {error, Cause};
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",

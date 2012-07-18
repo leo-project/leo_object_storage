@@ -62,9 +62,10 @@
 -spec(start_link(atom(), atom(), integer(), integer(), atom(), string()) ->
              ok | {error, any()}).
 start_link(Id, MetaDBId, DeviceNumber, StorageNumber, ObjectStorageMod, RootPath) ->
-    io:format("id:~p, meda-db-id:~p, dn:~p, sn:~p, mod:~p, path:~p~n",
+    io:format("id:~p, meda-db-id:~p, #d:~p, #s:~p, mod:~p, path:~p~n",
               [Id,  MetaDBId, DeviceNumber, StorageNumber, ObjectStorageMod, RootPath]),
-    gen_server:start_link({local, Id}, ?MODULE, [Id, MetaDBId, DeviceNumber, StorageNumber, ObjectStorageMod, RootPath], []).
+    gen_server:start_link({local, Id}, ?MODULE,
+                          [Id, MetaDBId, DeviceNumber, StorageNumber, ObjectStorageMod, RootPath], []).
 
 %% @doc Stop this server
 %%

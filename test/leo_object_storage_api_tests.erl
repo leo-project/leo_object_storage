@@ -241,7 +241,9 @@ compact_(Path) ->
     ok = put_test_data(767,  "air/on/g/string/4", <<"JSB4">>),
     ok = put_test_data(1023, "air/on/g/string/5", <<"JSB5">>),
     ok = put_test_data(2047, "air/on/g/string/6", <<"JSB6">>),
-    ok = put_test_data(4095, "air/on/g/string/7", <<"JSB7">>),
+
+    ok = put_test_data(4095, "air/on/g/string/7", <<"JSB7">>), %% 1st time
+    ok = put_test_data(4095, "air/on/g/string/7", <<"JSB7">>), %% 2nd time
 
     ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0-1">>),
     ok = put_test_data(511,  "air/on/g/string/3", <<"JSB3-1">>),
@@ -257,11 +259,10 @@ compact_(Path) ->
 
      %% inspect for compaction
     {ok, Res0} = leo_object_storage_api:stats(),
-    Sum0 = lists:foldl(fun({ok, #storage_stats{file_path  = ObjPath,
-                                               total_num  = Total,
+    Sum0 = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
+                                               total_num  = _Total,
                                                active_num = Active}}, Sum) ->
-                               ?debugVal({ObjPath, Total, Active}),
-                               Sum +Active
+                               Sum + Active
                        end, 0, Res0),
     ?assertEqual(7, Sum0),
     timer:sleep(250),
@@ -272,11 +273,10 @@ compact_(Path) ->
     timer:sleep(250),
 
     {ok, Res2} = leo_object_storage_api:stats(),
-    Sum1 = lists:foldl(fun({ok, #storage_stats{file_path  = ObjPath,
-                                               total_num  = Total,
+    Sum1 = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
+                                               total_num  = _Total,
                                                active_num = Active}}, Sum) ->
-                               ?debugVal({ObjPath, Total, Active}),
-                               Sum +Active
+                               Sum + Active
                        end, 0, Res2),
     ?assertEqual(7, Sum1),
 

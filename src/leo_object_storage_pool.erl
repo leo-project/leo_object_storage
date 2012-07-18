@@ -54,21 +54,27 @@ new(#object{clock = 0} = Object, Timeout) ->
 new(Object0, Timeout) ->
     Key = Object0#object.key,
     KeyBin  = erlang:list_to_binary(Key),
-    Object1 = Object0#object{
-                key_bin = KeyBin,
-                ksize   = erlang:byte_size(KeyBin)},
-
+    Object1 = Object0#object{key_bin = KeyBin,
+                             ksize   = erlang:byte_size(KeyBin)},
     #object{key       = Key,
             addr_id   = AddrId,
             ksize     = KSize,
             dsize     = DSize,
+            data      = Bin,
             timestamp = Timestamp} = Object1,
 
-    spawn(?MODULE, loop, [Key, #metadata{key       = Key,
-                                         addr_id   = AddrId,
-                                         ksize     = KSize,
-                                         dsize     = DSize,
-                                         timestamp = Timestamp}, Object1, Timeout]).
+    Checksum = case Bin of
+                   <<>> -> 281949768489412648962353822266799178366;
+                   _ -> leo_hex:hex_to_integer(leo_hex:binary_to_hex(erlang:md5(Bin)))
+               end,
+
+    spawn(?MODULE, loop,
+          [Key, #metadata{key       = Key,
+                          addr_id   = AddrId,
+                          ksize     = KSize,
+                          dsize     = DSize,
+                          checksum  = Checksum,
+                          timestamp = Timestamp}, Object1#object{checksum = Checksum}, Timeout]).
 
 
 %% @doc Receiver
