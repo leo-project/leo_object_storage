@@ -118,6 +118,26 @@ operate_(Path) ->
     ?assertEqual(byte_size(Bin), Obj0#object.dsize),
     ?assertEqual(0,              Obj0#object.del),
 
+
+    %% >> Case of regular.
+    {ok, _Meta1_1, ObjectPool1_1} = leo_object_storage_api:get(term_to_binary({AddrId, Key}), 5, 8),
+    Obj0_1 = leo_object_storage_pool:get(ObjectPool1_1),
+    ?assertEqual(4, byte_size(Obj0_1#object.data)),
+    ?assertEqual(<<"Bach">>, Obj0_1#object.data),
+
+    %% >> Case of "end-position over data-size".
+    {ok, _Meta1_2, ObjectPool1_2} = leo_object_storage_api:get(term_to_binary({AddrId, Key}), 6, 9),
+    Obj0_2 = leo_object_storage_pool:get(ObjectPool1_2),
+    ?assertEqual(<<"ach">>, Obj0_2#object.data),
+
+    %% ?assertEqual(Bin, Obj0_2#object.data),
+
+    %% >> Case of "end-position is zero". It's means "end-position is data-size".
+    {ok, _Meta1_3, ObjectPool1_3} = leo_object_storage_api:get(term_to_binary({AddrId, Key}), 3, 0),
+    Obj0_3 = leo_object_storage_pool:get(ObjectPool1_3),
+    ?assertEqual(<<"S.Bach">>, Obj0_3#object.data),
+
+
     %% 3. Head
     {ok, Res2} = leo_object_storage_api:head(term_to_binary({AddrId, Key})),
     Meta2 = binary_to_term(Res2),
@@ -241,7 +261,9 @@ compact_(Path) ->
     ok = put_test_data(767,  "air/on/g/string/4", <<"JSB4">>),
     ok = put_test_data(1023, "air/on/g/string/5", <<"JSB5">>),
     ok = put_test_data(2047, "air/on/g/string/6", <<"JSB6">>),
-    ok = put_test_data(4095, "air/on/g/string/7", <<"JSB7">>),
+
+    ok = put_test_data(4095, "air/on/g/string/7", <<"JSB7">>), %% 1st time
+    ok = put_test_data(4095, "air/on/g/string/7", <<"JSB7">>), %% 2nd time
 
     ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0-1">>),
     ok = put_test_data(511,  "air/on/g/string/3", <<"JSB3-1">>),
@@ -257,11 +279,10 @@ compact_(Path) ->
 
      %% inspect for compaction
     {ok, Res0} = leo_object_storage_api:stats(),
-    Sum0 = lists:foldl(fun({ok, #storage_stats{file_path  = ObjPath,
-                                               total_num  = Total,
+    Sum0 = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
+                                               total_num  = _Total,
                                                active_num = Active}}, Sum) ->
-                               ?debugVal({ObjPath, Total, Active}),
-                               Sum +Active
+                               Sum + Active
                        end, 0, Res0),
     ?assertEqual(7, Sum0),
     timer:sleep(250),
@@ -272,11 +293,10 @@ compact_(Path) ->
     timer:sleep(250),
 
     {ok, Res2} = leo_object_storage_api:stats(),
-    Sum1 = lists:foldl(fun({ok, #storage_stats{file_path  = ObjPath,
-                                               total_num  = Total,
+    Sum1 = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
+                                               total_num  = _Total,
                                                active_num = Active}}, Sum) ->
-                               ?debugVal({ObjPath, Total, Active}),
-                               Sum +Active
+                               Sum + Active
                        end, 0, Res2),
     ?assertEqual(7, Sum1),
 

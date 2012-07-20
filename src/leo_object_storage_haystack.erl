@@ -27,18 +27,12 @@
 
 -author('Yosuke Hara').
 -author('Yoshiyuki Kanno').
--vsn('0.9.1').
 
 -include("leo_object_storage.hrl").
 -include_lib("kernel/include/file.hrl").
 
--export([open/1,
-         close/2,
-         put/1,
-         get/1,
-         delete/1,
-         head/1,
-         fetch/2]).
+-export([open/1, close/2,
+         put/1, get/1, get/3, delete/1, head/1, fetch/2]).
 
 -export([compact_put/4,
          compact_get/1,
@@ -94,11 +88,11 @@ open(FilePath) ->
             case open_fun(FilePath) of
                 {ok, ReadHandler} ->
                     {ok, [WriteHandler, ReadHandler]};
-                {error, Why} ->
-                    {error, Why}
+                Error ->
+                    Error
             end;
-        {error, Cause} ->
-            {error, Cause}
+        Error ->
+            Error
     end.
 
 
@@ -117,7 +111,7 @@ close(WriteHandler, ReadHandler) ->
 -spec(put(pid()) ->
              ok | {error, any()}).
 put(ObjectPool) ->
-    put_fun(first, ObjectPool).
+    put_fun0(ObjectPool).
 
 
 %% @doc Retrieve an object and a metadata from the object-storage
@@ -125,7 +119,10 @@ put(ObjectPool) ->
 -spec(get(KeyBin::binary()) ->
              {ok, #metadata{}, pid()} | {error, any()}).
 get(KeyBin) ->
-    get_fun(KeyBin).
+    get(KeyBin, 0, 0).
+
+get(KeyBin, StartPos, EndPos) ->
+    get_fun(KeyBin, StartPos, EndPos).
 
 
 %% @doc Remove an object and a metadata from the object-storage
@@ -133,7 +130,7 @@ get(KeyBin) ->
 -spec(delete(ObjectPool::pid()) ->
              ok | {error, any()}).
 delete(ObjectPool) ->
-    put_fun(first, ObjectPool).
+    put_fun0(ObjectPool).
 
 
 %% @doc Retrieve a metada from backend_db from the object-storage
@@ -173,6 +170,9 @@ create_file(FilePath) ->
                 {ok,_Offset} ->
                     {ok, PutFileHandler};
                 {error, Cause} ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING}, {function, "create_file/1"},
+                                            {line, ?LINE}, {body, Cause}]),
                     {error, Cause}
             end;
         {error, Cause} ->
@@ -222,12 +222,12 @@ open_fun(FilePath, RetryTimes) ->
 %%--------------------------------------------------------------------
 %% @doc Retrieve an object from object-storage
 %% @private
-get_fun(KeyBin) ->
+get_fun(KeyBin, StartPos, EndPos) ->
     case catch leo_backend_db_api:get(MetaDBId, KeyBin) of
         {ok, MetadataBin} ->
             Metadata = binary_to_term(MetadataBin),
             case (Metadata#metadata.del == 0) of
-                true  -> get_fun1(Metadata);
+                true  -> get_fun1(Metadata, StartPos, EndPos);
                 false -> not_found
             end;
         Error ->
@@ -244,7 +244,7 @@ get_fun1(#metadata{key      = Key,
                    dsize    = ObjectSize,
                    addr_id  = AddrId,
                    offset   = Offset,
-                   checksum = Checksum} = Metadata) ->
+                   checksum = Checksum} = Metadata, StartPos, EndPos) ->
     #backend_info{read_handler = ReadHandler} = StorageInfo,
     HeaderSize = erlang:round(?BLEN_HEADER/8),
     TotalSize  = HeaderSize + KeySize + ObjectSize + ?LEN_PADDING,
@@ -258,11 +258,39 @@ get_fun1(#metadata{key      = Key,
 
                     case leo_hex:hex_to_integer(leo_hex:binary_to_hex(erlang:md5(ValueBin))) of
                         Checksum ->
-                            ObjectPool = leo_object_storage_pool:new(#object{key     = Key,
-                                                                             addr_id = AddrId,
-                                                                             data    = ValueBin,
-                                                                             dsize   = ObjectSize}),
-                            {ok, Metadata, ObjectPool};
+                            %% If end-position equal 0 and start-position NOT equal 0,
+                            %% Then acctual end-position is data size.
+                            NewEndPos = case (StartPos =/= 0 andalso EndPos == 0) of
+                                            true ->
+                                                ObjectSize;
+                                            false ->
+                                                case (EndPos > ObjectSize) of
+                                                    true ->
+                                                        ObjectSize;
+                                                    false ->
+                                                        EndPos
+                                                end
+                                        end,
+
+                            case (StartPos < NewEndPos
+                                  andalso StartPos   < ObjectSize
+                                  andalso NewEndPos =< ObjectSize) of
+                                true ->
+                                    %% Retrieve a part of an object by start-position and end-position.
+                                    {ok, Metadata, leo_object_storage_pool:new(
+                                                     #object{key     = Key,
+                                                             addr_id = AddrId,
+                                                             data    = binary:part(ValueBin,
+                                                                                   StartPos -1,
+                                                                                   NewEndPos - StartPos +1),
+                                                             dsize   = ObjectSize})};
+                                false ->
+                                    {ok, Metadata, leo_object_storage_pool:new(
+                                                     #object{key     = Key,
+                                                             addr_id = AddrId,
+                                                             data    = ValueBin,
+                                                             dsize   = ObjectSize})}
+                            end;
                         _ ->
                             {error, ?ERROR_INVALID_DATA}
                     end;
@@ -270,9 +298,6 @@ get_fun1(#metadata{key      = Key,
                     {error, ?ERROR_DATA_SIZE_DID_NOT_MATCH}
             end;
         eof = Cause ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "get_fun/1"},
-                                    {line, ?LINE}, {body, Cause}]),
             {error, Cause};
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
@@ -328,44 +353,62 @@ create_needle(#object{addr_id    = AddrId,
 
 %% @doc Insert an object into the object-storage
 %% @private
-put_fun(first, ObjectPool) ->
+put_fun0(ObjectPool) ->
     case catch leo_object_storage_pool:get(ObjectPool) of
         {'EXIT', Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "put_fun/2"},
+                                   [{module, ?MODULE_STRING}, {function, "put_fun0/1"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, ?ERR_TYPE_TIMEOUT};
         not_found ->
             {error, ?ERR_TYPE_TIMEOUT};
 
-        #object{data    = ValueBin} = Object ->
-            #backend_info{write_handler = ObjectStorageWriteHandler} = StorageInfo,
+        #object{addr_id  = AddrId,
+                key      = Key,
+                checksum = Checksum0} = Object ->
+            Ret = case head(term_to_binary({AddrId, Key})) of
+                      {ok, MetadataBin} ->
+                          #metadata{checksum = Checksum1} = binary_to_term(MetadataBin),
+                          case (Checksum0 == Checksum1) of
+                              true ->
+                                  match;
+                              false ->
+                                  not_match
+                          end;
+                      _ ->
+                          not_match
+                  end,
 
-            case file:position(ObjectStorageWriteHandler, eof) of
-                {ok, Offset} ->
-                    Checksum = leo_hex:hex_to_integer(leo_hex:binary_to_hex(erlang:md5(ValueBin))),
-                    put_fun(next, Object#object{checksum = Checksum,
-                                                offset   =  Offset});
-                {error, Cause} ->
-                    error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING}, {function, "put_fun/2"},
-                                            {line, ?LINE}, {body, Cause}]),
-                    {error, Cause}
+            case Ret of
+                match ->
+                    ok;
+                not_match ->
+                    #backend_info{write_handler = ObjectStorageWriteHandler} = StorageInfo,
+
+                    case file:position(ObjectStorageWriteHandler, eof) of
+                        {ok, Offset} ->
+                            put_fun1(Object#object{offset = Offset});
+                        {error, Cause} ->
+                            error_logger:error_msg("~p,~p,~p,~p~n",
+                                                   [{module, ?MODULE_STRING}, {function, "put_fun0/1"},
+                                                    {line, ?LINE}, {body, Cause}]),
+                            {error, Cause}
+                    end
             end
-    end;
+    end.
 
-put_fun(next, #object{addr_id    = AddrId,
-                      key        = Key,
-                      ksize      = KSize,
-                      dsize      = DSize,
-                      msize      = MSize,
-                      meta       = _MBin,
-                      clock      = Clock,
-                      offset     = Offset,
-                      timestamp  = Timestamp,
-                      checksum   = Checksum,
-                      ring_hash  = RingHash,
-                      del        = Del} = Object) ->
+put_fun1(#object{addr_id    = AddrId,
+                 key        = Key,
+                 ksize      = KSize,
+                 dsize      = DSize,
+                 msize      = MSize,
+                 meta       = _MBin,
+                 clock      = Clock,
+                 offset     = Offset,
+                 timestamp  = Timestamp,
+                 checksum   = Checksum,
+                 ring_hash  = RingHash,
+                 del        = Del} = Object) ->
     Needle = create_needle(Object),
     Meta = #metadata{key       = Key,
                      addr_id   = AddrId,
@@ -378,11 +421,11 @@ put_fun(next, #object{addr_id    = AddrId,
                      checksum  = Checksum,
                      ring_hash = RingHash,
                      del       = Del},
-    put_fun(finally, Needle, Meta).
+    put_fun2(Needle, Meta).
 
-put_fun(finally, Needle, #metadata{key      = Key,
-                                   addr_id  = AddrId,
-                                   offset   = Offset} = Meta) ->
+put_fun2(Needle, #metadata{key      = Key,
+                           addr_id  = AddrId,
+                           offset   = Offset} = Meta) ->
     #backend_info{write_handler = WriteHandler} = StorageInfo,
 
     case file:pwrite(WriteHandler, Offset, Needle) of
@@ -393,7 +436,7 @@ put_fun(finally, Needle, #metadata{key      = Key,
                     ok;
                 {'EXIT', Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING}, {function, "put_fun/3"},
+                                           [{module, ?MODULE_STRING}, {function, "put_fun2/2"},
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause};
                 Error ->
@@ -472,9 +515,6 @@ compact_get(ReadHandler, Offset) ->
                     {error, ?ERROR_DATA_SIZE_DID_NOT_MATCH}
             end;
         eof = Cause ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "compact_get/2"},
-                                    {line, ?LINE}, {body, Cause}]),
             {error, Cause};
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
@@ -528,9 +568,6 @@ compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
                     {error, ?ERROR_DATA_SIZE_DID_NOT_MATCH}
             end;
         eof = Cause ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "compact_get/4"},
-                                    {line, ?LINE}, {body, Cause}]),
             {error, Cause};
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",

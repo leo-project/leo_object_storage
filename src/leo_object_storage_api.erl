@@ -26,19 +26,13 @@
 -module(leo_object_storage_api).
 
 -author('Yosuke Hara').
--vsn('0.9.1').
 
 -include("leo_object_storage.hrl").
 
 -export([new/3,
-         put/2,
-         get/1,
-         delete/2,
-         head/1,
-         fetch_by_addr_id/2,
-         fetch_by_key/2,
-         stats/0,
-         compact/0]).
+         put/2, get/1, get/3, delete/2, head/1,
+         fetch_by_addr_id/2, fetch_by_key/2,
+         stats/0, compact/0]).
 
 -define(ETS_TABLE_NAME, 'leo_object_storage_pd').
 -define(SERVER_MODULE,  'leo_object_storage_server').
@@ -145,7 +139,12 @@ put(KeyBin, ObjectPool) ->
 -spec(get(binary()) ->
              {ok, list()} | not_found | {error, any()}).
 get(KeyBin) ->
-    do_request(get, [KeyBin]).
+    get(KeyBin, 0, 0).
+
+-spec(get(binary(), integer(), integer()) ->
+             {ok, list()} | not_found | {error, any()}).
+get(KeyBin, StartPos, EndPos) ->
+    do_request(get, [KeyBin, StartPos, EndPos]).
 
 
 %% @doc Remove an object from the object-storage
@@ -302,8 +301,9 @@ get_pid_status(Pid) ->
 %% @private
 -spec(do_request(type_of_method(), list()) ->
              ok | {ok, list()} | {error, any()}).
-do_request(get, [KeyBin]) ->
-    ?SERVER_MODULE:get(get_object_storage_pid(KeyBin), KeyBin);
+do_request(get, [KeyBin, StartPos, EndPos]) ->
+    ?SERVER_MODULE:get(get_object_storage_pid(KeyBin), KeyBin, StartPos, EndPos);
+
 do_request(put, [KeyBin, ObjectPool]) ->
     Id = get_object_storage_pid(KeyBin),
     case get_pid_status(Id) of
