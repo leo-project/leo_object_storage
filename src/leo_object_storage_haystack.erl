@@ -244,10 +244,7 @@ get_fun1(#metadata{key      = Key,
                    dsize    = ObjectSize,
                    addr_id  = AddrId,
                    offset   = Offset} = Metadata, StartPos, EndPos) ->
-    #backend_info{read_handler = ReadHandler} = StorageInfo,
-    HeaderSize = erlang:round(?BLEN_HEADER/8),
-
-    %% If end-position equal 0 and start-position NOT equal 0,
+    %% If end-position equal 0,
     %% Then acctual end-position is object-size.
     NewEndPos = case (EndPos == 0) of
                     true ->
@@ -260,17 +257,19 @@ get_fun1(#metadata{key      = Key,
                                 EndPos
                         end
                 end,
+
+    %% Calculate actual start-point and end-point
+    NewOffset     = Offset + erlang:round(?BLEN_HEADER/8) + KeySize + StartPos,
     NewObjectSize = NewEndPos - StartPos,
-    TotalSize     = HeaderSize + KeySize + NewObjectSize + ?LEN_PADDING,
 
-    case file:pread(ReadHandler, Offset + StartPos, TotalSize) of
+    #backend_info{read_handler = ReadHandler} = StorageInfo,
+
+    %% Retrieve the object
+    case file:pread(ReadHandler, NewOffset, NewObjectSize) of
         {ok, Bin} ->
-            <<_Header:HeaderSize/binary,
-              _KeyBin:KeySize/binary, ValueBin:NewObjectSize/binary, _Footer/binary>> = Bin,
-
             {ok, Metadata, leo_object_storage_pool:new(#object{key     = Key,
                                                                addr_id = AddrId,
-                                                               data    = ValueBin,
+                                                               data    = Bin,
                                                                dsize   = NewObjectSize})};
         eof = Cause ->
             {error, Cause};
