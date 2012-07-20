@@ -118,6 +118,16 @@ operate_(Path) ->
     ?assertEqual(byte_size(Bin), Obj0#object.dsize),
     ?assertEqual(0,              Obj0#object.del),
 
+
+    {ok, _Meta1_1, ObjectPool1_1} = leo_object_storage_api:get(term_to_binary({AddrId, Key}), 4, 8),
+    Obj0_1 = leo_object_storage_pool:get(ObjectPool1_1),
+    ?assertEqual(4, byte_size(Obj0_1#object.data)),
+    ?assertEqual(<<"Bach">>, Obj0_1#object.data),
+
+    {ok, _Meta1_2, ObjectPool1_2} = leo_object_storage_api:get(term_to_binary({AddrId, Key}), 5, 9),
+    Obj0_2 = leo_object_storage_pool:get(ObjectPool1_2),
+    ?assertEqual(Bin, Obj0_2#object.data),
+
     %% 3. Head
     {ok, Res2} = leo_object_storage_api:head(term_to_binary({AddrId, Key})),
     Meta2 = binary_to_term(Res2),

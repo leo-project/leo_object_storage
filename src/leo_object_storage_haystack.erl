@@ -32,13 +32,8 @@
 -include("leo_object_storage.hrl").
 -include_lib("kernel/include/file.hrl").
 
--export([open/1,
-         close/2,
-         put/1,
-         get/1,
-         delete/1,
-         head/1,
-         fetch/2]).
+-export([open/1, close/2,
+         put/1, get/1, get/3, delete/1, head/1, fetch/2]).
 
 -export([compact_put/4,
          compact_get/1,
@@ -125,7 +120,10 @@ put(ObjectPool) ->
 -spec(get(KeyBin::binary()) ->
              {ok, #metadata{}, pid()} | {error, any()}).
 get(KeyBin) ->
-    get_fun(KeyBin).
+    get(KeyBin, -1, -1).
+
+get(KeyBin, StartPos, EndPos) ->
+    get_fun(KeyBin, StartPos, EndPos).
 
 
 %% @doc Remove an object and a metadata from the object-storage
@@ -225,12 +223,12 @@ open_fun(FilePath, RetryTimes) ->
 %%--------------------------------------------------------------------
 %% @doc Retrieve an object from object-storage
 %% @private
-get_fun(KeyBin) ->
+get_fun(KeyBin, StartPos, EndPos) ->
     case catch leo_backend_db_api:get(MetaDBId, KeyBin) of
         {ok, MetadataBin} ->
             Metadata = binary_to_term(MetadataBin),
             case (Metadata#metadata.del == 0) of
-                true  -> get_fun1(Metadata);
+                true  -> get_fun1(Metadata, StartPos, EndPos);
                 false -> not_found
             end;
         Error ->
@@ -247,7 +245,7 @@ get_fun1(#metadata{key      = Key,
                    dsize    = ObjectSize,
                    addr_id  = AddrId,
                    offset   = Offset,
-                   checksum = Checksum} = Metadata) ->
+                   checksum = Checksum} = Metadata, StartPos, EndPos) ->
     #backend_info{read_handler = ReadHandler} = StorageInfo,
     HeaderSize = erlang:round(?BLEN_HEADER/8),
     TotalSize  = HeaderSize + KeySize + ObjectSize + ?LEN_PADDING,
@@ -261,11 +259,23 @@ get_fun1(#metadata{key      = Key,
 
                     case leo_hex:hex_to_integer(leo_hex:binary_to_hex(erlang:md5(ValueBin))) of
                         Checksum ->
-                            ObjectPool = leo_object_storage_pool:new(#object{key     = Key,
-                                                                             addr_id = AddrId,
-                                                                             data    = ValueBin,
-                                                                             dsize   = ObjectSize}),
-                            {ok, Metadata, ObjectPool};
+                            case (StartPos < EndPos
+                                  andalso StartPos  < ObjectSize
+                                  andalso EndPos   =< ObjectSize) of
+                                true ->
+                                    {ok, Metadata, leo_object_storage_pool:new(
+                                                     #object{key     = Key,
+                                                             addr_id = AddrId,
+                                                             data    = binary:part(
+                                                                         ValueBin, StartPos, EndPos - StartPos),
+                                                             dsize   = ObjectSize})};
+                                false ->
+                                    {ok, Metadata, leo_object_storage_pool:new(
+                                                     #object{key     = Key,
+                                                             addr_id = AddrId,
+                                                             data    = ValueBin,
+                                                             dsize   = ObjectSize})}
+                            end;
                         _ ->
                             {error, ?ERROR_INVALID_DATA}
                     end;

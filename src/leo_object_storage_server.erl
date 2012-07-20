@@ -35,7 +35,7 @@
 
 %% API
 -export([start_link/6, stop/1]).
--export([put/2, get/2, delete/2, head/2, fetch/3]).
+-export([put/2, get/4, delete/2, head/2, fetch/3]).
 -export([datasync/1, compact/1, stats/1]).
 -export([init/1,
          handle_call/3,
@@ -86,10 +86,10 @@ put(Id, ObjectPool) ->
 
 %% @doc Retrieve an object from the object-storage
 %%
--spec(get(atom(), binary()) ->
+-spec(get(atom(), binary(), integer(), integer()) ->
              {ok, #metadata{}, list()} | not_found | {error, any()}).
-get(Id, KeyBin) ->
-    gen_server:call(Id, {get, KeyBin}).
+get(Id, KeyBin, StartPos, EndPos) ->
+    gen_server:call(Id, {get, KeyBin, StartPos, EndPos}).
 
 
 %% @doc Remove an object from the object-storage - (logical-delete)
@@ -203,11 +203,11 @@ handle_call({put, ObjectPool}, _From, #state{meta_db_id     = MetaDBId,
     {reply, Reply, NewState};
 
 
-handle_call({get, KeyBin}, _From, #state{meta_db_id     = MetaDBId,
-                                         object_storage = StorageInfo} = State) ->
+handle_call({get, KeyBin, StartPos, EndPos}, _From, #state{meta_db_id     = MetaDBId,
+                                                           object_storage = StorageInfo} = State) ->
     #backend_info{backend = Module} = StorageInfo,
     Obj = Module:new(MetaDBId, StorageInfo),
-    Reply = Obj:get(KeyBin),
+    Reply = Obj:get(KeyBin, StartPos, EndPos),
 
     NewState = after_proc(Reply, State),
     erlang:garbage_collect(self()),
