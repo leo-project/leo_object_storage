@@ -26,7 +26,6 @@
 -module(leo_object_storage_app).
 
 -author('Yosuke Hara').
--vsn('0.9.1').
 
 -behaviour(application).
 
