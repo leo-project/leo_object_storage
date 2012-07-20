@@ -140,7 +140,7 @@ put(KeyBin, ObjectPool) ->
 -spec(get(binary()) ->
              {ok, list()} | not_found | {error, any()}).
 get(KeyBin) ->
-    get(KeyBin, -1, -1).
+    get(KeyBin, 0, 0).
 
 -spec(get(binary(), integer(), integer()) ->
              {ok, list()} | not_found | {error, any()}).

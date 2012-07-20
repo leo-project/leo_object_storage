@@ -120,7 +120,7 @@ put(ObjectPool) ->
 -spec(get(KeyBin::binary()) ->
              {ok, #metadata{}, pid()} | {error, any()}).
 get(KeyBin) ->
-    get(KeyBin, -1, -1).
+    get(KeyBin, 0, 0).
 
 get(KeyBin, StartPos, EndPos) ->
     get_fun(KeyBin, StartPos, EndPos).
@@ -259,15 +259,31 @@ get_fun1(#metadata{key      = Key,
 
                     case leo_hex:hex_to_integer(leo_hex:binary_to_hex(erlang:md5(ValueBin))) of
                         Checksum ->
-                            case (StartPos < EndPos
-                                  andalso StartPos  < ObjectSize
-                                  andalso EndPos   =< ObjectSize) of
+                            %% If end-position equal 0 and start-position NOT equal 0,
+                            %% Then acctual end-position is data size.
+                            NewEndPos = case (StartPos =/= 0 andalso EndPos == 0) of
+                                            true ->
+                                                ObjectSize;
+                                            false ->
+                                                case (EndPos > ObjectSize) of
+                                                    true ->
+                                                        ObjectSize;
+                                                    false ->
+                                                        EndPos
+                                                end
+                                        end,
+
+                            case (StartPos < NewEndPos
+                                  andalso StartPos   < ObjectSize
+                                  andalso NewEndPos =< ObjectSize) of
                                 true ->
+                                    %% Retrieve a part of an object by start-position and end-position.
                                     {ok, Metadata, leo_object_storage_pool:new(
                                                      #object{key     = Key,
                                                              addr_id = AddrId,
-                                                             data    = binary:part(
-                                                                         ValueBin, StartPos, EndPos - StartPos),
+                                                             data    = binary:part(ValueBin,
+                                                                                   StartPos -1,
+                                                                                   NewEndPos - StartPos +1),
                                                              dsize   = ObjectSize})};
                                 false ->
                                     {ok, Metadata, leo_object_storage_pool:new(
