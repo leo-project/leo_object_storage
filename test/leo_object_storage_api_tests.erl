@@ -98,10 +98,10 @@ operate_(Path) ->
     Key = "air/on/g/string",
     Bin = <<"J.S.Bach">>,
     ObjectPool0 = leo_object_storage_pool:new(#object{method   = put,
-                                                       addr_id  = AddrId,
-                                                       key      = Key,
-                                                       data     = Bin,
-                                                       dsize    = byte_size(Bin)}),
+                                                      addr_id  = AddrId,
+                                                      key      = Key,
+                                                      data     = Bin,
+                                                      dsize    = byte_size(Bin)}),
     Res0 = leo_object_storage_api:put(term_to_binary({AddrId, Key}), ObjectPool0),
     ?assertEqual(ok, Res0),
 
@@ -120,20 +120,28 @@ operate_(Path) ->
 
 
     %% >> Case of regular.
-    {ok, _Meta1_1, ObjectPool1_1} = leo_object_storage_api:get(term_to_binary({AddrId, Key}), 5, 8),
+    %% ------------------
+    %% J.S.Bach
+    %% ------------------
+    %% 01234567 << offset
+    %% 12345678 << length
+    %% ------------------
+    {ok, _Meta1_1, ObjectPool1_1} = leo_object_storage_api:get(term_to_binary({AddrId, Key}), 4, 8),
     Obj0_1 = leo_object_storage_pool:get(ObjectPool1_1),
+    ?debugVal(Obj0_1#object.data),
+
     ?assertEqual(4, byte_size(Obj0_1#object.data)),
     ?assertEqual(<<"Bach">>, Obj0_1#object.data),
 
     %% >> Case of "end-position over data-size".
-    {ok, _Meta1_2, ObjectPool1_2} = leo_object_storage_api:get(term_to_binary({AddrId, Key}), 6, 9),
+    {ok, _Meta1_2, ObjectPool1_2} = leo_object_storage_api:get(term_to_binary({AddrId, Key}), 5, 9),
     Obj0_2 = leo_object_storage_pool:get(ObjectPool1_2),
     ?assertEqual(<<"ach">>, Obj0_2#object.data),
 
     %% ?assertEqual(Bin, Obj0_2#object.data),
 
     %% >> Case of "end-position is zero". It's means "end-position is data-size".
-    {ok, _Meta1_3, ObjectPool1_3} = leo_object_storage_api:get(term_to_binary({AddrId, Key}), 3, 0),
+    {ok, _Meta1_3, ObjectPool1_3} = leo_object_storage_api:get(term_to_binary({AddrId, Key}), 2, 0),
     Obj0_3 = leo_object_storage_pool:get(ObjectPool1_3),
     ?assertEqual(<<"S.Bach">>, Obj0_3#object.data),
 
@@ -147,10 +155,10 @@ operate_(Path) ->
 
     %% 4. Delete
     ObjectPool2 = leo_object_storage_pool:new(#object{method  = delete,
-                                                       key     = Key,
-                                                       addr_id = AddrId,
-                                                       data    = <<>>,
-                                                       del     = 1}),
+                                                      key     = Key,
+                                                      addr_id = AddrId,
+                                                      data    = <<>>,
+                                                      del     = 1}),
     Res3 = leo_object_storage_api:delete(term_to_binary({AddrId, Key}), ObjectPool2),
     ?assertEqual(ok, Res3),
 
@@ -271,13 +279,13 @@ compact_(Path) ->
     AddrId = 4095,
     Key    = "air/on/g/string/7",
     ObjectPool = leo_object_storage_pool:new(#object{method  = delete,
-                                                      key     = Key,
-                                                      addr_id = AddrId,
-                                                      data    = <<>>,
-                                                      del     = 1}),
+                                                     key     = Key,
+                                                     addr_id = AddrId,
+                                                     data    = <<>>,
+                                                     del     = 1}),
     ok = leo_object_storage_api:delete(term_to_binary({AddrId, Key}), ObjectPool),
 
-     %% inspect for compaction
+    %% inspect for compaction
     {ok, Res0} = leo_object_storage_api:stats(),
     Sum0 = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
                                                total_num  = _Total,
@@ -300,7 +308,7 @@ compact_(Path) ->
                        end, 0, Res2),
     ?assertEqual(7, Sum1),
 
-     %% inspect for after compaction
+    %% inspect for after compaction
     TestAddrId0 = 0,
     TestKey0    = "air/on/g/string/0",
     TestAddrId1 = 511,
@@ -344,10 +352,10 @@ compact_(Path) ->
 %%--------------------------------------------------------------------
 put_test_data(AddrId, Key, Bin) ->
     ObjectPool = leo_object_storage_pool:new(#object{method   = put,
-                                                      addr_id  = AddrId,
-                                                      key      = Key,
-                                                      data     = Bin,
-                                                      dsize    = byte_size(Bin)}),
+                                                     addr_id  = AddrId,
+                                                     key      = Key,
+                                                     data     = Bin,
+                                                     dsize    = byte_size(Bin)}),
     ok = leo_object_storage_api:put(term_to_binary({AddrId, Key}), ObjectPool),
     ok.
 
