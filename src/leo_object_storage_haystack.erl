@@ -239,64 +239,46 @@ get_fun(KeyBin, StartPos, EndPos) ->
             end
     end.
 
+
+get_fun1(#metadata{key      = Key,
+                   dsize    = ObjectSize,
+                   addr_id  = AddrId} = Metadata, StartPos, _) when StartPos >= ObjectSize ->
+    {ok, Metadata, leo_object_storage_pool:new(#object{key     = Key,
+                                                       addr_id = AddrId,
+                                                       data    = <<>>,
+                                                       dsize   = 0})};
 get_fun1(#metadata{key      = Key,
                    ksize    = KeySize,
                    dsize    = ObjectSize,
                    addr_id  = AddrId,
-                   offset   = Offset,
-                   checksum = Checksum} = Metadata, StartPos, EndPos) ->
+                   offset   = Offset} = Metadata, StartPos, EndPos) ->
+    %% If end-position equal 0,
+    %% Then actual end-position is object-size.
+    NewEndPos = case (EndPos == 0) of
+                    true ->
+                        ObjectSize;
+                    false ->
+                        case (EndPos > ObjectSize) of
+                            true ->
+                                ObjectSize;
+                            false ->
+                                EndPos
+                        end
+                end,
+
+    %% Calculate actual start-point and end-point
+    NewOffset     = Offset + erlang:round(?BLEN_HEADER/8) + KeySize + StartPos,
+    NewObjectSize = NewEndPos - StartPos,
+
     #backend_info{read_handler = ReadHandler} = StorageInfo,
-    HeaderSize = erlang:round(?BLEN_HEADER/8),
-    TotalSize  = HeaderSize + KeySize + ObjectSize + ?LEN_PADDING,
 
-    case file:pread(ReadHandler, Offset, TotalSize) of
+    %% Retrieve the object
+    case file:pread(ReadHandler, NewOffset, NewObjectSize) of
         {ok, Bin} ->
-            case byte_size(Bin) of
-                TotalSize ->
-                    <<_Header:HeaderSize/binary,
-                      _KeyBin:KeySize/binary, ValueBin:ObjectSize/binary, _Footer/binary>> = Bin,
-
-                    case leo_hex:hex_to_integer(leo_hex:binary_to_hex(erlang:md5(ValueBin))) of
-                        Checksum ->
-                            %% If end-position equal 0 and start-position NOT equal 0,
-                            %% Then acctual end-position is data size.
-                            NewEndPos = case (StartPos =/= 0 andalso EndPos == 0) of
-                                            true ->
-                                                ObjectSize;
-                                            false ->
-                                                case (EndPos > ObjectSize) of
-                                                    true ->
-                                                        ObjectSize;
-                                                    false ->
-                                                        EndPos
-                                                end
-                                        end,
-
-                            case (StartPos < NewEndPos
-                                  andalso StartPos   < ObjectSize
-                                  andalso NewEndPos =< ObjectSize) of
-                                true ->
-                                    %% Retrieve a part of an object by start-position and end-position.
-                                    {ok, Metadata, leo_object_storage_pool:new(
-                                                     #object{key     = Key,
-                                                             addr_id = AddrId,
-                                                             data    = binary:part(ValueBin,
-                                                                                   StartPos -1,
-                                                                                   NewEndPos - StartPos +1),
-                                                             dsize   = ObjectSize})};
-                                false ->
-                                    {ok, Metadata, leo_object_storage_pool:new(
-                                                     #object{key     = Key,
-                                                             addr_id = AddrId,
-                                                             data    = ValueBin,
-                                                             dsize   = ObjectSize})}
-                            end;
-                        _ ->
-                            {error, ?ERROR_INVALID_DATA}
-                    end;
-                _ ->
-                    {error, ?ERROR_DATA_SIZE_DID_NOT_MATCH}
-            end;
+            {ok, Metadata, leo_object_storage_pool:new(#object{key     = Key,
+                                                               addr_id = AddrId,
+                                                               data    = Bin,
+                                                               dsize   = NewObjectSize})};
         eof = Cause ->
             {error, Cause};
         {error, Cause} ->
