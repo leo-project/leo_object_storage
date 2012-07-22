@@ -239,13 +239,21 @@ get_fun(KeyBin, StartPos, EndPos) ->
             end
     end.
 
+
+get_fun1(#metadata{key      = Key,
+                   dsize    = ObjectSize,
+                   addr_id  = AddrId} = Metadata, StartPos, _) when StartPos >= ObjectSize ->
+    {ok, Metadata, leo_object_storage_pool:new(#object{key     = Key,
+                                                       addr_id = AddrId,
+                                                       data    = <<>>,
+                                                       dsize   = 0})};
 get_fun1(#metadata{key      = Key,
                    ksize    = KeySize,
                    dsize    = ObjectSize,
                    addr_id  = AddrId,
                    offset   = Offset} = Metadata, StartPos, EndPos) ->
     %% If end-position equal 0,
-    %% Then acctual end-position is object-size.
+    %% Then actual end-position is object-size.
     NewEndPos = case (EndPos == 0) of
                     true ->
                         ObjectSize;
