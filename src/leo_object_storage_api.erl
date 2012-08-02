@@ -29,12 +29,14 @@
 
 -include("leo_object_storage.hrl").
 
--export([new/3,
+-export([new/0, start/2,
          put/2, get/1, get/3, delete/2, head/1,
          fetch_by_addr_id/2, fetch_by_key/2,
-         stats/0, compact/0]).
+         stats/0, compact/0,
+         get_object_storage_pid/1
+        ]).
 
--define(ETS_TABLE_NAME, 'leo_object_storage_pd').
+-define(ETS_TABLE_NAME, 'leo_object_storage_info').
 -define(SERVER_MODULE,  'leo_object_storage_server').
 -define(PD_KEY_WORKERS, 'object_storage_workers').
 
@@ -43,14 +45,21 @@
 %%--------------------------------------------------------------------
 %% @doc Create a storage-processes
 %%
--spec(new(integer(), integer(), string()) ->
+-spec(new() ->
              ok | {error, any()}).
-new(_, 0, _) ->
+new() ->
+    start_app().
+
+
+-spec(start(list(), string()) ->
+             ok | {error, any()}).
+start([], []) ->
     {error, badarg};
-new(_, _, []) ->
+start(_, []) ->
     {error, badarg};
-new(DeviceNumber, NumOfStorages, Path0) ->
-    io:format("~w:~w - ~w ~w ~p~n",[?MODULE, ?LINE, DeviceNumber, NumOfStorages, Path0]),
+start([], _) ->
+    {error, badarg};
+start(Ring, Path0) ->
     ok = start_app(),
 
     {ok, Curr} = file:get_cwd(),
@@ -66,44 +75,41 @@ new(DeviceNumber, NumOfStorages, Path0) ->
                 false -> Path1 ++ "/"
             end,
 
-    ObjStorage1 =
+    Storage1 =
         case application:get_env(?APP_NAME, object_storage) of
-            {ok, ObjectStorage} ->
-                object_storage_module(ObjectStorage);
-            _ ->
-                object_storage_module(?DEF_OBJECT_STORAGE)
+            {ok, Storage0} -> object_storage_module(Storage0);
+            _ ->              object_storage_module(?DEF_OBJECT_STORAGE)
         end,
 
-    MetaDB1 =
+    Metadata1 =
         case application:get_env(?APP_NAME, metadata_storage) of
-            {ok, MetaDB} ->
-                MetaDB;
-            _ ->
-                ?DEF_METADATA_DB
+            {ok, Metadata0} -> Metadata0;
+            _ ->               ?DEF_METADATA_DB
         end,
 
-    Ret = lists:map(
-            fun(StorageNumber) ->
-                    Id = list_to_atom(atom_to_list(?APP_NAME)
-                                      ++ "_" ++ integer_to_list(DeviceNumber)
-                                      ++ "_" ++ integer_to_list(StorageNumber)),
-                    MetaDBId = list_to_atom("metadata"
-                                            ++ "_" ++ integer_to_list(DeviceNumber)
-                                            ++ "_" ++ integer_to_list(StorageNumber)),
+    %% Note:
+    %%   Relationship VNodeId with ObjectStorage is "$vnode_id:object-storage = 1:1".
+    %%
+    lists:foreach(
+      fun({_VNodeId, Node}) when Node /= erlang:node() ->
+              void;
+         ({ VNodeId, Node}) when Node == erlang:node() ->
+              Id1 = gen_id(obj_storage, VNodeId),
+              Id2 = gen_id(metadata,    VNodeId),
 
-                    case supervisor:start_child(leo_object_storage_sup,
-                                                [Id, MetaDBId, DeviceNumber, StorageNumber, ObjStorage1, Path2]) of
-                        {ok, _Pid} ->
-                            ok = leo_backend_db_api:new(MetaDBId, 1, MetaDB1,
-                                                        Path2
-                                                        ++ ?DEF_METADATA_STORAGE_SUB_DIR
-                                                        ++ integer_to_list(StorageNumber)),
-                            Id;
-                        Error ->
-                            io:format("[ERROR] ~p~n",[Error]),
-                            []
-                    end
-            end, lists:seq(0, NumOfStorages-1)),
+              case supervisor:start_child(leo_object_storage_sup,
+                                          [Id1, Id2, VNodeId, Storage1, Path2]) of
+                  {ok, _Pid} ->
+                      Path3 = Path2
+                          ++ ?DEF_METADATA_STORAGE_SUB_DIR
+                          ++ integer_to_list(VNodeId),
+                      ok = leo_backend_db_api:new(Id2, 1, Metadata1, Path3),
+                      true = ets:insert(?ETS_TABLE_NAME, {VNodeId, [{obj_storage, Id1},
+                                                                    {metadata,    Id2}]});
+                  Error ->
+                      io:format("[ERROR] ~p~n",[Error])
+              end
+      end, Ring),
 
     case whereis(leo_object_storage_sup) of
         undefined ->
@@ -111,13 +117,6 @@ new(DeviceNumber, NumOfStorages, Path0) ->
         SupRef ->
             case supervisor:count_children(SupRef) of
                 [{specs,_},{active,Active},{supervisors,_},{workers,Workers}] when Active == Workers  ->
-                    case ets:lookup(?ETS_TABLE_NAME, ?PD_KEY_WORKERS) of
-                        [] ->
-                            true = ets:insert(?ETS_TABLE_NAME, {?PD_KEY_WORKERS, Ret});
-                        [{?PD_KEY_WORKERS, List}] ->
-                            true = ets:delete(?ETS_TABLE_NAME, ?PD_KEY_WORKERS),
-                            true = ets:insert(?ETS_TABLE_NAME, {?PD_KEY_WORKERS, List ++ Ret})
-                    end,
                     ok;
                 _ ->
                     {error, "Could NOT started worker processes"}
@@ -126,41 +125,41 @@ new(DeviceNumber, NumOfStorages, Path0) ->
 
 
 %% @doc Insert an object into the object-storage
-%% @param KeyBin = <<{$VNODE_ID, $OBJ_KEY}>>
+%% @param Key = {$VNODE_ID, $OBJ_KEY}
 %%
--spec(put(binary(), pid()) ->
+-spec(put(tuple(), pid()) ->
              ok | {error, any()}).
-put(KeyBin, ObjectPool) ->
-    do_request(put, [KeyBin, ObjectPool]).
+put(Key, ObjectPool) ->
+    do_request(put, [Key, ObjectPool]).
 
 
 %% @doc Retrieve an object and a metadata from the object-storage
 %%
--spec(get(binary()) ->
+-spec(get(tuple()) ->
              {ok, list()} | not_found | {error, any()}).
-get(KeyBin) ->
-    get(KeyBin, 0, 0).
+get(Key) ->
+    get(Key, 0, 0).
 
--spec(get(binary(), integer(), integer()) ->
+-spec(get(tuple(), integer(), integer()) ->
              {ok, list()} | not_found | {error, any()}).
-get(KeyBin, StartPos, EndPos) ->
-    do_request(get, [KeyBin, StartPos, EndPos]).
+get(Key, StartPos, EndPos) ->
+    do_request(get, [Key, StartPos, EndPos]).
 
 
 %% @doc Remove an object from the object-storage
 %%
--spec(delete(binary(), pid()) ->
+-spec(delete(tuple(), pid()) ->
              ok | {error, any()}).
-delete(KeyBin, ObjectPool) ->
-    do_request(delete, [KeyBin, ObjectPool]).
+delete(Key, ObjectPool) ->
+    do_request(delete, [Key, ObjectPool]).
 
 
 %% @doc Retrieve a metadata from the object-storage
 %%
--spec(head(KeyBin::binary()) ->
+-spec(head(tuple()) ->
              {ok, metadata} | {error, any()}).
-head(KeyBin) ->
-    do_request(head, [KeyBin]).
+head(Key) ->
+    do_request(head, [Key]).
 
 
 %% @doc Fetch objects by ring-address-id
@@ -249,7 +248,8 @@ start_app() ->
     Module = leo_object_storage,
     case application:start(Module) of
         ok ->
-            ?ETS_TABLE_NAME = ets:new(?ETS_TABLE_NAME, [named_table, public, {read_concurrency, true}]),
+            ?ETS_TABLE_NAME = ets:new(?ETS_TABLE_NAME,
+                                      [named_table, ordered_set, public, {read_concurrency, true}]),
             ok;
         {error, {already_started, Module}} ->
             ok;
@@ -270,19 +270,40 @@ object_storage_module(_) ->
 
 %% @doc Retrieve an object storage process-id
 %% @private
--spec(get_object_storage_pid(all | binary()) ->
+-spec(get_object_storage_pid(all | integer()) ->
              atom()).
-get_object_storage_pid(Arg) ->
-    case ets:lookup(?ETS_TABLE_NAME, ?PD_KEY_WORKERS) of
-        [] ->
-            undefined;
-        [{?PD_KEY_WORKERS, List}] when Arg == all ->
-            lists:map(fun(Id) -> Id end, List);
-        [{?PD_KEY_WORKERS, List}] ->
-            Index = (erlang:crc32(Arg) rem erlang:length(List)) + 1,
-            Id = lists:nth(Index, List),
-            Id
+get_object_storage_pid(all) ->
+    Ret = ets:foldl(fun({_, Props}, Acc) ->
+                            Id = proplists:get_value(obj_storage, Props),
+                            [Id|Acc]
+                    end, [], ?ETS_TABLE_NAME),
+    lists:reverse(Ret);
+
+get_object_storage_pid(VNodeId0) ->
+    Table = ?ETS_TABLE_NAME,
+    Res   = case ets:lookup(Table, VNodeId0) of
+                [] ->
+                    case ets:next(Table, VNodeId0) of
+                        '$end_of_table' ->
+                            case ets:first(Table) of
+                                '$end_of_table' ->
+                                    {error, no_entry};
+                                VNodeId1 ->
+                                    ets:lookup(Table, VNodeId1)
+                            end;
+                        VNodeId1 ->
+                            ets:lookup(Table, VNodeId1)
+                    end;
+                Value ->
+                    Value
+            end,
+
+    case Res of
+        [] -> {error, not_found};
+        [{_, Props}|_] ->
+            proplists:get_value(obj_storage, Props)
     end.
+
 
 
 %% @doc Retrieve the status of object of pid
@@ -301,25 +322,45 @@ get_pid_status(Pid) ->
 %% @private
 -spec(do_request(type_of_method(), list()) ->
              ok | {ok, list()} | {error, any()}).
-do_request(get, [KeyBin, StartPos, EndPos]) ->
-    ?SERVER_MODULE:get(get_object_storage_pid(KeyBin), KeyBin, StartPos, EndPos);
+do_request(get, [{AddrId, _} = Key, StartPos, EndPos]) ->
+    KeyBin = term_to_binary(Key),
+    ?SERVER_MODULE:get(get_object_storage_pid(AddrId), KeyBin, StartPos, EndPos);
 
-do_request(put, [KeyBin, ObjectPool]) ->
+do_request(put, [{AddrId, _} = Key, ObjectPool]) ->
+    KeyBin = term_to_binary(Key),
     Id = get_object_storage_pid(KeyBin),
+
     case get_pid_status(Id) of
         idle ->
-            ?SERVER_MODULE:put(get_object_storage_pid(KeyBin), ObjectPool);
+            ?SERVER_MODULE:put(get_object_storage_pid(AddrId), ObjectPool);
         running ->
             {error, doing_compaction}
     end;
-do_request(delete, [KeyBin, ObjectPool]) ->
+do_request(delete, [{AddrId, _} = Key, ObjectPool]) ->
+    KeyBin = term_to_binary(Key),
     Id = get_object_storage_pid(KeyBin),
+
     case get_pid_status(Id) of
         idle ->
-            ?SERVER_MODULE:delete(get_object_storage_pid(KeyBin), ObjectPool);
+            ?SERVER_MODULE:delete(get_object_storage_pid(AddrId), ObjectPool);
         running ->
             {error, doing_compaction}
     end;
-do_request(head, [KeyBin]) ->
-    ?SERVER_MODULE:head(get_object_storage_pid(KeyBin), KeyBin).
+do_request(head, [{AddrId, _} = Key]) ->
+    KeyBin = term_to_binary(Key),
+    ?SERVER_MODULE:head(get_object_storage_pid(AddrId), KeyBin).
+
+
+%% @doc Generate Id for obj-storage or metadata
+%% @private
+-spec(gen_id(obj_storage | metadata, integer()) ->
+             atom()).
+gen_id(obj_storage, VNodeId) ->
+    list_to_atom(atom_to_list(?APP_NAME)
+                 ++ "_"
+                 ++ integer_to_list(VNodeId));
+gen_id(metadata, VNodeId) ->
+    list_to_atom("metadata"
+                 ++ "_"
+                 ++ integer_to_list(VNodeId)).
 

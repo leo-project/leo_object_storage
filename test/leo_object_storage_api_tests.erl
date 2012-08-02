@@ -58,8 +58,10 @@ teardown(Path) ->
 
 new_(Path) ->
     %% 1-1.
-    DivCount0 = 8,
-    ok = leo_object_storage_api:new(0, DivCount0, Path),
+    DivCount0 = 4,
+    ok = leo_object_storage_api:new(),
+    ok = leo_object_storage_api:start([{0,    node()},{128,  node()},
+                                       {256,  node()},{512,  node()}], Path),
 
     Ref = whereis(leo_object_storage_sup),
     ?assertEqual(true, is_pid(Ref)),
@@ -69,7 +71,10 @@ new_(Path) ->
     ?assertEqual(DivCount0, Workers0),
 
     %% 1-2.
-    ok = leo_object_storage_api:new(1, DivCount0, Path),
+    ok = leo_object_storage_api:new(),
+    ok = leo_object_storage_api:start([{768,  node()},{1024, node()},
+                                       {4096, node()},{8192, node()}], Path),
+
     [{specs,_},{active,Active1},{supervisors,_},{workers,Workers1}] = supervisor:count_children(Ref),
 
     ?assertEqual(DivCount0 *2, Active1),
@@ -79,19 +84,26 @@ new_(Path) ->
     application:stop(bitcask),
     application:stop(leo_object_storage),
 
-    %% 2.
-    DivCount1 = 0,
-    Res1 = leo_object_storage_api:new(0, DivCount1, Path),
+    %% %% 2.
+    Res0 = leo_object_storage_api:start([], []),
+    ?assertEqual({error, badarg}, Res0),
+
+    Res1 = leo_object_storage_api:start([], Path),
     ?assertEqual({error, badarg}, Res1),
 
-    %% 3.
-    Res2 = leo_object_storage_api:new(0, DivCount0, ""),
+    %% %% 3.
+    Res2 = leo_object_storage_api:start([{0,    node()},{128,  node()},
+                                         {256,  node()},{512,  node()}], []),
     ?assertEqual({error, badarg}, Res2),
     ok.
 
 %% Get/Put/Delte
 operate_(Path) ->
-    ok = leo_object_storage_api:new(0, 3, Path),
+    ok = leo_object_storage_api:new(),
+    ok = leo_object_storage_api:start([{0,    node()},{128,  node()},
+                                       {256,  node()},{512,  node()},
+                                       {768,  node()},{1024, node()},
+                                       {4096, node()},{8192, node()}], Path),
 
     %% 1. Put
     AddrId = 0,
@@ -102,11 +114,11 @@ operate_(Path) ->
                                                       key      = Key,
                                                       data     = Bin,
                                                       dsize    = byte_size(Bin)}),
-    Res0 = leo_object_storage_api:put(term_to_binary({AddrId, Key}), ObjectPool0),
+    Res0 = leo_object_storage_api:put({AddrId, Key}, ObjectPool0),
     ?assertEqual(ok, Res0),
 
     %% 2. Get
-    {ok, Meta1, ObjectPool1} = leo_object_storage_api:get(term_to_binary({AddrId, Key})),
+    {ok, Meta1, ObjectPool1} = leo_object_storage_api:get({AddrId, Key}),
     ?assertEqual(AddrId, Meta1#metadata.addr_id),
     ?assertEqual(Key,    Meta1#metadata.key),
     ?assertEqual(0,      Meta1#metadata.del),
@@ -126,30 +138,30 @@ operate_(Path) ->
     %% 01234567 << offset
     %% 12345678 << length
     %% ------------------
-    {ok, _Meta1_1, ObjectPool1_1} = leo_object_storage_api:get(term_to_binary({AddrId, Key}), 4, 8),
+    {ok, _Meta1_1, ObjectPool1_1} = leo_object_storage_api:get({AddrId, Key}, 4, 8),
     Obj0_1 = leo_object_storage_pool:get(ObjectPool1_1),
 
     ?assertEqual(4, byte_size(Obj0_1#object.data)),
     ?assertEqual(<<"Bach">>, Obj0_1#object.data),
 
     %% >> Case of "end-position over data-size".
-    {ok, _Meta1_2, ObjectPool1_2} = leo_object_storage_api:get(term_to_binary({AddrId, Key}), 5, 9),
+    {ok, _Meta1_2, ObjectPool1_2} = leo_object_storage_api:get({AddrId, Key}, 5, 9),
     Obj0_2 = leo_object_storage_pool:get(ObjectPool1_2),
     ?assertEqual(<<"ach">>, Obj0_2#object.data),
 
     %% >> Case of "end-position is zero". It's means "end-position is data-size".
-    {ok, _Meta1_3, ObjectPool1_3} = leo_object_storage_api:get(term_to_binary({AddrId, Key}), 2, 0),
+    {ok, _Meta1_3, ObjectPool1_3} = leo_object_storage_api:get({AddrId, Key}, 2, 0),
     Obj0_3 = leo_object_storage_pool:get(ObjectPool1_3),
     ?assertEqual(<<"S.Bach">>, Obj0_3#object.data),
 
     %% >> Case of "start-position over data-size"
-    {ok, _Meta1_4, ObjectPool1_4} = leo_object_storage_api:get(term_to_binary({AddrId, Key}), 8, 0),
+    {ok, _Meta1_4, ObjectPool1_4} = leo_object_storage_api:get({AddrId, Key}, 8, 0),
     Obj0_4 = leo_object_storage_pool:get(ObjectPool1_4),
     ?assertEqual(<<>>, Obj0_4#object.data),
 
 
     %% 3. Head
-    {ok, Res2} = leo_object_storage_api:head(term_to_binary({AddrId, Key})),
+    {ok, Res2} = leo_object_storage_api:head({AddrId, Key}),
     Meta2 = binary_to_term(Res2),
     ?assertEqual(AddrId, Meta2#metadata.addr_id),
     ?assertEqual(Key,    Meta2#metadata.key),
@@ -161,15 +173,15 @@ operate_(Path) ->
                                                       addr_id = AddrId,
                                                       data    = <<>>,
                                                       del     = 1}),
-    Res3 = leo_object_storage_api:delete(term_to_binary({AddrId, Key}), ObjectPool2),
+    Res3 = leo_object_storage_api:delete({AddrId, Key}, ObjectPool2),
     ?assertEqual(ok, Res3),
 
     %% 5. Get
-    Res4 = leo_object_storage_api:get(term_to_binary({AddrId, Key})),
+    Res4 = leo_object_storage_api:get({AddrId, Key}),
     ?assertEqual(not_found, Res4),
 
     %% 6. Head
-    {ok, Res5} = leo_object_storage_api:head(term_to_binary({AddrId, Key})),
+    {ok, Res5} = leo_object_storage_api:head({AddrId, Key}),
     Meta5 = binary_to_term(Res5),
     ?assertEqual(AddrId, Meta5#metadata.addr_id),
     ?assertEqual(Key,    Meta5#metadata.key),
@@ -181,7 +193,12 @@ operate_(Path) ->
     ok.
 
 fetch_by_addr_id_(Path) ->
-    ok = leo_object_storage_api:new(0, 3, Path),
+    ok = leo_object_storage_api:new(),
+    ok = leo_object_storage_api:start([{0,    node()},{128,  node()},
+                                       {256,  node()},{512,  node()},
+                                       {768,  node()},{1024, node()},
+                                       {4096, node()},{8192, node()}], Path),
+
     ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
     ok = put_test_data(127,  "air/on/g/string/1", <<"JSB1">>),
     ok = put_test_data(255,  "air/on/g/string/2", <<"JSB2">>),
@@ -212,7 +229,12 @@ fetch_by_addr_id_(Path) ->
     ok.
 
 fetch_by_key_(Path) ->
-    ok = leo_object_storage_api:new(0, 3, Path),
+    ok = leo_object_storage_api:new(),
+    ok = leo_object_storage_api:start([{0,    node()},{128,  node()},
+                                       {256,  node()},{512,  node()},
+                                       {768,  node()},{1024, node()},
+                                       {4096, node()},{8192, node()}], Path),
+
     ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
     ok = put_test_data(127,  "air/on/g/string/1", <<"JSB1">>),
     ok = put_test_data(255,  "air/on/g/string/2", <<"JSB2">>),
@@ -241,7 +263,12 @@ fetch_by_key_(Path) ->
     ok.
 
 stats_(Path) ->
-    ok = leo_object_storage_api:new(0, 8, Path),
+    ok = leo_object_storage_api:new(),
+    ok = leo_object_storage_api:start([{0,    node()},{128,  node()},
+                                       {256,  node()},{512,  node()},
+                                       {768,  node()},{1024, node()},
+                                       {4096, node()},{8192, node()}], Path),
+
     ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
     ok = put_test_data(127,  "air/on/g/string/1", <<"JSB1">>),
     ok = put_test_data(255,  "air/on/g/string/2", <<"JSB2">>),
@@ -263,7 +290,12 @@ compact_(Path) ->
     application:start(sasl),
     application:start(os_mon),
 
-    ok = leo_object_storage_api:new(0, 8, Path),
+    ok = leo_object_storage_api:new(),
+    ok = leo_object_storage_api:start([{0,    node()},{128,  node()},
+                                       {256,  node()},{512,  node()},
+                                       {768,  node()},{1024, node()},
+                                       {4096, node()},{8192, node()}], Path),
+
     ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
     ok = put_test_data(127,  "air/on/g/string/1", <<"JSB1">>),
     ok = put_test_data(255,  "air/on/g/string/2", <<"JSB2">>),
@@ -285,7 +317,7 @@ compact_(Path) ->
                                                      addr_id = AddrId,
                                                      data    = <<>>,
                                                      del     = 1}),
-    ok = leo_object_storage_api:delete(term_to_binary({AddrId, Key}), ObjectPool),
+    ok = leo_object_storage_api:delete({AddrId, Key}, ObjectPool),
 
     %% inspect for compaction
     {ok, Res0} = leo_object_storage_api:stats(),
@@ -358,11 +390,11 @@ put_test_data(AddrId, Key, Bin) ->
                                                      key      = Key,
                                                      data     = Bin,
                                                      dsize    = byte_size(Bin)}),
-    ok = leo_object_storage_api:put(term_to_binary({AddrId, Key}), ObjectPool),
+    ok = leo_object_storage_api:put({AddrId, Key}, ObjectPool),
     ok.
 
 get_test_data(AddrId, Key) ->
-    {ok, Meta, ObjectPool} = leo_object_storage_api:get(term_to_binary({AddrId, Key})),
+    {ok, Meta, ObjectPool} = leo_object_storage_api:get({AddrId, Key}),
     Obj = leo_object_storage_pool:get(ObjectPool),
     {ok, Meta, Obj}.
 
