@@ -76,15 +76,30 @@ new_(Path) ->
                                        {4096, node()},{8192, node()}], Path),
 
     [{specs,_},{active,Active1},{supervisors,_},{workers,Workers1}] = supervisor:count_children(Ref),
-
     ?assertEqual(DivCount0 *2, Active1),
     ?assertEqual(DivCount0 *2, Workers1),
+
+
+    %% add-container/remove-container
+    %%
+    _ = leo_object_storage_api:add_container(10240),
+    [{specs,_},{active,Active2},{supervisors,_},{workers,Workers2}] = supervisor:count_children(Ref),
+    ?assertEqual({9,9}, {Active2, Workers2}),
+
+    _ = leo_object_storage_api:remove_container(128),
+    [{specs,_},{active,Active3},{supervisors,_},{workers,Workers3}] = supervisor:count_children(Ref),
+    ?assertEqual({8,8}, {Active3, Workers3}),
+
+    _ = leo_object_storage_api:add_container(128),
+    [{specs,_},{active,Active4},{supervisors,_},{workers,Workers4}] = supervisor:count_children(Ref),
+    ?assertEqual({9,9}, {Active4, Workers4}),
 
     application:stop(leo_backend_db),
     application:stop(bitcask),
     application:stop(leo_object_storage),
 
-    %% %% 2.
+
+    %% 2. Exception
     Res0 = leo_object_storage_api:start([], []),
     ?assertEqual({error, badarg}, Res0),
 

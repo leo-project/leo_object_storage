@@ -32,18 +32,20 @@
 -export([new/0, start/2,
          put/2, get/1, get/3, delete/2, head/1,
          fetch_by_addr_id/2, fetch_by_key/2,
-         stats/0, compact/0,
-         get_object_storage_pid/1
+         compact/0, stats/0,
+         add_container/1, remove_container/1
         ]).
 
--define(ETS_TABLE_NAME, 'leo_object_storage_info').
--define(SERVER_MODULE,  'leo_object_storage_server').
--define(PD_KEY_WORKERS, 'object_storage_workers').
+
+-define(ETS_CONTAINERS_TABLE, 'leo_object_storage_containers').
+-define(ETS_INFO_TABLE,       'leo_object_storage_info').
+-define(SERVER_MODULE,        'leo_object_storage_server').
+
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
-%% @doc Create a storage-processes
+%% @doc Launch this application
 %%
 -spec(new() ->
              ok | {error, any()}).
@@ -51,6 +53,8 @@ new() ->
     start_app().
 
 
+%% @doc Create object-storage processes
+%%
 -spec(start(list(), string()) ->
              ok | {error, any()}).
 start([], []) ->
@@ -60,33 +64,12 @@ start(_, []) ->
 start([], _) ->
     {error, badarg};
 start(Ring, Path0) ->
-    ok = start_app(),
-
-    {ok, Curr} = file:get_cwd(),
-    Path1 = case Path0 of
-                "/"   ++ _Rest -> Path0;
-                "../" ++ _Rest -> Path0;
-                "./"  ++  Rest -> Curr ++ "/" ++ Rest;
-                _              -> Curr ++ "/" ++ Path0
-            end,
-
-    Path2 = case (string:len(Path1) == string:rstr(Path1, "/")) of
-                true  -> Path1;
-                false -> Path1 ++ "/"
-            end,
-
-    Storage1 =
-        case application:get_env(?APP_NAME, object_storage) of
-            {ok, Storage0} -> object_storage_module(Storage0);
-            _ ->              object_storage_module(?DEF_OBJECT_STORAGE)
-        end,
-
-    Metadata1 =
-        case application:get_env(?APP_NAME, metadata_storage) of
-            {ok, Metadata0} -> Metadata0;
-            _ ->               ?DEF_METADATA_DB
-        end,
-
+    Path1     = get_path(Path0),
+    Storage1  = get_object_storage_mod(),
+    Metadata1 = get_metadata_db(),
+    true = ets:insert(?ETS_INFO_TABLE, {?MODULE, [{path, Path1},
+                                                  {storage_mod, Storage1},
+                                                  {metadata_db, Metadata1}]}),
     %% Note:
     %%   Relationship VNodeId with ObjectStorage is "$vnode_id:object-storage = 1:1".
     %%
@@ -94,21 +77,7 @@ start(Ring, Path0) ->
       fun({_VNodeId, Node}) when Node /= erlang:node() ->
               void;
          ({ VNodeId, Node}) when Node == erlang:node() ->
-              Id1 = gen_id(obj_storage, VNodeId),
-              Id2 = gen_id(metadata,    VNodeId),
-
-              case supervisor:start_child(leo_object_storage_sup,
-                                          [Id1, Id2, VNodeId, Storage1, Path2]) of
-                  {ok, _Pid} ->
-                      Path3 = Path2
-                          ++ ?DEF_METADATA_STORAGE_SUB_DIR
-                          ++ integer_to_list(VNodeId),
-                      ok = leo_backend_db_api:new(Id2, 1, Metadata1, Path3),
-                      true = ets:insert(?ETS_TABLE_NAME, {VNodeId, [{obj_storage, Id1},
-                                                                    {metadata,    Id2}]});
-                  Error ->
-                      io:format("[ERROR] ~p~n",[Error])
-              end
+              add_container(VNodeId)
       end, Ring),
 
     case whereis(leo_object_storage_sup) of
@@ -237,6 +206,67 @@ stats() ->
                                end, [], List))}
     end.
 
+
+%% @doc Add an object storage container into
+%%
+-spec(add_container(integer()) ->
+             ok).
+add_container(VNodeId) ->
+    case ets:lookup(?ETS_INFO_TABLE, ?MODULE) of
+        [] -> {error, not_initialized};
+        [{_, Props}|_] ->
+            add_container_1(VNodeId, Props)
+    end.
+
+-spec(add_container_1(integer(), list()) ->
+             ok).
+add_container_1(VNodeId, Props) ->
+    Id1 = gen_id(obj_storage, VNodeId),
+    Id2 = gen_id(metadata,    VNodeId),
+
+    Path       = proplists:get_value('path',        Props),
+    StorageMod = proplists:get_value('storage_mod', Props),
+    MetadataDB = proplists:get_value('metadata_db', Props),
+
+    Args = [Id1, Id2, VNodeId, StorageMod, Path],
+    ChildSpec = {Id1,
+                 {leo_object_storage_server, start_link, Args},
+                 permanent, 2000, worker, [leo_object_storage_server]},
+
+    case supervisor:start_child(leo_object_storage_sup, ChildSpec) of
+        {ok, _Pid} ->
+            ok = leo_backend_db_api:new(Id2, 1, MetadataDB,
+                                        Path ++ ?DEF_METADATA_STORAGE_SUB_DIR ++ integer_to_list(VNodeId)),
+            true = ets:insert(?ETS_CONTAINERS_TABLE, {VNodeId, [{obj_storage, Id1},
+                                                                {metadata,    Id2}]}),
+            ok;
+        Error ->
+            io:format("[ERROR] ~p~n",[Error])
+    end.
+
+
+%% @doc Remove an object storage container from
+%%
+-spec(remove_container(integer()) ->
+             ok).
+remove_container(VNodeId) ->
+    case ets:lookup(?ETS_CONTAINERS_TABLE, VNodeId) of
+        [] -> {error, not_found};
+        [{_, Info}|_] ->
+            Id1 = proplists:get_value(obj_storage, Info),
+            Id2 = proplists:get_value(metadata,    Info),
+
+            case supervisor:terminate_child(leo_object_storage_sup, Id1) of
+                ok ->
+                    ?debugVal(Id2),
+                    leo_backend_db_api:stop(Id2),
+                    supervisor:delete_child(leo_object_storage_sup, Id1);
+                Error ->
+                    Error
+            end
+    end.
+
+
 %%--------------------------------------------------------------------
 %% INNTERNAL FUNCTIONS
 %%--------------------------------------------------------------------
@@ -248,8 +278,10 @@ start_app() ->
     Module = leo_object_storage,
     case application:start(Module) of
         ok ->
-            ?ETS_TABLE_NAME = ets:new(?ETS_TABLE_NAME,
-                                      [named_table, ordered_set, public, {read_concurrency, true}]),
+            ?ETS_CONTAINERS_TABLE = ets:new(?ETS_CONTAINERS_TABLE,
+                                            [named_table, ordered_set, public, {read_concurrency, true}]),
+            ?ETS_INFO_TABLE       = ets:new(?ETS_INFO_TABLE,
+                                            [named_table, set, public, {read_concurrency, true}]),
             ok;
         {error, {already_started, Module}} ->
             ok;
@@ -258,14 +290,47 @@ start_app() ->
     end.
 
 
-%% @doc Retrieve an object storage module name
-%% @private
--spec(object_storage_module(atom()) ->
+%% %% @doc Retrieve object-store directory
+%% %% @private
+-spec(get_path(string()) ->
+             string()).
+get_path(Path0) ->
+    {ok, Curr} = file:get_cwd(),
+
+    Path1 = case Path0 of
+                "/"   ++ _Rest -> Path0;
+                "../" ++ _Rest -> Path0;
+                "./"  ++  Rest -> Curr ++ "/" ++ Rest;
+                _              -> Curr ++ "/" ++ Path0
+            end,
+
+    Path2 = case (string:len(Path1) == string:rstr(Path1, "/")) of
+                true  -> Path1;
+                false -> Path1 ++ "/"
+            end,
+    Path2.
+
+
+%% %% @doc Retrieve an object storage module
+%% %% @private
+-spec(get_object_storage_mod() ->
              atom()).
-object_storage_module(haystack) ->
-    leo_object_storage_haystack;
-object_storage_module(_) ->
-    undefined.
+get_object_storage_mod() ->
+    case application:get_env(?APP_NAME, object_storage) of
+        {ok, haystack} -> leo_object_storage_haystack;
+        _ ->              leo_object_storage_haystack
+    end.
+
+
+%% %% @doc Retrieve a metadata-db
+%% %% @private
+-spec(get_metadata_db() ->
+             atom()).
+get_metadata_db() ->
+    case application:get_env(?APP_NAME, metadata_storage) of
+        {ok, Metadata0} -> Metadata0;
+        _ ->               ?DEF_METADATA_DB
+    end.
 
 
 %% @doc Retrieve an object storage process-id
@@ -276,11 +341,11 @@ get_object_storage_pid(all) ->
     Ret = ets:foldl(fun({_, Props}, Acc) ->
                             Id = proplists:get_value(obj_storage, Props),
                             [Id|Acc]
-                    end, [], ?ETS_TABLE_NAME),
+                    end, [], ?ETS_CONTAINERS_TABLE),
     lists:reverse(Ret);
 
 get_object_storage_pid(VNodeId0) ->
-    Table = ?ETS_TABLE_NAME,
+    Table = ?ETS_CONTAINERS_TABLE,
     Res   = case ets:lookup(Table, VNodeId0) of
                 [] ->
                     case ets:next(Table, VNodeId0) of
