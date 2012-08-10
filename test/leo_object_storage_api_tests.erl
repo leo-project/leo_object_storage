@@ -59,7 +59,6 @@ teardown(Path) ->
 new_(Path) ->
     %% 1-1.
     DivCount0 = 4,
-    ok = leo_object_storage_api:new(),
     ok = leo_object_storage_api:start(DivCount0, Path),
 
     Ref = whereis(leo_object_storage_sup),
@@ -85,7 +84,6 @@ new_(Path) ->
 
 %% Get/Put/Delte
 operate_(Path) ->
-    ok = leo_object_storage_api:new(),
     ok = leo_object_storage_api:start(8, Path),
 
     %% 1. Put
@@ -176,7 +174,6 @@ operate_(Path) ->
     ok.
 
 fetch_by_addr_id_(Path) ->
-    ok = leo_object_storage_api:new(),
     ok = leo_object_storage_api:start(8, Path),
 
     ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
@@ -209,7 +206,6 @@ fetch_by_addr_id_(Path) ->
     ok.
 
 fetch_by_key_(Path) ->
-    ok = leo_object_storage_api:new(),
     ok = leo_object_storage_api:start(8, Path),
 
     ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
@@ -240,7 +236,6 @@ fetch_by_key_(Path) ->
     ok.
 
 stats_(Path) ->
-    ok = leo_object_storage_api:new(),
     ok = leo_object_storage_api:start(8, Path),
 
     ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
@@ -264,7 +259,6 @@ compact_(Path) ->
     application:start(sasl),
     application:start(os_mon),
 
-    ok = leo_object_storage_api:new(),
     ok = leo_object_storage_api:start(8, Path),
 
     ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),

@@ -29,7 +29,7 @@
 
 -include("leo_object_storage.hrl").
 
--export([new/0, start/2,
+-export([start/2,
          put/2, get/1, get/3, delete/2, head/1,
          fetch_by_addr_id/2, fetch_by_key/2,
          compact/0, stats/0,
@@ -45,14 +45,6 @@
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
-%% @doc Launch this application
-%%
--spec(new() ->
-             ok | {error, any()}).
-new() ->
-    start_app().
-
-
 %% @doc Create object-storage processes
 %%
 -spec(start(list(), string()) ->
@@ -65,6 +57,8 @@ start([], _) ->
     {error, badarg};
 
 start(NumOfContainers, Path0) ->
+    start_app(),
+
     Path1     = get_path(Path0),
     Storage1  = get_object_storage_mod(),
     Metadata1 = get_metadata_db(),
