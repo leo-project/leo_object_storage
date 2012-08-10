@@ -60,39 +60,15 @@ new_(Path) ->
     %% 1-1.
     DivCount0 = 4,
     ok = leo_object_storage_api:new(),
-    ok = leo_object_storage_api:start([{0,    node()},{128,  node()},
-                                       {256,  node()},{512,  node()}], Path),
+    ok = leo_object_storage_api:start(DivCount0, Path),
 
     Ref = whereis(leo_object_storage_sup),
     ?assertEqual(true, is_pid(Ref)),
+    ?debugVal(Ref),
 
     [{specs,_},{active,Active0},{supervisors,_},{workers,Workers0}] = supervisor:count_children(Ref),
     ?assertEqual(DivCount0, Active0),
     ?assertEqual(DivCount0, Workers0),
-
-    %% 1-2.
-    ok = leo_object_storage_api:new(),
-    ok = leo_object_storage_api:start([{768,  node()},{1024, node()},
-                                       {4096, node()},{8192, node()}], Path),
-
-    [{specs,_},{active,Active1},{supervisors,_},{workers,Workers1}] = supervisor:count_children(Ref),
-    ?assertEqual(DivCount0 *2, Active1),
-    ?assertEqual(DivCount0 *2, Workers1),
-
-
-    %% add-container/remove-container
-    %%
-    _ = leo_object_storage_api:add_container(10240),
-    [{specs,_},{active,Active2},{supervisors,_},{workers,Workers2}] = supervisor:count_children(Ref),
-    ?assertEqual({9,9}, {Active2, Workers2}),
-
-    _ = leo_object_storage_api:remove_container(128),
-    [{specs,_},{active,Active3},{supervisors,_},{workers,Workers3}] = supervisor:count_children(Ref),
-    ?assertEqual({8,8}, {Active3, Workers3}),
-
-    _ = leo_object_storage_api:add_container(128),
-    [{specs,_},{active,Active4},{supervisors,_},{workers,Workers4}] = supervisor:count_children(Ref),
-    ?assertEqual({9,9}, {Active4, Workers4}),
 
     application:stop(leo_backend_db),
     application:stop(bitcask),
@@ -105,20 +81,12 @@ new_(Path) ->
 
     Res1 = leo_object_storage_api:start([], Path),
     ?assertEqual({error, badarg}, Res1),
-
-    %% %% 3.
-    Res2 = leo_object_storage_api:start([{0,    node()},{128,  node()},
-                                         {256,  node()},{512,  node()}], []),
-    ?assertEqual({error, badarg}, Res2),
     ok.
 
 %% Get/Put/Delte
 operate_(Path) ->
     ok = leo_object_storage_api:new(),
-    ok = leo_object_storage_api:start([{0,    node()},{128,  node()},
-                                       {256,  node()},{512,  node()},
-                                       {768,  node()},{1024, node()},
-                                       {4096, node()},{8192, node()}], Path),
+    ok = leo_object_storage_api:start(8, Path),
 
     %% 1. Put
     AddrId = 0,
@@ -209,10 +177,7 @@ operate_(Path) ->
 
 fetch_by_addr_id_(Path) ->
     ok = leo_object_storage_api:new(),
-    ok = leo_object_storage_api:start([{0,    node()},{128,  node()},
-                                       {256,  node()},{512,  node()},
-                                       {768,  node()},{1024, node()},
-                                       {4096, node()},{8192, node()}], Path),
+    ok = leo_object_storage_api:start(8, Path),
 
     ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
     ok = put_test_data(127,  "air/on/g/string/1", <<"JSB1">>),
@@ -245,10 +210,7 @@ fetch_by_addr_id_(Path) ->
 
 fetch_by_key_(Path) ->
     ok = leo_object_storage_api:new(),
-    ok = leo_object_storage_api:start([{0,    node()},{128,  node()},
-                                       {256,  node()},{512,  node()},
-                                       {768,  node()},{1024, node()},
-                                       {4096, node()},{8192, node()}], Path),
+    ok = leo_object_storage_api:start(8, Path),
 
     ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
     ok = put_test_data(127,  "air/on/g/string/1", <<"JSB1">>),
@@ -279,10 +241,7 @@ fetch_by_key_(Path) ->
 
 stats_(Path) ->
     ok = leo_object_storage_api:new(),
-    ok = leo_object_storage_api:start([{0,    node()},{128,  node()},
-                                       {256,  node()},{512,  node()},
-                                       {768,  node()},{1024, node()},
-                                       {4096, node()},{8192, node()}], Path),
+    ok = leo_object_storage_api:start(8, Path),
 
     ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
     ok = put_test_data(127,  "air/on/g/string/1", <<"JSB1">>),
@@ -306,10 +265,7 @@ compact_(Path) ->
     application:start(os_mon),
 
     ok = leo_object_storage_api:new(),
-    ok = leo_object_storage_api:start([{0,    node()},{128,  node()},
-                                       {256,  node()},{512,  node()},
-                                       {768,  node()},{1024, node()},
-                                       {4096, node()},{8192, node()}], Path),
+    ok = leo_object_storage_api:start(8, Path),
 
     ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
     ok = put_test_data(127,  "air/on/g/string/1", <<"JSB1">>),

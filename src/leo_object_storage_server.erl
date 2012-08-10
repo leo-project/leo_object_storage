@@ -57,11 +57,11 @@
 %%====================================================================
 %% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
 %% Description: Starts the server
--spec(start_link(atom(), atom(), integer(), atom(), string()) ->
+-spec(start_link(atom(), integer(), atom(), atom(), string()) ->
              ok | {error, any()}).
-start_link(Id, MetaDBId, VNodeId, ObjectStorageMod, RootPath) ->
+start_link(Id, SeqNo, MetaDBId, ObjectStorageMod, RootPath) ->
     gen_server:start_link({local, Id}, ?MODULE,
-                          [Id, MetaDBId, VNodeId, ObjectStorageMod, RootPath], []).
+                          [Id, SeqNo, MetaDBId, ObjectStorageMod, RootPath], []).
 
 %% @doc Stop this server
 %%
@@ -149,9 +149,11 @@ datasync(Id) ->
 %%                         ignore               |
 %%                         {stop, Reason}
 %% Description: Initiates the server
-init([Id, MetaDBId, VNodeId, ObjectStorage, RootPath]) ->
+init([Id, SeqNo, MetaDBId, ObjectStorage, RootPath]) ->
     ObjectStorageDir  = RootPath ++ ?DEF_OBJECT_STORAGE_SUB_DIR,
-    ObjectStoragePath = ObjectStorageDir ++ integer_to_list(VNodeId) ++ ?AVS_FILE_EXT,
+    ObjectStoragePath = ObjectStorageDir ++ integer_to_list(SeqNo) ++ ?AVS_FILE_EXT,
+
+    ?debugVal({ObjectStoragePath}),
 
     %% open object-storage.
     case get_raw_path(object, ObjectStorageDir, ObjectStoragePath) of
@@ -161,7 +163,6 @@ init([Id, MetaDBId, VNodeId, ObjectStorage, RootPath]) ->
                 {ok, [ObjectWriteHandler, ObjectReadHandler]} ->
                     {ok, #state{id = Id,
                                 meta_db_id  = MetaDBId,
-                                vnode_id    = VNodeId,
                                 object_storage   = #backend_info{backend       = ObjectStorage,
                                                                  file_path     = ObjectStoragePath,
                                                                  file_path_raw = ObjectStorageRawPath,

@@ -63,32 +63,34 @@ start(_, []) ->
     {error, badarg};
 start([], _) ->
     {error, badarg};
-start(Ring, Path0) ->
+
+start(NumOfContainers, Path0) ->
     Path1     = get_path(Path0),
     Storage1  = get_object_storage_mod(),
     Metadata1 = get_metadata_db(),
-    true = ets:insert(?ETS_INFO_TABLE, {?MODULE, [{path, Path1},
+    true = ets:insert(?ETS_INFO_TABLE, {?MODULE, [{num_of_containers, NumOfContainers},
+                                                  {path, Path1},
                                                   {storage_mod, Storage1},
                                                   {metadata_db, Metadata1}]}),
-    %% Note:
-    %%   Relationship VNodeId with ObjectStorage is "$vnode_id:object-storage = 1:1".
-    %%
-    lists:foreach(
-      fun({_VNodeId, Node}) when Node /= erlang:node() ->
-              void;
-         ({ VNodeId, Node}) when Node == erlang:node() ->
-              add_container(VNodeId)
-      end, Ring),
 
+    %% Generate process of object-storage-containers.
+    %%
+    lists:foreach(fun(I) ->
+                          add_container(I-1)
+                  end, lists:seq(1, NumOfContainers)),
+
+    %% Launch a supervisor.
+    %%
     case whereis(leo_object_storage_sup) of
         undefined ->
             {error, "NOT started supervisor"};
         SupRef ->
             case supervisor:count_children(SupRef) of
-                [{specs,_},{active,Active},{supervisors,_},{workers,Workers}] when Active == Workers  ->
+                [{specs, _},{active, Active},
+                 {supervisors, _},{workers, Workers}] when Active == Workers  ->
                     ok;
                 _ ->
-                    {error, "Could NOT started worker processes"}
+                    {error, "Could NOT launch worker processes"}
             end
     end.
 
@@ -211,24 +213,24 @@ stats() ->
 %%
 -spec(add_container(integer()) ->
              ok).
-add_container(VNodeId) ->
+add_container(Id) ->
     case ets:lookup(?ETS_INFO_TABLE, ?MODULE) of
         [] -> {error, not_initialized};
         [{_, Props}|_] ->
-            add_container_1(VNodeId, Props)
+            add_container_1(Id, Props)
     end.
 
 -spec(add_container_1(integer(), list()) ->
              ok).
-add_container_1(VNodeId, Props) ->
-    Id1 = gen_id(obj_storage, VNodeId),
-    Id2 = gen_id(metadata,    VNodeId),
+add_container_1(Id0, Props) ->
+    Id1 = gen_id(obj_storage, Id0),
+    Id2 = gen_id(metadata,    Id0),
 
     Path       = proplists:get_value('path',        Props),
     StorageMod = proplists:get_value('storage_mod', Props),
     MetadataDB = proplists:get_value('metadata_db', Props),
 
-    Args = [Id1, Id2, VNodeId, StorageMod, Path],
+    Args = [Id1, Id0, Id2, StorageMod, Path],
     ChildSpec = {Id1,
                  {leo_object_storage_server, start_link, Args},
                  permanent, 2000, worker, [leo_object_storage_server]},
@@ -236,9 +238,9 @@ add_container_1(VNodeId, Props) ->
     case supervisor:start_child(leo_object_storage_sup, ChildSpec) of
         {ok, _Pid} ->
             ok = leo_backend_db_api:new(Id2, 1, MetadataDB,
-                                        Path ++ ?DEF_METADATA_STORAGE_SUB_DIR ++ integer_to_list(VNodeId)),
-            true = ets:insert(?ETS_CONTAINERS_TABLE, {VNodeId, [{obj_storage, Id1},
-                                                                {metadata,    Id2}]}),
+                                        Path ++ ?DEF_METADATA_STORAGE_SUB_DIR ++ integer_to_list(Id0)),
+            true = ets:insert(?ETS_CONTAINERS_TABLE, {Id0, [{obj_storage, Id1},
+                                                            {metadata,    Id2}]}),
             ok;
         Error ->
             io:format("[ERROR] ~p~n",[Error])
@@ -249,8 +251,8 @@ add_container_1(VNodeId, Props) ->
 %%
 -spec(remove_container(integer()) ->
              ok).
-remove_container(VNodeId) ->
-    case ets:lookup(?ETS_CONTAINERS_TABLE, VNodeId) of
+remove_container(Id) ->
+    case ets:lookup(?ETS_CONTAINERS_TABLE, Id) of
         [] -> {error, not_found};
         [{_, Info}|_] ->
             Id1 = proplists:get_value(obj_storage, Info),
@@ -258,7 +260,6 @@ remove_container(VNodeId) ->
 
             case supervisor:terminate_child(leo_object_storage_sup, Id1) of
                 ok ->
-                    ?debugVal(Id2),
                     leo_backend_db_api:stop(Id2),
                     supervisor:delete_child(leo_object_storage_sup, Id1);
                 Error ->
@@ -337,38 +338,24 @@ get_metadata_db() ->
 %% @private
 -spec(get_object_storage_pid(all | integer()) ->
              atom()).
-get_object_storage_pid(all) ->
-    Ret = ets:foldl(fun({_, Props}, Acc) ->
-                            Id = proplists:get_value(obj_storage, Props),
-                            [Id|Acc]
-                    end, [], ?ETS_CONTAINERS_TABLE),
-    lists:reverse(Ret);
+get_object_storage_pid(Arg) ->
+    Ret = ets:tab2list(?ETS_CONTAINERS_TABLE),
+    get_object_storage_pid(Ret, Arg).
 
-get_object_storage_pid(VNodeId0) ->
-    Table = ?ETS_CONTAINERS_TABLE,
-    Res   = case ets:lookup(Table, VNodeId0) of
-                [] ->
-                    case ets:next(Table, VNodeId0) of
-                        '$end_of_table' ->
-                            case ets:first(Table) of
-                                '$end_of_table' ->
-                                    {error, no_entry};
-                                VNodeId1 ->
-                                    ets:lookup(Table, VNodeId1)
-                            end;
-                        VNodeId1 ->
-                            ets:lookup(Table, VNodeId1)
-                    end;
-                Value ->
-                    Value
-            end,
+get_object_storage_pid([], _) ->
+    undefined;
 
-    case Res of
-        [] -> {error, not_found};
-        [{_, Props}|_] ->
-            proplists:get_value(obj_storage, Props)
-    end.
+get_object_storage_pid(List, all) ->
+    lists:map(fun({_, Value}) ->
+                      Id = proplists:get_value(obj_storage, Value),
+                      Id
+              end, List);
 
+get_object_storage_pid(List, Arg) ->
+    Index = (erlang:crc32(Arg) rem erlang:length(List)) + 1,
+    {_, Value} = lists:nth(Index, List),
+    Id = proplists:get_value(obj_storage, Value),
+    Id.
 
 
 %% @doc Retrieve the status of object of pid
@@ -387,45 +374,45 @@ get_pid_status(Pid) ->
 %% @private
 -spec(do_request(type_of_method(), list()) ->
              ok | {ok, list()} | {error, any()}).
-do_request(get, [{AddrId, _} = Key, StartPos, EndPos]) ->
+do_request(get, [Key, StartPos, EndPos]) ->
     KeyBin = term_to_binary(Key),
-    ?SERVER_MODULE:get(get_object_storage_pid(AddrId), KeyBin, StartPos, EndPos);
+    ?SERVER_MODULE:get(get_object_storage_pid(KeyBin), KeyBin, StartPos, EndPos);
 
-do_request(put, [{AddrId, _} = Key, ObjectPool]) ->
+do_request(put, [Key, ObjectPool]) ->
     KeyBin = term_to_binary(Key),
     Id = get_object_storage_pid(KeyBin),
 
     case get_pid_status(Id) of
         idle ->
-            ?SERVER_MODULE:put(get_object_storage_pid(AddrId), ObjectPool);
+            ?SERVER_MODULE:put(get_object_storage_pid(KeyBin), ObjectPool);
         running ->
             {error, doing_compaction}
     end;
-do_request(delete, [{AddrId, _} = Key, ObjectPool]) ->
+do_request(delete, [Key, ObjectPool]) ->
     KeyBin = term_to_binary(Key),
     Id = get_object_storage_pid(KeyBin),
 
     case get_pid_status(Id) of
         idle ->
-            ?SERVER_MODULE:delete(get_object_storage_pid(AddrId), ObjectPool);
+            ?SERVER_MODULE:delete(get_object_storage_pid(KeyBin), ObjectPool);
         running ->
             {error, doing_compaction}
     end;
-do_request(head, [{AddrId, _} = Key]) ->
+do_request(head, [Key]) ->
     KeyBin = term_to_binary(Key),
-    ?SERVER_MODULE:head(get_object_storage_pid(AddrId), KeyBin).
+    ?SERVER_MODULE:head(get_object_storage_pid(KeyBin), KeyBin).
 
 
 %% @doc Generate Id for obj-storage or metadata
 %% @private
 -spec(gen_id(obj_storage | metadata, integer()) ->
              atom()).
-gen_id(obj_storage, VNodeId) ->
+gen_id(obj_storage, Id) ->
     list_to_atom(atom_to_list(?APP_NAME)
                  ++ "_"
-                 ++ integer_to_list(VNodeId));
-gen_id(metadata, VNodeId) ->
+                 ++ integer_to_list(Id));
+gen_id(metadata, Id) ->
     list_to_atom("metadata"
                  ++ "_"
-                 ++ integer_to_list(VNodeId)).
+                 ++ integer_to_list(Id)).
 
