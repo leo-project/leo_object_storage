@@ -33,7 +33,7 @@
          loop/4,
          get/1, set_ring_hash/2, head/1]).
 
--define(DEF_TIMEOUT, 3000).
+-define(DEF_TIMEOUT, 30000). %% 30sec
 
 %%--------------------------------------------------------------------
 %% API
