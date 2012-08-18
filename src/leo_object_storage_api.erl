@@ -57,8 +57,10 @@ start([], _) ->
     {error, badarg};
 
 start(NumOfContainers, Path0) ->
-    start_app(),
+    Res = start_app(),
+    start(Res, NumOfContainers, Path0).
 
+start(ok, NumOfContainers, Path0) ->
     Path1     = get_path(Path0),
     Storage1  = get_object_storage_mod(),
     Metadata1 = get_metadata_db(),
@@ -86,7 +88,12 @@ start(NumOfContainers, Path0) ->
                 _ ->
                     {error, "Could NOT launch worker processes"}
             end
-    end.
+    end;
+
+start({error, Cause},_NumOfContainers,_Path) ->
+    {error, Cause}.
+
+
 
 
 %% @doc Insert an object into the object-storage
