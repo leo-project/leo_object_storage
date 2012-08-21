@@ -34,7 +34,7 @@
 
 %% API
 -export([start_link/5, stop/1]).
--export([put/2, get/4, delete/2, head/2, fetch/3]).
+-export([put/2, get/4, delete/2, head/2, fetch/3, store/3]).
 -export([datasync/1, compact/1, stats/1]).
 -export([init/1,
          handle_call/3,
@@ -109,7 +109,15 @@ head(Id, KeyBin) ->
 -spec(fetch(atom(), binary(), function()) ->
              {ok, list()} | {error, any()}).
 fetch(Id, KeyBin, Fun) ->
-    gen_server:call(Id, {fetch, KeyBin, Fun}).
+     gen_server:call(Id, {fetch, KeyBin, Fun}).
+
+
+%% @doc Store metadata and data
+%%
+-spec(store(atom(), #metadata{}, binary()) ->
+             ok | {error, any()}).
+store(Id, Metadata, Bin) ->
+     gen_server:call(Id, {store, Metadata, Bin}).    
 
 
 %%--------------------------------------------------------------------
@@ -235,6 +243,15 @@ handle_call({fetch, KeyBin, Fun}, _From, #state{meta_db_id     = MetaDBId,
     #backend_info{backend = Module} = StorageInfo,
     Obj = Module:new(MetaDBId, StorageInfo),
     Reply = Obj:fetch(KeyBin, Fun),
+
+    {reply, Reply, State};
+
+
+handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
+                                                  object_storage = StorageInfo} = State) ->
+    #backend_info{backend = Module} = StorageInfo,
+    Obj = Module:new(MetaDBId, StorageInfo),
+    Reply = Obj:store(Metadata, Bin),
 
     {reply, Reply, State};
 

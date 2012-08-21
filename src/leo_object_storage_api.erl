@@ -32,6 +32,7 @@
 -export([start/2,
          put/2, get/1, get/3, delete/2, head/1,
          fetch_by_addr_id/2, fetch_by_key/2,
+         store/2,
          compact/0, stats/0,
          add_container/1, remove_container/1
         ]).
@@ -176,6 +177,17 @@ fetch_by_key(Key, Fun) ->
                     end, [], List),
             {ok, lists:reverse(lists:flatten(Res))}
     end.
+
+
+%% @doc Store metadata and data
+%%
+-spec(store(#metadata{}, binary()) ->
+             ok | {error, any()}).
+store(Metadata, Bin) ->
+    #metadata{addr_id = AddrId,
+              key     = Key} = Metadata,
+    Id = get_object_storage_pid(term_to_binary({AddrId, Key})),
+    leo_object_storage_server:store(Id, Metadata, Bin).
 
 
 %% @doc Compact object-storage and metadata

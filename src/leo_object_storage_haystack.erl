@@ -30,9 +30,10 @@
 
 -include("leo_object_storage.hrl").
 -include_lib("kernel/include/file.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -export([open/1, close/2,
-         put/1, get/1, get/3, delete/1, head/1, fetch/2]).
+         put/1, get/1, get/3, delete/1, head/1, fetch/2, store/2]).
 
 -export([compact_put/4,
          compact_get/1,
@@ -155,6 +156,25 @@ head(KeyBin) ->
 fetch(KeyBin, Fun) ->
     leo_backend_db_api:fetch(MetaDBId, KeyBin, Fun).
 
+
+%% @doc Store metadata and binary
+%%
+-spec(store(#metadata{}, binary()) ->
+             ok | {error, any()}).
+store(Metadata, Bin) ->
+    Key = Metadata#metadata.key,
+    Object = #object{addr_id    = Metadata#metadata.addr_id,
+                     key        = Key,
+                     ksize      = Metadata#metadata.ksize,
+                     dsize      = Metadata#metadata.dsize,
+                     data       = Bin,
+                     clock      = Metadata#metadata.clock,
+                     timestamp  = Metadata#metadata.timestamp,
+                     checksum   = Metadata#metadata.checksum,
+                     ring_hash  = Metadata#metadata.ring_hash,
+                     del        = Metadata#metadata.del},
+    ObjectPool = leo_object_storage_pool:new(Key, Metadata, Object),
+    put_fun0(ObjectPool).
 
 %%--------------------------------------------------------------------
 %% INNER FUNCTIONS

@@ -29,7 +29,7 @@
 
 -include("leo_object_storage.hrl").
 
--export([new/1, new/2, destroy/1,
+-export([new/1, new/2, new/3, destroy/1,
          loop/4,
          get/1, set_ring_hash/2, head/1]).
 
@@ -51,8 +51,7 @@ new(#object{clock = 0} = Object, Timeout) ->
     new(Object#object{clock = leo_utils:clock()}, Timeout);
 
 new(Object0, Timeout) ->
-    Key = Object0#object.key,
-    KeyBin  = erlang:list_to_binary(Key),
+    KeyBin  = erlang:list_to_binary(Object0#object.key),
     Object1 = Object0#object{key_bin = KeyBin,
                              ksize   = erlang:byte_size(KeyBin)},
     #object{key       = Key,
@@ -75,6 +74,9 @@ new(Object0, Timeout) ->
                           checksum  = Checksum,
                           timestamp = Timestamp}, Object1#object{checksum = Checksum}, Timeout]).
 
+new(Key, Metadata, Object) ->
+    spawn(?MODULE, loop, [Key, Metadata, Object, ?DEF_TIMEOUT]).
+    
 
 %% @doc Receiver
 %%
