@@ -33,7 +33,7 @@
 -include("leo_object_storage.hrl").
 
 %% API
--export([start_link/6, stop/1]).
+-export([start_link/5, stop/1]).
 -export([put/2, get/4, delete/2, head/2, fetch/3]).
 -export([datasync/1, compact/1, stats/1]).
 -export([init/1,
@@ -45,8 +45,7 @@
 
 -record(state, {id             :: atom(),
                 meta_db_id     :: atom(),
-                device_num     :: integer(),
-                storage_num    :: integer(),
+                vnode_id       :: integer(),
                 object_storage :: #backend_info{},
                 storage_stats  :: #storage_stats{}
                }).
@@ -58,13 +57,11 @@
 %%====================================================================
 %% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
 %% Description: Starts the server
--spec(start_link(atom(), atom(), integer(), integer(), atom(), string()) ->
+-spec(start_link(atom(), integer(), atom(), atom(), string()) ->
              ok | {error, any()}).
-start_link(Id, MetaDBId, DeviceNumber, StorageNumber, ObjectStorageMod, RootPath) ->
-    io:format("id:~p, meda-db-id:~p, #d:~p, #s:~p, mod:~p, path:~p~n",
-              [Id,  MetaDBId, DeviceNumber, StorageNumber, ObjectStorageMod, RootPath]),
+start_link(Id, SeqNo, MetaDBId, ObjectStorageMod, RootPath) ->
     gen_server:start_link({local, Id}, ?MODULE,
-                          [Id, MetaDBId, DeviceNumber, StorageNumber, ObjectStorageMod, RootPath], []).
+                          [Id, SeqNo, MetaDBId, ObjectStorageMod, RootPath], []).
 
 %% @doc Stop this server
 %%
@@ -152,9 +149,11 @@ datasync(Id) ->
 %%                         ignore               |
 %%                         {stop, Reason}
 %% Description: Initiates the server
-init([Id, MetaDBId, DeviceNum, StorageNum, ObjectStorage, RootPath]) ->
+init([Id, SeqNo, MetaDBId, ObjectStorage, RootPath]) ->
     ObjectStorageDir  = RootPath ++ ?DEF_OBJECT_STORAGE_SUB_DIR,
-    ObjectStoragePath = ObjectStorageDir ++ atom_to_list(Id) ++ ?AVS_FILE_EXT,
+    ObjectStoragePath = ObjectStorageDir ++ integer_to_list(SeqNo) ++ ?AVS_FILE_EXT,
+
+    ?debugVal({ObjectStoragePath}),
 
     %% open object-storage.
     case get_raw_path(object, ObjectStorageDir, ObjectStoragePath) of
@@ -164,8 +163,6 @@ init([Id, MetaDBId, DeviceNum, StorageNum, ObjectStorage, RootPath]) ->
                 {ok, [ObjectWriteHandler, ObjectReadHandler]} ->
                     {ok, #state{id = Id,
                                 meta_db_id  = MetaDBId,
-                                device_num  = DeviceNum,
-                                storage_num = StorageNum,
                                 object_storage   = #backend_info{backend       = ObjectStorage,
                                                                  file_path     = ObjectStoragePath,
                                                                  file_path_raw = ObjectStorageRawPath,

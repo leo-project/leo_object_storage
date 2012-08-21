@@ -24,16 +24,22 @@
 %%======================================================================
 -include_lib("eunit/include/eunit.hrl").
 
--define(APP_NAME,                      'leo_object_storage').
--define(DEF_OBJECT_STORAGE,            'haystack').
+-define(APP_NAME, 'leo_object_storage').
+
+%% Default Values
+%%
 -define(DEF_METADATA_DB,               'bitcask').
 -define(DEF_OBJECT_STORAGE_SUB_DIR,    "object/").
 -define(DEF_METADATA_STORAGE_SUB_DIR,  "metadata/").
 
+
+%% Error Constants
+%%
 -define(ERROR_FD_CLOSED,               "already closed file-descriptor").
 -define(ERROR_FILE_OPEN,               "file open error").
 -define(ERROR_INVALID_DATA,            "invalid data").
 -define(ERROR_DATA_SIZE_DID_NOT_MATCH, "data-size did not match").
+
 
 -type(type_of_method() :: get | put | delete | head).
 
