@@ -163,14 +163,17 @@ fetch(KeyBin, Fun) ->
              ok | {error, any()}).
 store(Metadata, Bin) ->
     Key = Metadata#metadata.key,
+    Checksum = leo_hex:hex_to_integer(leo_hex:binary_to_hex(erlang:md5(Bin))),
+
     Object = #object{addr_id    = Metadata#metadata.addr_id,
                      key        = Key,
+                     key_bin    = list_to_binary(Key),
                      ksize      = Metadata#metadata.ksize,
                      dsize      = Metadata#metadata.dsize,
                      data       = Bin,
                      clock      = Metadata#metadata.clock,
                      timestamp  = Metadata#metadata.timestamp,
-                     checksum   = Metadata#metadata.checksum,
+                     checksum   = Checksum,
                      ring_hash  = Metadata#metadata.ring_hash,
                      del        = Metadata#metadata.del},
     ObjectPool = leo_object_storage_pool:new(Key, Metadata, Object),
