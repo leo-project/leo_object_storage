@@ -161,8 +161,6 @@ init([Id, SeqNo, MetaDBId, ObjectStorage, RootPath]) ->
     ObjectStorageDir  = RootPath ++ ?DEF_OBJECT_STORAGE_SUB_DIR,
     ObjectStoragePath = ObjectStorageDir ++ integer_to_list(SeqNo) ++ ?AVS_FILE_EXT,
 
-    ?debugVal({ObjectStoragePath}),
-
     %% open object-storage.
     case get_raw_path(object, ObjectStorageDir, ObjectStoragePath) of
         {ok, ObjectStorageRawPath} ->
