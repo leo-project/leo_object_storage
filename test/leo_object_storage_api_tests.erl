@@ -346,6 +346,10 @@ compact_(Path) ->
     ok.
 
 
+proper_test_() ->
+    {timeout, 60000, ?_assertEqual([], proper:module(leo_object_storage_api_prop))}.
+
+
 %%--------------------------------------------------------------------
 %% INNER FUNCTIONS
 %%--------------------------------------------------------------------

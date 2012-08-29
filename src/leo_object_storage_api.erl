@@ -32,6 +32,7 @@
 -export([start/2,
          put/2, get/1, get/3, delete/2, head/1,
          fetch_by_addr_id/2, fetch_by_key/2,
+         store/2,
          compact/0, stats/0,
          add_container/1, remove_container/1
         ]).
@@ -178,6 +179,17 @@ fetch_by_key(Key, Fun) ->
     end.
 
 
+%% @doc Store metadata and data
+%%
+-spec(store(#metadata{}, binary()) ->
+             ok | {error, any()}).
+store(Metadata, Bin) ->
+    #metadata{addr_id = AddrId,
+              key     = Key} = Metadata,
+    Id = get_object_storage_pid(term_to_binary({AddrId, Key})),
+    leo_object_storage_server:store(Id, Metadata, Bin).
+
+
 %% @doc Compact object-storage and metadata
 -spec(compact() ->
              ok | list()).
@@ -280,10 +292,10 @@ start_app() ->
     Module = leo_object_storage,
     case application:start(Module) of
         ok ->
-            ?ETS_CONTAINERS_TABLE = ets:new(?ETS_CONTAINERS_TABLE,
-                                            [named_table, ordered_set, public, {read_concurrency, true}]),
-            ?ETS_INFO_TABLE       = ets:new(?ETS_INFO_TABLE,
-                                            [named_table, set, public, {read_concurrency, true}]),
+            catch ets:new(?ETS_CONTAINERS_TABLE,
+                          [named_table, ordered_set, public, {read_concurrency, true}]),
+            catch ets:new(?ETS_INFO_TABLE,
+                          [named_table, set, public, {read_concurrency, true}]),
             ok;
         {error, {already_started, Module}} ->
             ok;

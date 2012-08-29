@@ -30,9 +30,10 @@
 
 -include("leo_object_storage.hrl").
 -include_lib("kernel/include/file.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -export([open/1, close/2,
-         put/1, get/1, get/3, delete/1, head/1, fetch/2]).
+         put/1, get/1, get/3, delete/1, head/1, fetch/2, store/2]).
 
 -export([compact_put/4,
          compact_get/1,
@@ -68,6 +69,7 @@
 -define(BLEN_TS_N,           8). %% timestamp-min
 -define(BLEN_TS_S,           8). %% timestamp-sec
 -define(BLEN_DEL,            8). %% delete flag
+%% ----------------------------- %%
 -define(BLEN_BUF,          496). %% buffer
 %% ----------------------------- %%
 -define(BLEN_HEADER,      1024). %% 128 Byte
@@ -155,6 +157,28 @@ head(KeyBin) ->
 fetch(KeyBin, Fun) ->
     leo_backend_db_api:fetch(MetaDBId, KeyBin, Fun).
 
+
+%% @doc Store metadata and binary
+%%
+-spec(store(#metadata{}, binary()) ->
+             ok | {error, any()}).
+store(Metadata, Bin) ->
+    Key = Metadata#metadata.key,
+    Checksum = leo_hex:hex_to_integer(leo_hex:binary_to_hex(erlang:md5(Bin))),
+
+    Object = #object{addr_id    = Metadata#metadata.addr_id,
+                     key        = Key,
+                     key_bin    = list_to_binary(Key),
+                     ksize      = Metadata#metadata.ksize,
+                     dsize      = Metadata#metadata.dsize,
+                     data       = Bin,
+                     clock      = Metadata#metadata.clock,
+                     timestamp  = Metadata#metadata.timestamp,
+                     checksum   = Checksum,
+                     ring_hash  = Metadata#metadata.ring_hash,
+                     del        = Metadata#metadata.del},
+    ObjectPool = leo_object_storage_pool:new(Key, Metadata, Object),
+    put_fun0(ObjectPool).
 
 %%--------------------------------------------------------------------
 %% INNER FUNCTIONS
@@ -347,17 +371,21 @@ put_fun0(ObjectPool) ->
 
         #object{addr_id  = AddrId,
                 key      = Key,
-                checksum = Checksum0} = Object ->
-            Ret = case head(term_to_binary({AddrId, Key})) of
-                      {ok, MetadataBin} ->
-                          #metadata{checksum = Checksum1} = binary_to_term(MetadataBin),
-                          case (Checksum0 == Checksum1) of
-                              true ->
-                                  match;
-                              false ->
+                checksum = Checksum0,
+                del      = DelFlag} = Object ->
+            Ret = case DelFlag of
+                      0 ->
+                          case head(term_to_binary({AddrId, Key})) of
+                              {ok, MetadataBin} ->
+                                  #metadata{checksum = Checksum1} = binary_to_term(MetadataBin),
+                                  case (Checksum0 == Checksum1) of
+                                      true  -> match;
+                                      false -> not_match
+                                  end;
+                              _ ->
                                   not_match
                           end;
-                      _ ->
+                      1 ->
                           not_match
                   end,
 
