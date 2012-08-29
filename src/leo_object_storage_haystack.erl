@@ -371,17 +371,21 @@ put_fun0(ObjectPool) ->
 
         #object{addr_id  = AddrId,
                 key      = Key,
-                checksum = Checksum0} = Object ->
-            Ret = case head(term_to_binary({AddrId, Key})) of
-                      {ok, MetadataBin} ->
-                          #metadata{checksum = Checksum1} = binary_to_term(MetadataBin),
-                          case (Checksum0 == Checksum1) of
-                              true ->
-                                  match;
-                              false ->
+                checksum = Checksum0,
+                del      = DelFlag} = Object ->
+            Ret = case DelFlag of
+                      0 ->
+                          case head(term_to_binary({AddrId, Key})) of
+                              {ok, MetadataBin} ->
+                                  #metadata{checksum = Checksum1} = binary_to_term(MetadataBin),
+                                  case (Checksum0 == Checksum1) of
+                                      true  -> match;
+                                      false -> not_match
+                                  end;
+                              _ ->
                                   not_match
                           end;
-                      _ ->
+                      1 ->
                           not_match
                   end,
 
