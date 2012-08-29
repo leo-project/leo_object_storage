@@ -292,10 +292,10 @@ start_app() ->
     Module = leo_object_storage,
     case application:start(Module) of
         ok ->
-            ?ETS_CONTAINERS_TABLE = ets:new(?ETS_CONTAINERS_TABLE,
-                                            [named_table, ordered_set, public, {read_concurrency, true}]),
-            ?ETS_INFO_TABLE       = ets:new(?ETS_INFO_TABLE,
-                                            [named_table, set, public, {read_concurrency, true}]),
+            catch ets:new(?ETS_CONTAINERS_TABLE,
+                          [named_table, ordered_set, public, {read_concurrency, true}]),
+            catch ets:new(?ETS_INFO_TABLE,
+                          [named_table, set, public, {read_concurrency, true}]),
             ok;
         {error, {already_started, Module}} ->
             ok;

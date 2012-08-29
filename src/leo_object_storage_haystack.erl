@@ -69,6 +69,7 @@
 -define(BLEN_TS_N,           8). %% timestamp-min
 -define(BLEN_TS_S,           8). %% timestamp-sec
 -define(BLEN_DEL,            8). %% delete flag
+%% ----------------------------- %%
 -define(BLEN_BUF,          496). %% buffer
 %% ----------------------------- %%
 -define(BLEN_HEADER,      1024). %% 128 Byte
