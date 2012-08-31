@@ -48,7 +48,7 @@ new(Object) ->
 -spec(new(#object{}, integer()) ->
              {ok, pid()}).
 new(#object{clock = 0} = Object, Timeout) ->
-    new(Object#object{clock = leo_utils:clock()}, Timeout);
+    new(Object#object{clock = leo_date:clock()}, Timeout);
 
 new(Object0, Timeout) ->
     KeyBin  = erlang:list_to_binary(Object0#object.key),
