@@ -358,7 +358,7 @@ get_raw_path(object, ObjectStorageRootDir, SymLinkPath) ->
                 {error, enoent} ->
                     RawPath = gen_raw_file_path(SymLinkPath),
 
-                    case leo_utils:file_touch(RawPath) of
+                    case leo_file:file_touch(RawPath) of
                         ok ->
                             case file:make_symlink(RawPath, SymLinkPath) of
                                 ok ->
@@ -496,19 +496,17 @@ compact_fun2({_Error, State}) ->
 -spec(calc_remain_disksize(atom(), string()) ->
              {ok, integer()} | {error, any()}).
 calc_remain_disksize(MetaDBId, FilePath) ->
-    case leo_utils:file_get_mount_path(FilePath) of
+    case leo_file:file_get_mount_path(FilePath) of
         {ok, MountPath} ->
             {ok, MetaDir} = leo_backend_db_api:get_db_raw_filepath(MetaDBId),
 
-            case catch leo_utils:file_get_total_size(MetaDir) of
+            case catch leo_file:file_get_total_size(MetaDir) of
                 {'EXIT', Reason} ->
                     {error, Reason};
                 MetaSize ->
                     AvsSize = filelib:file_size(FilePath),
-                    Remain = leo_utils:file_get_remain_disk(MountPath),
-                    %% ?info("handle_call/3",
-                    %%       "(compact_start) mount_path: ~p, remain:~p meta_dir:~p meta_size:~p avs_size:~p rec:~p",
-                    %%       [MountPath, Remain, MetaDir, MetaSize, AvsSize]),
+                    Remain  = leo_file:file_get_remain_disk(MountPath),
+                    %% ?debugVal({MountPath, Remain, MetaDir, MetaSize, AvsSize}),
                     {ok, Remain - (AvsSize + MetaSize) * 1.5}
             end;
         Error ->
@@ -631,5 +629,5 @@ do_compact1(Error,_Metadata,_Props,_State) ->
 -spec(gen_raw_file_path(string()) ->
              string()).
 gen_raw_file_path(FilePath) ->
-    FilePath ++ "_" ++ integer_to_list(leo_utils:now()).
+    FilePath ++ "_" ++ integer_to_list(leo_date:now()).
 
