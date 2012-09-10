@@ -63,7 +63,7 @@ new(Object0, Timeout) ->
 
     Checksum = case Bin of
                    <<>> -> 281949768489412648962353822266799178366;
-                   _ -> leo_hex:hex_to_integer(leo_hex:binary_to_hex(erlang:md5(Bin)))
+                   _ -> leo_hex:binary_to_integer(erlang:md5(Bin))
                end,
 
     spawn(?MODULE, loop,

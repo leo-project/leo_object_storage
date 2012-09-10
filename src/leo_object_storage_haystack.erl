@@ -164,7 +164,7 @@ fetch(KeyBin, Fun) ->
              ok | {error, any()}).
 store(Metadata, Bin) ->
     Key = Metadata#metadata.key,
-    Checksum = leo_hex:hex_to_integer(leo_hex:binary_to_hex(erlang:md5(Bin))),
+    Checksum = leo_hex:binary_to_integer(erlang:md5(Bin)),
 
     Object = #object{addr_id    = Metadata#metadata.addr_id,
                      key        = Key,
@@ -555,7 +555,7 @@ compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
             case RemainLen of
                 RemainSize ->
                     <<KeyValue:KSize/binary, BodyValue:DSize/binary, _Footer/binary>> = RemainBin,
-                    case leo_hex:hex_to_integer(leo_hex:binary_to_hex(erlang:md5(BodyValue))) of
+                    case leo_hex:binary_to_integer(erlang:md5(BodyValue)) of
                         Checksum ->
                             Timestamp = calendar:datetime_to_gregorian_seconds(
                                           {{Year, Month, Day}, {Hour, Min, Second}}),
