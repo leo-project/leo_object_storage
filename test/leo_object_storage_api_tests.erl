@@ -287,11 +287,11 @@ compact_(Path) ->
     %% inspect for compaction
     {ok, Res0} = leo_object_storage_api:stats(),
     Sum0 = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
-                                               total_num  = _Total,
-                                               active_num = Active}}, Sum) ->
-                               Sum + Active
+                                               total_num  = Total,
+                                               active_num = _Active}}, Sum) ->
+                               Sum + Total
                        end, 0, Res0),
-    ?assertEqual(7, Sum0),
+    ?assertEqual(10, Sum0),
     timer:sleep(250),
 
     Res1 = leo_object_storage_api:compact(),
@@ -301,9 +301,9 @@ compact_(Path) ->
 
     {ok, Res2} = leo_object_storage_api:stats(),
     Sum1 = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
-                                               total_num  = _Total,
-                                               active_num = Active}}, Sum) ->
-                               Sum + Active
+                                               total_num  = Total,
+                                               active_num = _Active}}, Sum) ->
+                               Sum + Total
                        end, 0, Res2),
     ?assertEqual(7, Sum1),
 
