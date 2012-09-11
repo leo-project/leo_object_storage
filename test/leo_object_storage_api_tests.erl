@@ -111,14 +111,16 @@ operate_(Path) ->
     ?assertEqual(byte_size(Bin), Obj0#object.dsize),
     ?assertEqual(0,              Obj0#object.del),
 
+    %% 3. Store (for Copy)
+    ok = leo_object_storage_api:store(Meta1, Bin),
+    {ok, Meta1_1, _} = leo_object_storage_api:get({AddrId, Key}),
+    ?assertEqual(AddrId, Meta1_1#metadata.addr_id),
+    ?assertEqual(Key,    Meta1_1#metadata.key),
+    ?assertEqual(0,      Meta1_1#metadata.del),
 
+
+    %% 4. Get - Various cases
     %% >> Case of regular.
-    %% ------------------
-    %% J.S.Bach
-    %% ------------------
-    %% 01234567 << offset
-    %% 12345678 << length
-    %% ------------------
     {ok, _Meta1_1, ObjectPool1_1} = leo_object_storage_api:get({AddrId, Key}, 4, 8),
     Obj0_1 = leo_object_storage_pool:get(ObjectPool1_1),
 
@@ -141,14 +143,14 @@ operate_(Path) ->
     ?assertEqual(<<>>, Obj0_4#object.data),
 
 
-    %% 3. Head
+    %% 5. Head
     {ok, Res2} = leo_object_storage_api:head({AddrId, Key}),
     Meta2 = binary_to_term(Res2),
     ?assertEqual(AddrId, Meta2#metadata.addr_id),
     ?assertEqual(Key,    Meta2#metadata.key),
     ?assertEqual(0,      Meta2#metadata.del),
 
-    %% 4. Delete
+    %% 6. Delete
     ObjectPool2 = leo_object_storage_pool:new(#object{method  = delete,
                                                       key     = Key,
                                                       addr_id = AddrId,
@@ -157,16 +159,17 @@ operate_(Path) ->
     Res3 = leo_object_storage_api:delete({AddrId, Key}, ObjectPool2),
     ?assertEqual(ok, Res3),
 
-    %% 5. Get
+    %% 7. Get
     Res4 = leo_object_storage_api:get({AddrId, Key}),
     ?assertEqual(not_found, Res4),
 
-    %% 6. Head
+    %% 8. Head
     {ok, Res5} = leo_object_storage_api:head({AddrId, Key}),
     Meta5 = binary_to_term(Res5),
     ?assertEqual(AddrId, Meta5#metadata.addr_id),
     ?assertEqual(Key,    Meta5#metadata.key),
     ?assertEqual(1,      Meta5#metadata.del),
+
 
     application:stop(leo_backend_db),
     application:stop(bitcask),
