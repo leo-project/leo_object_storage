@@ -48,7 +48,7 @@ new(Object) ->
 -spec(new(#object{}, integer()) ->
              {ok, pid()}).
 new(#object{clock = 0} = Object, Timeout) ->
-    new(Object#object{clock = leo_utils:clock()}, Timeout);
+    new(Object#object{clock = leo_date:clock()}, Timeout);
 
 new(Object0, Timeout) ->
     KeyBin  = erlang:list_to_binary(Object0#object.key),
@@ -63,7 +63,7 @@ new(Object0, Timeout) ->
 
     Checksum = case Bin of
                    <<>> -> 281949768489412648962353822266799178366;
-                   _ -> leo_hex:hex_to_integer(leo_hex:binary_to_hex(erlang:md5(Bin)))
+                   _ -> leo_hex:binary_to_integer(erlang:md5(Bin))
                end,
 
     spawn(?MODULE, loop,
