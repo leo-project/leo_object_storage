@@ -239,9 +239,9 @@ add_container_1(Id0, Props) ->
     Id1 = gen_id(obj_storage, Id0),
     Id2 = gen_id(metadata,    Id0),
 
-    Path       = proplists:get_value('path',        Props),
-    StorageMod = proplists:get_value('storage_mod', Props),
-    MetadataDB = proplists:get_value('metadata_db', Props),
+    Path       = leo_misc:get_value('path',        Props),
+    StorageMod = leo_misc:get_value('storage_mod', Props),
+    MetadataDB = leo_misc:get_value('metadata_db', Props),
 
     Args = [Id1, Id0, Id2, StorageMod, Path],
     ChildSpec = {Id1,
@@ -268,8 +268,8 @@ remove_container(Id) ->
     case ets:lookup(?ETS_CONTAINERS_TABLE, Id) of
         [] -> {error, not_found};
         [{_, Info}|_] ->
-            Id1 = proplists:get_value(obj_storage, Info),
-            Id2 = proplists:get_value(metadata,    Info),
+            Id1 = leo_misc:get_value(obj_storage, Info),
+            Id2 = leo_misc:get_value(metadata,    Info),
 
             case supervisor:terminate_child(leo_object_storage_sup, Id1) of
                 ok ->
@@ -360,14 +360,14 @@ get_object_storage_pid([], _) ->
 
 get_object_storage_pid(List, all) ->
     lists:map(fun({_, Value}) ->
-                      Id = proplists:get_value(obj_storage, Value),
+                      Id = leo_misc:get_value(obj_storage, Value),
                       Id
               end, List);
 
 get_object_storage_pid(List, Arg) ->
     Index = (erlang:crc32(Arg) rem erlang:length(List)) + 1,
     {_, Value} = lists:nth(Index, List),
-    Id = proplists:get_value(obj_storage, Value),
+    Id = leo_misc:get_value(obj_storage, Value),
     Id.
 
 
