@@ -46,8 +46,11 @@
                 type         :: obj_type()
                }).
 
--define(PATH, "./temp").
--define(NUM_OF_PROCS, 3).
+
+-define(PATH1, "./temp1").
+-define(PATH2, "./temp2").
+-define(NUM_OF_PROCS1, 3).
+-define(NUM_OF_PROCS2, 3).
 
 
 %% @doc Utils
@@ -76,14 +79,16 @@ objpool(Method) ->
 prop_store() ->
     ?FORALL(Cmds, commands(?MODULE, initial_state()),
             begin
-                ok = leo_object_storage_api:start(?NUM_OF_PROCS, ?PATH),
+                ok = leo_object_storage_api:start([{?NUM_OF_PROCS1, ?PATH1},
+                                                   {?NUM_OF_PROCS2, ?PATH2}]),
                 {H,S,Res} = run_commands(?MODULE, Cmds),
                 ?debugVal({H,S,Res}),
 
                 application:stop(leo_backend_db),
                 application:stop(bitcask),
                 application:stop(leo_object_storage),
-                os:cmd("rm -rf ./temp"),
+                os:cmd("rm -rf " ++ ?PATH1),
+                os:cmd("rm -rf " ++ ?PATH2),
 
                 ?WHENFAIL(
                    io:format("History: ~p\nState: ~p\nRes: ~p\n", [H,S,Res]),

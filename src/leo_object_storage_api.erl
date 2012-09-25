@@ -29,18 +29,18 @@
 
 -include("leo_object_storage.hrl").
 
--export([start/2,
+-export([start/1,
          put/2, get/1, get/3, delete/2, head/1,
          fetch_by_addr_id/2, fetch_by_key/2,
          store/2,
-         compact/0, stats/0,
-         add_container/1, remove_container/1
+         compact/0, stats/0
         ]).
 
 
 -define(ETS_CONTAINERS_TABLE, 'leo_object_storage_containers').
 -define(ETS_INFO_TABLE,       'leo_object_storage_info').
 -define(SERVER_MODULE,        'leo_object_storage_server').
+-define(DEVICE_ID_INTERVALS,  10000).
 
 
 %%--------------------------------------------------------------------
@@ -48,33 +48,35 @@
 %%--------------------------------------------------------------------
 %% @doc Create object-storage processes
 %%
--spec(start(list(), string()) ->
+
+-spec(start(list()) ->
              ok | {error, any()}).
-start([], []) ->
-    {error, badarg};
-start(_, []) ->
-    {error, badarg};
-start([], _) ->
+start([]) ->
     {error, badarg};
 
-start(NumOfContainers, Path0) ->
+start(ObjectStorageInfo) ->
     Res = start_app(),
-    start(Res, NumOfContainers, Path0).
+    start(Res, ObjectStorageInfo).
 
-start(ok, NumOfContainers, Path0) ->
-    Path1     = get_path(Path0),
+start(ok, ObjectStorageInfo) ->
     Storage1  = get_object_storage_mod(),
     Metadata1 = get_metadata_db(),
-    true = ets:insert(?ETS_INFO_TABLE, {?MODULE, [{num_of_containers, NumOfContainers},
-                                                  {path, Path1},
-                                                  {storage_mod, Storage1},
-                                                  {metadata_db, Metadata1}]}),
 
-    %% Generate process of object-storage-containers.
-    %%
-    lists:foreach(fun(I) ->
-                          add_container(I-1)
-                  end, lists:seq(1, NumOfContainers)),
+    _ = lists:foldl(
+          fun({Containers, Path0}, I) ->
+                  Path1 = get_path(Path0),
+                  Props = [{num_of_containers, Containers},
+                           {path,              Path1},
+                           {storage_mod,       Storage1},
+                           {metadata_db,       Metadata1}],
+
+                  true  = ets:insert(?ETS_INFO_TABLE, {list_to_atom(?MODULE_STRING ++ integer_to_list(I)), Props}),
+                  ok = lists:foreach(fun(N) ->
+                                             Id = (I * ?DEVICE_ID_INTERVALS) + N,
+                                             ok = add_container(Id, Props)
+                                     end, lists:seq(0, Containers-1)),
+                  I + 1
+          end, 0, ObjectStorageInfo),
 
     %% Launch a supervisor.
     %%
@@ -91,7 +93,7 @@ start(ok, NumOfContainers, Path0) ->
             end
     end;
 
-start({error, Cause},_NumOfContainers,_Path) ->
+start({error, Cause},_ObjectStorageInfo) ->
     {error, Cause}.
 
 
@@ -224,18 +226,9 @@ stats() ->
 
 %% @doc Add an object storage container into
 %%
--spec(add_container(integer()) ->
+-spec(add_container(integer(), list()) ->
              ok).
-add_container(Id) ->
-    case ets:lookup(?ETS_INFO_TABLE, ?MODULE) of
-        [] -> {error, not_initialized};
-        [{_, Props}|_] ->
-            add_container_1(Id, Props)
-    end.
-
--spec(add_container_1(integer(), list()) ->
-             ok).
-add_container_1(Id0, Props) ->
+add_container(Id0, Props) ->
     Id1 = gen_id(obj_storage, Id0),
     Id2 = gen_id(metadata,    Id0),
 
@@ -260,25 +253,24 @@ add_container_1(Id0, Props) ->
     end.
 
 
-%% @doc Remove an object storage container from
-%%
--spec(remove_container(integer()) ->
-             ok).
-remove_container(Id) ->
-    case ets:lookup(?ETS_CONTAINERS_TABLE, Id) of
-        [] -> {error, not_found};
-        [{_, Info}|_] ->
-            Id1 = leo_misc:get_value(obj_storage, Info),
-            Id2 = leo_misc:get_value(metadata,    Info),
-
-            case supervisor:terminate_child(leo_object_storage_sup, Id1) of
-                ok ->
-                    leo_backend_db_api:stop(Id2),
-                    supervisor:delete_child(leo_object_storage_sup, Id1);
-                Error ->
-                    Error
-            end
-    end.
+%% %% @doc Remove an object storage container from
+%% %%
+%% -spec(remove_container(integer()) ->
+%%              ok).
+%% remove_container(Id) ->
+%%     case ets:lookup(?ETS_CONTAINERS_TABLE, Id) of
+%%         [] -> {error, not_found};
+%%         [{_, Info}|_] ->
+%%             Id1 = leo_misc:get_value(obj_storage, Info),
+%%             Id2 = leo_misc:get_value(metadata,    Info),
+%%             case supervisor:terminate_child(leo_object_storage_sup, Id1) of
+%%                 ok ->
+%%                     leo_backend_db_api:stop(Id2),
+%%                     supervisor:delete_child(leo_object_storage_sup, Id1);
+%%                 Error ->
+%%                     Error
+%%             end
+%%     end.
 
 
 %%--------------------------------------------------------------------
@@ -421,11 +413,11 @@ do_request(head, [Key]) ->
 -spec(gen_id(obj_storage | metadata, integer()) ->
              atom()).
 gen_id(obj_storage, Id) ->
-    list_to_atom(atom_to_list(?APP_NAME)
-                 ++ "_"
-                 ++ integer_to_list(Id));
+    list_to_atom(lists:append([atom_to_list(?APP_NAME),
+                               "_",
+                               integer_to_list(Id)]));
 gen_id(metadata, Id) ->
-    list_to_atom("metadata"
-                 ++ "_"
-                 ++ integer_to_list(Id)).
+    list_to_atom(lists:append(["metadata",
+                               "_",
+                               integer_to_list(Id)])).
 

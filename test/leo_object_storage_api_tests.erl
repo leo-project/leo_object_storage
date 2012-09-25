@@ -46,24 +46,23 @@ all_test_() ->
                           ]]}.
 
 setup() ->
-    Path = "./avs",
-    Path.
+    Path1 = "./avs1",
+    Path2 = "./avs2",
+    [Path1, Path2].
 
-teardown(Path) ->
-    %% ?debugVal(os:cmd("ls -l " ++ Path ++ "/object/")),
-    %% ?debugVal(os:cmd("ls -l " ++ Path ++ "/metadata/")),
-    os:cmd("rm -rf " ++ Path),
+teardown([Path1, Path2]) ->
+    os:cmd("rm -rf " ++ Path1),
+    os:cmd("rm -rf " ++ Path2),
     ok.
 
 
-new_(Path) ->
+new_([Path1, _]) ->
     %% 1-1.
     DivCount0 = 4,
-    ok = leo_object_storage_api:start(DivCount0, Path),
+    ok = leo_object_storage_api:start([{DivCount0, Path1}]),
 
     Ref = whereis(leo_object_storage_sup),
     ?assertEqual(true, is_pid(Ref)),
-    ?debugVal(Ref),
 
     [{specs,_},{active,Active0},{supervisors,_},{workers,Workers0}] = supervisor:count_children(Ref),
     ?assertEqual(DivCount0, Active0),
@@ -75,16 +74,13 @@ new_(Path) ->
 
 
     %% 2. Exception
-    Res0 = leo_object_storage_api:start([], []),
+    Res0 = leo_object_storage_api:start([]),
     ?assertEqual({error, badarg}, Res0),
-
-    Res1 = leo_object_storage_api:start([], Path),
-    ?assertEqual({error, badarg}, Res1),
     ok.
 
 %% Get/Put/Delte
-operate_(Path) ->
-    ok = leo_object_storage_api:start(8, Path),
+operate_([Path1, Path2]) ->
+    ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
 
     %% 1. Put
     AddrId = 0,
@@ -176,8 +172,8 @@ operate_(Path) ->
     application:stop(leo_object_storage),
     ok.
 
-fetch_by_addr_id_(Path) ->
-    ok = leo_object_storage_api:start(8, Path),
+fetch_by_addr_id_([Path1, Path2]) ->
+    ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
 
     ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
     ok = put_test_data(127,  "air/on/g/string/1", <<"JSB1">>),
@@ -208,8 +204,8 @@ fetch_by_addr_id_(Path) ->
     application:stop(leo_object_storage),
     ok.
 
-fetch_by_key_(Path) ->
-    ok = leo_object_storage_api:start(8, Path),
+fetch_by_key_([Path1, Path2]) ->
+    ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
 
     ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
     ok = put_test_data(127,  "air/on/g/string/1", <<"JSB1">>),
@@ -238,8 +234,8 @@ fetch_by_key_(Path) ->
     application:stop(leo_object_storage),
     ok.
 
-stats_(Path) ->
-    ok = leo_object_storage_api:start(8, Path),
+stats_([Path1, Path2]) ->
+    ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
 
     ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
     ok = put_test_data(127,  "air/on/g/string/1", <<"JSB1">>),
@@ -258,11 +254,11 @@ stats_(Path) ->
     application:stop(leo_object_storage),
     ok.
 
-compact_(Path) ->
+compact_([Path1, Path2]) ->
     application:start(sasl),
     application:start(os_mon),
 
-    ok = leo_object_storage_api:start(8, Path),
+    ok = leo_object_storage_api:start([{4, Path1}, {4, Path2}]),
 
     ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
     ok = put_test_data(127,  "air/on/g/string/1", <<"JSB1">>),
