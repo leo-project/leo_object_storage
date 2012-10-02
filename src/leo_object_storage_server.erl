@@ -31,6 +31,7 @@
 -behaviour(gen_server).
 
 -include("leo_object_storage.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 %% API
 -export([start_link/5, stop/1]).
@@ -154,13 +155,14 @@ stats(Id) ->
 %%                         {stop, Reason}
 %% Description: Initiates the server
 init([Id, SeqNo, MetaDBId, ObjectStorage, RootPath]) ->
-    ObjectStorageDir  = RootPath ++ ?DEF_OBJECT_STORAGE_SUB_DIR,
-    ObjectStoragePath = ObjectStorageDir ++ integer_to_list(SeqNo) ++ ?AVS_FILE_EXT,
+    ObjectStorageDir  = lists:append([RootPath, ?DEF_OBJECT_STORAGE_SUB_DIR]),
+    ObjectStoragePath = lists:append([ObjectStorageDir, integer_to_list(SeqNo), ?AVS_FILE_EXT]),
 
     %% open object-storage.
     case get_raw_path(object, ObjectStorageDir, ObjectStoragePath) of
         {ok, ObjectStorageRawPath} ->
             Obj = ObjectStorage:new([],[]),
+
             case Obj:open(ObjectStorageRawPath) of
                 {ok, [ObjectWriteHandler, ObjectReadHandler]} ->
                     StorageInfo = #backend_info{backend       = ObjectStorage,
@@ -550,6 +552,7 @@ do_stats(MetaDBId, #backend_info{backend       = Module,
                                  file_path     = RootPath,
                                  read_handler  = ReadHandler} = StorageInfo) ->
     Obj = Module:new(MetaDBId, StorageInfo),
+
     case Obj:compact_get(ReadHandler) of
         {ok, Metadata, [_HeaderValue, _KeyValue, _BodyValue, NextOffset]} ->
             case do_stats(MetaDBId, Obj, ReadHandler, Metadata, NextOffset, #storage_stats{}) of

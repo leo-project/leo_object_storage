@@ -28,6 +28,7 @@
 -author('Yosuke Hara').
 
 -include("leo_object_storage.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -export([start/1,
          put/2, get/1, get/3, delete/2, head/1,
@@ -236,6 +237,11 @@ add_container(Id0, Props) ->
     StorageMod = leo_misc:get_value('storage_mod', Props),
     MetadataDB = leo_misc:get_value('metadata_db', Props),
 
+    %% Launch metadata-db
+    ok = leo_backend_db_api:new(Id2, 1, MetadataDB,
+                                Path ++ ?DEF_METADATA_STORAGE_SUB_DIR ++ integer_to_list(Id0)),
+
+    %% Launch object-storage
     Args = [Id1, Id0, Id2, StorageMod, Path],
     ChildSpec = {Id1,
                  {leo_object_storage_server, start_link, Args},
@@ -243,13 +249,11 @@ add_container(Id0, Props) ->
 
     case supervisor:start_child(leo_object_storage_sup, ChildSpec) of
         {ok, _Pid} ->
-            ok = leo_backend_db_api:new(Id2, 1, MetadataDB,
-                                        Path ++ ?DEF_METADATA_STORAGE_SUB_DIR ++ integer_to_list(Id0)),
             true = ets:insert(?ETS_CONTAINERS_TABLE, {Id0, [{obj_storage, Id1},
                                                             {metadata,    Id2}]}),
             ok;
         Error ->
-            io:format("[ERROR] ~p~n",[Error])
+            io:format("[ERROR] add_container/2, ~w, ~p~n", [?LINE, Error])
     end.
 
 
