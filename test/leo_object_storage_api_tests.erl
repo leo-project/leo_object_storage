@@ -293,7 +293,10 @@ compact_([Path1, Path2]) ->
     ?assertEqual(10, Sum0),
     timer:sleep(250),
 
-    Res1 = leo_object_storage_api:compact(),
+    FunHasChargeOfNode = fun(_Key_) ->
+                                 false
+                         end,
+    Res1 = leo_object_storage_api:compact(FunHasChargeOfNode),
     ?assertEqual([ok,ok,ok,ok,ok,ok,ok,ok], Res1),
 
     timer:sleep(250),
@@ -345,8 +348,8 @@ compact_([Path1, Path2]) ->
     ok.
 
 
-proper_test_() ->
-    {timeout, 60000, ?_assertEqual([], proper:module(leo_object_storage_api_prop))}.
+%% proper_test_() ->
+%%     {timeout, 60000, ?_assertEqual([], proper:module(leo_object_storage_api_prop))}.
 
 
 %%--------------------------------------------------------------------

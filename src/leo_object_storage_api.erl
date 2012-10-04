@@ -34,7 +34,7 @@
          put/2, get/1, get/3, delete/2, head/1,
          fetch_by_addr_id/2, fetch_by_key/2,
          store/2,
-         compact/0, stats/0
+         compact/1, stats/0
         ]).
 
 
@@ -43,6 +43,9 @@
 -define(SERVER_MODULE,        'leo_object_storage_server').
 -define(DEVICE_ID_INTERVALS,  10000).
 
+-define(STATE_COMPACTING,  'compacting'). %% running
+-define(STATE_ACTIVE,      'active').     %% idle
+-type(storage_status() :: ?STATE_COMPACTING | ?STATE_ACTIVE).
 
 %%--------------------------------------------------------------------
 %% API
@@ -194,18 +197,20 @@ store(Metadata, Bin) ->
 
 
 %% @doc Compact object-storage and metadata
--spec(compact() ->
+-spec(compact(function()) ->
              ok | list()).
-compact() ->
+compact(FunHasChargeOfNode) ->
     case get_object_storage_pid(all) of
         undefined ->
             void;
         List ->
             lists:foldl(
               fun(Id, Acc) ->
-                      ok = application:set_env(?APP_NAME, Id, running),
-                      NewAcc = [?SERVER_MODULE:compact(Id)|Acc],
-                      ok = application:set_env(?APP_NAME, Id, idle),
+                      %% @TODO >>
+                      ok = application:set_env(?APP_NAME, Id, ?STATE_COMPACTING), %% > compacting
+                      NewAcc = [?SERVER_MODULE:compact(Id, FunHasChargeOfNode)|Acc],
+                      ok = application:set_env(?APP_NAME, Id, ?STATE_ACTIVE),    %% > active
+                      %% << @TODO
                       NewAcc
               end, [], List)
     end.
@@ -369,11 +374,11 @@ get_object_storage_pid(List, Arg) ->
 
 %% @doc Retrieve the status of object of pid
 %% @private
--spec(get_pid_status(pid()) -> running | idle ).
+-spec(get_pid_status(pid()) -> storage_status()).
 get_pid_status(Pid) ->
     case application:get_env(?APP_NAME, Pid) of
         undefined ->
-            idle;
+            ?STATE_ACTIVE;
         {ok, Status} ->
             Status
     end.
@@ -392,9 +397,9 @@ do_request(put, [Key, ObjectPool]) ->
     Id = get_object_storage_pid(KeyBin),
 
     case get_pid_status(Id) of
-        idle ->
+        ?STATE_ACTIVE ->
             ?SERVER_MODULE:put(get_object_storage_pid(KeyBin), ObjectPool);
-        running ->
+        ?STATE_COMPACTING ->
             {error, doing_compaction}
     end;
 do_request(delete, [Key, ObjectPool]) ->
@@ -402,9 +407,9 @@ do_request(delete, [Key, ObjectPool]) ->
     Id = get_object_storage_pid(KeyBin),
 
     case get_pid_status(Id) of
-        idle ->
+        ?STATE_ACTIVE ->
             ?SERVER_MODULE:delete(get_object_storage_pid(KeyBin), ObjectPool);
-        running ->
+        ?STATE_COMPACTING ->
             {error, doing_compaction}
     end;
 do_request(head, [Key]) ->
