@@ -294,7 +294,7 @@ compact_([Path1, Path2]) ->
     timer:sleep(250),
 
     FunHasChargeOfNode = fun(_Key_) ->
-                                 false
+                                 true
                          end,
     Res1 = leo_object_storage_api:compact(FunHasChargeOfNode),
     ?assertEqual([ok,ok,ok,ok,ok,ok,ok,ok], Res1),

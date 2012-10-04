@@ -438,6 +438,7 @@ compact_fun1({ok, State}, FunHasChargeOfNode) ->
     Res = case Obj:compact_get(ReadHandler) of
               {ok, Metadata, [_HeaderValue, KeyValue, BodyValue, NextOffset]} ->
                   HasChargeOfNode = FunHasChargeOfNode(KeyValue),
+                  ?debugVal(HasChargeOfNode),
 
                   %% TODO >>
                   case leo_backend_db_api:compact_start(MetaDBId) of
@@ -609,7 +610,8 @@ do_stats(MetaDBId, Obj, ReadHandler, Metadata, NextOffset, #storage_stats{total_
              ok | {error, any()}).
 do_compact(Metadata, CompactParams,  #state{meta_db_id     = MetaDBId,
                                             object_storage = StorageInfo} = State) ->
-    case (is_deleted_rec(MetaDBId, Metadata) orelse CompactParams#compact_params.has_charge_of_node) of
+    case (is_deleted_rec(MetaDBId, Metadata)
+          orelse CompactParams#compact_params.has_charge_of_node == false) of
         true ->
             do_compact1(ok, Metadata, CompactParams, State);
         false ->
