@@ -22,8 +22,6 @@
 %% Leo Object Storage
 %%
 %%======================================================================
--include_lib("eunit/include/eunit.hrl").
-
 -define(APP_NAME, 'leo_object_storage').
 
 %% Default Values

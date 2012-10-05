@@ -31,11 +31,12 @@
 -behaviour(gen_server).
 
 -include("leo_object_storage.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 %% API
 -export([start_link/5, stop/1]).
 -export([put/2, get/4, delete/2, head/2, fetch/3, store/3]).
--export([compact/1, stats/1]).
+-export([compact/2, stats/1]).
 
 -export([init/1,
          handle_call/3,
@@ -44,13 +45,21 @@
          terminate/2,
          code_change/3]).
 
--record(state, {id                 :: atom(),
-                meta_db_id         :: atom(),
-                vnode_id           :: integer(),
-                object_storage     :: #backend_info{},
-                storage_stats      :: #storage_stats{},
-                num_of_objects = 0 :: integer()
-               }).
+-record(state, {
+          id                 :: atom(),
+          meta_db_id         :: atom(),
+          vnode_id           :: integer(),
+          object_storage     :: #backend_info{},
+          storage_stats      :: #storage_stats{},
+          num_of_objects = 0 :: integer()
+         }).
+
+-record(compact_params, {
+          key_bin                :: binary(),
+          body_bin               :: binary(),
+          next_offset            :: integer(),
+          fun_has_charge_of_node :: function()
+         }).
 
 -define(AVS_FILE_EXT, ".avs").
 
@@ -127,11 +136,10 @@ store(Id, Metadata, Bin) ->
 %%--------------------------------------------------------------------
 %% @doc compaction/start prepare(check disk usage, mk temporary file...)
 %%
--spec(compact(atom()) ->
-             ok |
-             {error, any()}).
-compact(Id) ->
-    gen_server:call(Id, compact).
+-spec(compact(atom(), function()) ->
+             ok | {error, any()}).
+compact(Id, FunHasChargeOfNode) ->
+    gen_server:call(Id, {compact, FunHasChargeOfNode}).
 
 %%--------------------------------------------------------------------
 %% API - get the storage stats
@@ -154,13 +162,14 @@ stats(Id) ->
 %%                         {stop, Reason}
 %% Description: Initiates the server
 init([Id, SeqNo, MetaDBId, ObjectStorage, RootPath]) ->
-    ObjectStorageDir  = RootPath ++ ?DEF_OBJECT_STORAGE_SUB_DIR,
-    ObjectStoragePath = ObjectStorageDir ++ integer_to_list(SeqNo) ++ ?AVS_FILE_EXT,
+    ObjectStorageDir  = lists:append([RootPath, ?DEF_OBJECT_STORAGE_SUB_DIR]),
+    ObjectStoragePath = lists:append([ObjectStorageDir, integer_to_list(SeqNo), ?AVS_FILE_EXT]),
 
     %% open object-storage.
     case get_raw_path(object, ObjectStorageDir, ObjectStoragePath) of
         {ok, ObjectStorageRawPath} ->
             Obj = ObjectStorage:new([],[]),
+
             case Obj:open(ObjectStorageRawPath) of
                 {ok, [ObjectWriteHandler, ObjectReadHandler]} ->
                     StorageInfo = #backend_info{backend       = ObjectStorage,
@@ -264,8 +273,6 @@ handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
 handle_call(stats, _From, #state{meta_db_id     = _MetaDBId,
                                  object_storage = StorageInfo,
                                  num_of_objects = NumOfObjs} = State) ->
-    %% Res = do_stats(MetaDBId, StorageInfo),
-
     FilePath = StorageInfo#backend_info.file_path,
     Res = {ok, #storage_stats{file_path   = FilePath,
                               total_sizes = filelib:file_size(FilePath),
@@ -273,9 +280,16 @@ handle_call(stats, _From, #state{meta_db_id     = _MetaDBId,
     {reply, Res, State};
 
 
-handle_call(compact, _From, State) ->
-    {Reply, NewState} = compact_fun(State),
-    {reply, Reply, NewState}.
+handle_call({compact, FunHasChargeOfNode},  _From, #state{meta_db_id = MetaDBId} = State) ->
+    {Reply, State1} = compact_fun(State, FunHasChargeOfNode),
+
+    State2 = case do_stats(MetaDBId, State1#state.object_storage) of
+                 {ok, #storage_stats{active_num = ActiveObjs}} ->
+                     State1#state{num_of_objects = ActiveObjs};
+                 {error, _Cause} ->
+                     State1#state{num_of_objects = 0}
+             end,
+    {reply, Reply, State2}.
 
 
 %% Function: handle_cast(Msg, State) -> {noreply, State}          |
@@ -373,28 +387,26 @@ get_raw_path(object, ObjectStorageRootDir, SymLinkPath) ->
 
 %% @doc Reduce objects from the object-container.
 %% @private
--spec(compact_fun(#state{}) ->
+-spec(compact_fun(#state{}, function()) ->
              {ok, #state{}} | {error, any(), #state{}}).
-compact_fun(State) ->
-    #state{meta_db_id       = MetaDBId,
-           object_storage   = StorageInfo} = State,
-    #backend_info{backend   = Module,
-                  file_path = FilePath} = StorageInfo,
+compact_fun(#state{meta_db_id       = MetaDBId,
+                   object_storage   = StorageInfo} = State, FunHasChargeOfNode) ->
+    Module   = StorageInfo#backend_info.backend,
+    FilePath = StorageInfo#backend_info.file_path,
 
     Res = case calc_remain_disksize(MetaDBId, FilePath) of
               {ok, RemainSize} ->
                   case (RemainSize > 0) of
                       true ->
-                          TmpPath = gen_raw_file_path(FilePath),
-                          Obj = Module:new(MetaDBId, StorageInfo),
+                          ObjStorage = Module:new(MetaDBId, StorageInfo),
+                          TmpPath    = gen_raw_file_path(FilePath),
 
-                          case Obj:open(TmpPath) of
+                          case ObjStorage:open(TmpPath) of
                               {ok, [TmpWriteHandler, TmpReadHandler]} ->
-                                  BackendInfo = State#state.object_storage,
 
                                   case do_stats(MetaDBId, StorageInfo) of
                                       {ok, #storage_stats{active_num = ActiveObjs}} ->
-                                          {ok, State#state{object_storage = BackendInfo#backend_info{
+                                          {ok, State#state{object_storage = StorageInfo#backend_info{
                                                                               tmp_file_path_raw = TmpPath,
                                                                               tmp_write_handler = TmpWriteHandler,
                                                                               tmp_read_handler  = TmpReadHandler},
@@ -411,28 +423,31 @@ compact_fun(State) ->
               Error ->
                   {Error, State}
           end,
-    compact_fun1(Res).
+    compact_fun1(Res, FunHasChargeOfNode).
 
 
 %% @doc Reduce objects from the object-container.
 %% @private
-compact_fun1({ok, State}) ->
-    #state{meta_db_id     = MetaDBId,
-           object_storage = StorageInfo} = State,
-    #backend_info{backend       = Module,
-                  read_handler  = ReadHandler,
-                  write_handler = WriteHandler,
-                  tmp_read_handler  = TmpReadHandler,
-                  tmp_write_handler = TmpWriteHandler} = StorageInfo,
+compact_fun1({ok, #state{meta_db_id     = MetaDBId,
+                         object_storage = StorageInfo} = State}, FunHasChargeOfNode) ->
+    Module          = StorageInfo#backend_info.backend,
+    ReadHandler     = StorageInfo#backend_info.read_handler,
+    WriteHandler    = StorageInfo#backend_info.write_handler,
+    TmpReadHandler  = StorageInfo#backend_info.tmp_read_handler,
+    TmpWriteHandler = StorageInfo#backend_info.tmp_write_handler,
 
-    Obj = Module:new(MetaDBId, StorageInfo),
-    Res = case Obj:compact_get(ReadHandler) of
+    ObjStorage = Module:new(MetaDBId, StorageInfo),
+    Res = case ObjStorage:compact_get(ReadHandler) of
               {ok, Metadata, [_HeaderValue, KeyValue, BodyValue, NextOffset]} ->
                   case leo_backend_db_api:compact_start(MetaDBId) of
                       ok ->
-                          Ret = do_compact(Metadata, [KeyValue, BodyValue, NextOffset], State),
-                          Obj:close(WriteHandler,    ReadHandler),
-                          Obj:close(TmpWriteHandler, TmpReadHandler),
+                          CompactParams = #compact_params{key_bin     = KeyValue,
+                                                          body_bin    = BodyValue,
+                                                          next_offset = NextOffset,
+                                                          fun_has_charge_of_node = FunHasChargeOfNode},
+                          Ret = do_compact(Metadata, CompactParams, State),
+                          _ = ObjStorage:close(WriteHandler,    ReadHandler),
+                          _ = ObjStorage:close(TmpWriteHandler, TmpReadHandler),
                           Ret;
                       Error0 ->
                           Error0
@@ -442,36 +457,35 @@ compact_fun1({ok, State}) ->
           end,
     compact_fun2({Res, State});
 
-compact_fun1({Error,_State}) ->
+compact_fun1({Error,_State}, _) ->
     Error.
 
 
 %% @doc Reduce objects from the object-container.
 %% @private
-compact_fun2({ok, State}) ->
-    #state{meta_db_id     = MetaDBId,
-           object_storage = StorageInfo} = State,
-    #backend_info{backend           = Module,
-                  file_path_raw     = RawPath,
-                  file_path         = RootPath,
-                  tmp_file_path_raw = TmpFilePathRaw} = StorageInfo,
+compact_fun2({ok, #state{meta_db_id     = MetaDBId,
+                         object_storage = StorageInfo} = State}) ->
+    Module         = StorageInfo#backend_info.backend,
+    RootPath       = StorageInfo#backend_info.file_path,
+    TmpFilePathRaw = StorageInfo#backend_info.tmp_file_path_raw,
 
     Obj = Module:new(MetaDBId, StorageInfo),
     catch file:delete(RootPath),
 
     case file:make_symlink(TmpFilePathRaw, RootPath) of
         ok ->
-            catch file:delete(RawPath),
+            catch file:delete(StorageInfo#backend_info.file_path_raw),
 
             case Obj:open(RootPath) of
                 {ok, [NewWriteHandler, NewReadHandler]} ->
-                    leo_backend_db_api:compact_end(MetaDBId, true),
+                    _ = leo_backend_db_api:compact_end(MetaDBId, true),
 
                     BackendInfo = State#state.object_storage,
-                    NewState    = State#state{object_storage = BackendInfo#backend_info{
-                                                                 file_path_raw = TmpFilePathRaw,
-                                                                 read_handler  = NewReadHandler,
-                                                                 write_handler = NewWriteHandler}},
+                    NewState    = State#state{object_storage =
+                                                  BackendInfo#backend_info{
+                                                    file_path_raw = TmpFilePathRaw,
+                                                    read_handler  = NewReadHandler,
+                                                    write_handler = NewWriteHandler}},
                     {ok, NewState};
                 {error, Cause} ->
                     {{error, Cause}, State}
@@ -480,14 +494,11 @@ compact_fun2({ok, State}) ->
             {{error, Cause}, State}
     end;
 
-compact_fun2({_Error, State}) ->
-    #state{meta_db_id     = MetaDBId,
-           object_storage = StorageInfo} = State,
-    #backend_info{tmp_file_path_raw = TmpFilePathRaw} = StorageInfo,
-
+compact_fun2({_Error, #state{meta_db_id     = MetaDBId,
+                             object_storage = StorageInfo} = State}) ->
     %% rollback (delete tmp files)
     %%
-    catch file:delete(TmpFilePathRaw),
+    catch file:delete(StorageInfo#backend_info.tmp_file_path_raw),
     leo_backend_db_api:compact_end(MetaDBId, false),
     {ok, State}.
 
@@ -549,10 +560,11 @@ is_deleted_rec(_MetaDBId,_Meta0,_Meta1) ->
 do_stats(MetaDBId, #backend_info{backend       = Module,
                                  file_path     = RootPath,
                                  read_handler  = ReadHandler} = StorageInfo) ->
-    Obj = Module:new(MetaDBId, StorageInfo),
-    case Obj:compact_get(ReadHandler) of
+    ObjStorage = Module:new(MetaDBId, StorageInfo),
+
+    case ObjStorage:compact_get(ReadHandler) of
         {ok, Metadata, [_HeaderValue, _KeyValue, _BodyValue, NextOffset]} ->
-            case do_stats(MetaDBId, Obj, ReadHandler, Metadata, NextOffset, #storage_stats{}) of
+            case do_stats(MetaDBId, ObjStorage, ReadHandler, Metadata, NextOffset, #storage_stats{}) of
                 {ok, Stats} ->
                     {ok, Stats#storage_stats{file_path   = RootPath,
                                              total_sizes = filelib:file_size(RootPath)}};
@@ -568,17 +580,17 @@ do_stats(MetaDBId, #backend_info{backend       = Module,
 
 -spec(do_stats(atom(), atom(), pid(), #metadata{}, integer(), #storage_stats{}) ->
              {ok, any()} | {error, any()}).
-do_stats(MetaDBId, Obj, ReadHandler, Metadata, NextOffset, #storage_stats{total_num  = ObjTotal,
-                                                                          active_num = ObjActive} = StorageStats) ->
+do_stats(MetaDBId, ObjStorage, ReadHandler, Metadata, NextOffset, #storage_stats{total_num  = ObjTotal,
+                                                                                 active_num = ObjActive} = StorageStats) ->
     NewStorageStats =
         case is_deleted_rec(MetaDBId, Metadata) of
             true  -> StorageStats#storage_stats{total_num  = ObjTotal  + 1};
             false -> StorageStats#storage_stats{total_num  = ObjTotal  + 1,
                                                 active_num = ObjActive + 1}
         end,
-    case Obj:compact_get(ReadHandler, NextOffset) of
+    case ObjStorage:compact_get(ReadHandler, NextOffset) of
         {ok, NewMetadata, [_HeaderValue, _NewKeyValue, _NewBodyValue, NewNextOffset]} ->
-            do_stats(MetaDBId, Obj, ReadHandler, NewMetadata, NewNextOffset, NewStorageStats);
+            do_stats(MetaDBId, ObjStorage, ReadHandler, NewMetadata, NewNextOffset, NewStorageStats);
         {error, eof} ->
             {ok, NewStorageStats};
         Error ->
@@ -588,60 +600,61 @@ do_stats(MetaDBId, Obj, ReadHandler, Metadata, NextOffset, #storage_stats{total_
 
 %% @doc Reduce unnecessary objects from object-container.
 %% @private
--spec(do_compact(#metadata{},#state{}, list()) ->
+-spec(do_compact(#metadata{}, #compact_params{}, #state{}) ->
              ok | {error, any()}).
-do_compact(Metadata, Props, State) ->
-    #metadata{addr_id  = AddrId,
-              key      = Key} = Metadata,
-    [KeyValue, BodyValue, _] = Props,
+do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
+                                           object_storage = StorageInfo} = State) ->
+    FunHasChargeOfNode = CompactParams#compact_params.fun_has_charge_of_node,
+    HasChargeOfNode    = FunHasChargeOfNode(CompactParams#compact_params.key_bin),
 
-    #state{meta_db_id     = MetaDBId,
-           object_storage = StorageInfo} = State,
-    #backend_info{backend           = Module,
-                  tmp_write_handler = TmpWriteHandler} = StorageInfo,
-
-    case is_deleted_rec(MetaDBId, Metadata) of
+    case (is_deleted_rec(MetaDBId, Metadata) orelse HasChargeOfNode == false) of
         true ->
-            do_compact1(ok, Metadata, Props, State);
+            do_compact1(ok, Metadata, CompactParams, State);
         false ->
             %% Insert into the temporary object-container.
             %%
-            Obj = Module:new(MetaDBId, StorageInfo),
+            Module = StorageInfo#backend_info.backend,
+            TmpWriteHandler = StorageInfo#backend_info.tmp_write_handler,
 
-            case Obj:compact_put(TmpWriteHandler, Metadata, KeyValue, BodyValue) of
+            ObjStorage = Module:new(MetaDBId, StorageInfo),
+
+            case ObjStorage:compact_put(TmpWriteHandler, Metadata,
+                                        CompactParams#compact_params.key_bin,
+                                        CompactParams#compact_params.body_bin) of
                 {ok, Offset} ->
                     NewMeta = Metadata#metadata{offset = Offset},
-                    Ret = leo_backend_db_api:compact_put(MetaDBId,
-                                                         term_to_binary({AddrId, Key}),
-                                                         term_to_binary(NewMeta)),
-                    do_compact1(Ret, NewMeta, Props, State);
+                    Ret = leo_backend_db_api:compact_put(
+                            MetaDBId,
+                            term_to_binary({Metadata#metadata.addr_id,
+                                            Metadata#metadata.key}),
+                            term_to_binary(NewMeta)),
+                    do_compact1(Ret, NewMeta, CompactParams, State);
                 Error ->
-                    do_compact1(Error, Metadata, Props, State)
+                    do_compact1(Error, Metadata, CompactParams, State)
             end
     end.
 
 
 %% @doc Reduce unnecessary objects from object-container.
 %% @private
-do_compact1(ok,_Metadata, Props, State) ->
-    [_, _, NextOffset] = Props,
+do_compact1(ok,_Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
+                                                object_storage = StorageInfo} = State) ->
+    Module      = StorageInfo#backend_info.backend,
+    ReadHandler = StorageInfo#backend_info.read_handler,
+    ObjStorage  = Module:new(MetaDBId, StorageInfo),
 
-    #state{meta_db_id     = MetaDBId,
-           object_storage = StorageInfo} = State,
-    #backend_info{backend      = Module,
-                  read_handler = ReadHandler} = StorageInfo,
-
-    Obj = Module:new(MetaDBId, StorageInfo),
-
-    case Obj:compact_get(ReadHandler, NextOffset) of
+    case ObjStorage:compact_get(ReadHandler, CompactParams#compact_params.next_offset) of
         {ok, NewMetadata, [_HeaderValue, NewKeyValue, NewBodyValue, NewNextOffset]} ->
-            do_compact(NewMetadata, [NewKeyValue, NewBodyValue, NewNextOffset], State);
+            do_compact(NewMetadata, CompactParams#compact_params{key_bin     = NewKeyValue,
+                                                                 body_bin    = NewBodyValue,
+                                                                 next_offset = NewNextOffset},
+                       State);
         {error, eof} ->
             ok;
         Error ->
             Error
     end;
-do_compact1(Error,_Metadata,_Props,_State) ->
+do_compact1(Error,_,_,_) ->
     Error.
 
 
@@ -650,5 +663,5 @@ do_compact1(Error,_Metadata,_Props,_State) ->
 -spec(gen_raw_file_path(string()) ->
              string()).
 gen_raw_file_path(FilePath) ->
-    FilePath ++ "_" ++ integer_to_list(leo_date:now()).
+    lists:append([FilePath, "_", integer_to_list(leo_date:now())]).
 

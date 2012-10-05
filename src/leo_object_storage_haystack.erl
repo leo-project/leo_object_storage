@@ -527,9 +527,6 @@ compact_get(ReadHandler, Offset) ->
         eof = Cause ->
             {error, Cause};
         {error, Cause} ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "compact_get/2"},
-                                    {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
 

@@ -28,12 +28,13 @@
 -author('Yosuke Hara').
 
 -include("leo_object_storage.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -export([start/1,
          put/2, get/1, get/3, delete/2, head/1,
          fetch_by_addr_id/2, fetch_by_key/2,
          store/2,
-         compact/0, stats/0
+         compact/1, stats/0
         ]).
 
 
@@ -42,6 +43,9 @@
 -define(SERVER_MODULE,        'leo_object_storage_server').
 -define(DEVICE_ID_INTERVALS,  10000).
 
+-define(STATE_COMPACTING,  'compacting'). %% running
+-define(STATE_ACTIVE,      'active').     %% idle
+-type(storage_status() :: ?STATE_COMPACTING | ?STATE_ACTIVE).
 
 %%--------------------------------------------------------------------
 %% API
@@ -193,18 +197,20 @@ store(Metadata, Bin) ->
 
 
 %% @doc Compact object-storage and metadata
--spec(compact() ->
+-spec(compact(function()) ->
              ok | list()).
-compact() ->
+compact(FunHasChargeOfNode) ->
     case get_object_storage_pid(all) of
         undefined ->
             void;
         List ->
             lists:foldl(
               fun(Id, Acc) ->
-                      ok = application:set_env(?APP_NAME, Id, running),
-                      NewAcc = [?SERVER_MODULE:compact(Id)|Acc],
-                      ok = application:set_env(?APP_NAME, Id, idle),
+                      %% @TODO >>
+                      ok = application:set_env(?APP_NAME, Id, ?STATE_COMPACTING), %% > compacting
+                      NewAcc = [?SERVER_MODULE:compact(Id, FunHasChargeOfNode)|Acc],
+                      ok = application:set_env(?APP_NAME, Id, ?STATE_ACTIVE),    %% > active
+                      %% << @TODO
                       NewAcc
               end, [], List)
     end.
@@ -236,6 +242,11 @@ add_container(Id0, Props) ->
     StorageMod = leo_misc:get_value('storage_mod', Props),
     MetadataDB = leo_misc:get_value('metadata_db', Props),
 
+    %% Launch metadata-db
+    ok = leo_backend_db_api:new(Id2, 1, MetadataDB,
+                                Path ++ ?DEF_METADATA_STORAGE_SUB_DIR ++ integer_to_list(Id0)),
+
+    %% Launch object-storage
     Args = [Id1, Id0, Id2, StorageMod, Path],
     ChildSpec = {Id1,
                  {leo_object_storage_server, start_link, Args},
@@ -243,13 +254,11 @@ add_container(Id0, Props) ->
 
     case supervisor:start_child(leo_object_storage_sup, ChildSpec) of
         {ok, _Pid} ->
-            ok = leo_backend_db_api:new(Id2, 1, MetadataDB,
-                                        Path ++ ?DEF_METADATA_STORAGE_SUB_DIR ++ integer_to_list(Id0)),
             true = ets:insert(?ETS_CONTAINERS_TABLE, {Id0, [{obj_storage, Id1},
                                                             {metadata,    Id2}]}),
             ok;
         Error ->
-            io:format("[ERROR] ~p~n",[Error])
+            io:format("[ERROR] add_container/2, ~w, ~p~n", [?LINE, Error])
     end.
 
 
@@ -365,11 +374,11 @@ get_object_storage_pid(List, Arg) ->
 
 %% @doc Retrieve the status of object of pid
 %% @private
--spec(get_pid_status(pid()) -> running | idle ).
+-spec(get_pid_status(pid()) -> storage_status()).
 get_pid_status(Pid) ->
     case application:get_env(?APP_NAME, Pid) of
         undefined ->
-            idle;
+            ?STATE_ACTIVE;
         {ok, Status} ->
             Status
     end.
@@ -388,9 +397,9 @@ do_request(put, [Key, ObjectPool]) ->
     Id = get_object_storage_pid(KeyBin),
 
     case get_pid_status(Id) of
-        idle ->
+        ?STATE_ACTIVE ->
             ?SERVER_MODULE:put(get_object_storage_pid(KeyBin), ObjectPool);
-        running ->
+        ?STATE_COMPACTING ->
             {error, doing_compaction}
     end;
 do_request(delete, [Key, ObjectPool]) ->
@@ -398,9 +407,9 @@ do_request(delete, [Key, ObjectPool]) ->
     Id = get_object_storage_pid(KeyBin),
 
     case get_pid_status(Id) of
-        idle ->
+        ?STATE_ACTIVE ->
             ?SERVER_MODULE:delete(get_object_storage_pid(KeyBin), ObjectPool);
-        running ->
+        ?STATE_COMPACTING ->
             {error, doing_compaction}
     end;
 do_request(head, [Key]) ->
