@@ -55,16 +55,19 @@
 
 -record(metadata, {
           key                 :: string(),  %% filename
-          addr_id    = 0      :: integer(), %% ring-address id
-          ksize      = 0      :: integer(), %% filename size
+          addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
+          ksize      = 0      :: integer(), %% file-path size
           dsize      = 0      :: integer(), %% data size
-          msize      = 0      :: integer(), %% custome-metadata size
+          msize      = 0      :: integer(), %% custom-metadata size
+
+          csize      = 0      :: integer(), %% * chunked data size    (for large-object)
+          cnumber    = 0      :: integer(), %% * # of chunked objects (for large-object)
+          cindex     = 0      :: integer(), %% * chunked object index (for large-object)
+
           offset     = 0      :: integer(), %% object-container's offset
-          divs       = 1      :: integer(), %% # of object-divides
-          chunks     = []     :: list(),    %% list of chunk-data's sizes
           clock      = 0      :: integer(), %% clock
           timestamp  = 0      :: integer(), %% timestamp
-          checksum   = 0      :: integer(), %% checksum
+          checksum   = 0      :: integer(), %% checksum (MD5 > hex-to-integer)
           ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
           del        = 0      :: integer()  %% [{0,not_deleted}, {1,deleted}]
          }).
@@ -75,17 +78,22 @@
           key_bin    = <<>>   :: binary(),  %% filename-bin
           addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
           data       = <<>>   :: binary(),  %% file
-          meta       = <<>>   :: binary(),  %% custome-metadata
+          meta       = <<>>   :: binary(),  %% custom-metadata
           ksize      = 0      :: integer(), %% filename size
           dsize      = 0      :: integer(), %% data size
-          msize      = 0      :: integer(), %% custome-metadata size
+          msize      = 0      :: integer(), %% custom-metadata size
+
+          csize      = 0      :: integer(), %% * chunked data size    (for large-object)
+          cnumber    = 0      :: integer(), %% * # of chunked objects (for large-object)
+          cindex     = 0      :: integer(), %% * chunked object index (for large-object)
+
           offset     = 0      :: integer(), %% object-container's offset
           clock      = 0      :: integer(), %% clock
           timestamp  = 0      :: integer(), %% timestamp
           checksum   = 0      :: integer(), %% checksum (MD5 > hex-to-integer)
-          req_id     = 0      :: integer(), %% request id
           ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
-          del        = 0      :: integer()  %% delete flag
+          del        = 0      :: integer(), %% delete flag
+          req_id     = 0      :: integer()  %% request id
          }).
 
 -record(storage_stats, {

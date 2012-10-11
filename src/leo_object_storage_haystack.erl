@@ -46,8 +46,8 @@
 %% ------------------------ %%
 %%       AVS-Related
 %% ------------------------ %%
--define(AVS_HEADER_VSN,     <<"LeoFS AVS-2.1",13,10>>).
--define(AVS_PART_OF_HEADER, <<"CHKSUM:128,KSIZE:16,BLEN_MSIZE:32,DSIZE:32,OFFSET:64,ADDRID:128,CLOCK:64,TIMESTAMP:56,DEL:8,BUF:496",13,10>>).
+-define(AVS_HEADER_VSN,     <<"LeoFS AVS-2.2",13,10>>).
+-define(AVS_PART_OF_HEADER, <<"CHKSUM:128,KSIZE:16,BLEN_MSIZE:32,DSIZE:32,OFFSET:64,ADDRID:128,CLOCK:64,TIMESTAMP:42,DEL:1,BUF:517,CHUNK_SIZE:32,CHUNK_NUM:24,CHUNK_INDEX:24",13,10>>).
 -define(AVS_PART_OF_BODY,   <<"KEY/binary,DATA/binary",13,10>>).
 -define(AVS_PART_OF_FOOTER, <<"PADDING:64",13,10>>).
 -define(AVS_SUPER_BLOCK,     <<?AVS_HEADER_VSN/binary,
@@ -62,15 +62,18 @@
 -define(BLEN_OFFSET,        64). %% offset
 -define(BLEN_ADDRID,       128). %% ring-address id
 -define(BLEN_CLOCK,         64). %% clock
--define(BLEN_TS_Y,          16). %% timestamp-year
--define(BLEN_TS_M,           8). %% timestamp-month
--define(BLEN_TS_D,           8). %% timestamp-day
--define(BLEN_TS_H,           8). %% timestamp-hour
--define(BLEN_TS_N,           8). %% timestamp-min
--define(BLEN_TS_S,           8). %% timestamp-sec
--define(BLEN_DEL,            8). %% delete flag
+-define(BLEN_TS_Y,          12). %% timestamp-year
+-define(BLEN_TS_M,           6). %% timestamp-month
+-define(BLEN_TS_D,           6). %% timestamp-day
+-define(BLEN_TS_H,           6). %% timestamp-hour
+-define(BLEN_TS_N,           6). %% timestamp-min
+-define(BLEN_TS_S,           6). %% timestamp-sec
+-define(BLEN_DEL,            1). %% delete flag
+-define(BLEN_CHUNK_SIZE,    32). %% * chunked data size    (for large-object)
+-define(BLEN_CHUNK_NUM,     24). %% * # of chunked objects (for large-object)
+-define(BLEN_CHUNK_INDEX,   24). %% * chunked object index (for large-object)
 %% ----------------------------- %%
--define(BLEN_BUF,          496). %% buffer
+-define(BLEN_BUF,          437). %% buffer
 %% ----------------------------- %%
 -define(BLEN_HEADER,      1024). %% 128 Byte
 -define(LEN_PADDING,         8). %% footer
@@ -335,6 +338,9 @@ create_needle(#object{addr_id    = AddrId,
                       dsize      = DSize,
                       msize      = MSize,
                       meta       = _MBin,
+                      csize      = CSize,
+                      cnumber    = CNum,
+                      cindex     = CIndex,
                       data       = Body,
                       clock      = Clock,
                       offset     = Offset,
@@ -345,15 +351,26 @@ create_needle(#object{addr_id    = AddrId,
         calendar:gregorian_seconds_to_datetime(Timestamp),
 
     Padding = <<0:64>>,
-    Bin = <<KeyBin/binary, Body/binary, Padding/binary>>,
-    Needle = <<Checksum:?BLEN_CHKSUM,
-               KSize:?BLEN_KSIZE, DSize:?BLEN_DSIZE, MSize:?BLEN_MSIZE, Offset:?BLEN_OFFSET,
-               AddrId:?BLEN_ADDRID,
-               Clock:?BLEN_CLOCK,
-               Year:?BLEN_TS_Y, Month:?BLEN_TS_M, Day:?BLEN_TS_D,
-               Hour:?BLEN_TS_H, Min:?BLEN_TS_N,   Second:?BLEN_TS_S,
-               Del:?BLEN_DEL, 0:?BLEN_BUF,
-               Bin/binary>>,
+    Bin     = << KeyBin/binary, Body/binary, Padding/binary >>,
+    Needle  = << Checksum:?BLEN_CHKSUM,
+                 KSize:?BLEN_KSIZE,
+                 DSize:?BLEN_DSIZE,
+                 MSize:?BLEN_MSIZE,
+                 Offset:?BLEN_OFFSET,
+                 AddrId:?BLEN_ADDRID,
+                 Clock:?BLEN_CLOCK,
+                 Year:?BLEN_TS_Y,
+                 Month:?BLEN_TS_M,
+                 Day:?BLEN_TS_D,
+                 Hour:?BLEN_TS_H,
+                 Min:?BLEN_TS_N,
+                 Second:?BLEN_TS_S,
+                 Del:?BLEN_DEL,
+                 CSize:?BLEN_CHUNK_SIZE,
+                 CNum:?BLEN_CHUNK_NUM,
+                 CIndex:?BLEN_CHUNK_INDEX,
+                 0:?BLEN_BUF,
+                 Bin/binary >>,
     Needle.
 
 
@@ -413,8 +430,11 @@ put_fun1(#object{addr_id    = AddrId,
                  dsize      = DSize,
                  msize      = MSize,
                  meta       = _MBin,
-                 clock      = Clock,
+                 csize      = CSize,
+                 cnumber    = CNum,
+                 cindex     = CIndex,
                  offset     = Offset,
+                 clock      = Clock,
                  timestamp  = Timestamp,
                  checksum   = Checksum,
                  ring_hash  = RingHash,
@@ -425,6 +445,9 @@ put_fun1(#object{addr_id    = AddrId,
                      ksize     = KSize,
                      msize     = MSize,
                      dsize     = DSize,
+                     csize     = CSize,
+                     cnumber   = CNum,
+                     cindex    = CIndex,
                      offset    = Offset,
                      clock     = Clock,
                      timestamp = Timestamp,
@@ -468,6 +491,9 @@ compact_put(WriteHandler, #metadata{key       = Key,
                                     ksize     = KSize,
                                     msize     = MSize,
                                     dsize     = DSize,
+                                    csize     = CSize,
+                                    cnumber   = CNum,
+                                    cindex    = CIndex,
                                     clock     = Clock,
                                     timestamp = Timestamp,
                                     checksum  = Checksum,
@@ -480,6 +506,9 @@ compact_put(WriteHandler, #metadata{key       = Key,
                                            ksize      = KSize,
                                            dsize      = DSize,
                                            msize      = MSize,
+                                           csize      = CSize,
+                                           cnumber    = CNum,
+                                           cindex     = CIndex,
                                            data       = BodyBin,
                                            clock      = Clock,
                                            offset     = Offset,
@@ -536,14 +565,25 @@ compact_get(ReadHandler, Offset) ->
 -spec(compact_get(pid(), integer(), integer(), binary()) ->
              ok | {error, any()}).
 compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
-    <<Checksum:?BLEN_CHKSUM,
-      KSize:?BLEN_KSIZE, DSize:?BLEN_DSIZE, MSize:?BLEN_MSIZE, OrgOffset:?BLEN_OFFSET,
-      AddrId:?BLEN_ADDRID/integer, NumOfClock:?BLEN_CLOCK,
-      Year:?BLEN_TS_Y, Month:?BLEN_TS_M, Day:?BLEN_TS_D,
-      Hour:?BLEN_TS_H, Min:?BLEN_TS_N,   Second:?BLEN_TS_S,
-      Del:?BLEN_DEL,
-      _Buffer:?BLEN_BUF>> = HeaderBin,
-
+    << Checksum:?BLEN_CHKSUM,
+       KSize:?BLEN_KSIZE,
+       DSize:?BLEN_DSIZE,
+       MSize:?BLEN_MSIZE,
+       OrgOffset:?BLEN_OFFSET,
+       AddrId:?BLEN_ADDRID,
+       NumOfClock:?BLEN_CLOCK,
+       Year:?BLEN_TS_Y,
+       Month:?BLEN_TS_M,
+       Day:?BLEN_TS_D,
+       Hour:?BLEN_TS_H,
+       Min:?BLEN_TS_N,
+       Second:?BLEN_TS_S,
+       Del:?BLEN_DEL,
+       _CSize:?BLEN_CHUNK_SIZE,
+       _CNum:?BLEN_CHUNK_NUM,
+       _CIndex:?BLEN_CHUNK_INDEX,
+       _:?BLEN_BUF
+    >> = HeaderBin,
     RemainSize = KSize + DSize + ?LEN_PADDING,
 
     case file:pread(ReadHandler, Offset + HeaderSize, RemainSize) of
