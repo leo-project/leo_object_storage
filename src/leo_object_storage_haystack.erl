@@ -264,7 +264,7 @@ get_fun(KeyBin, StartPos, EndPos) ->
     case catch leo_backend_db_api:get(MetaDBId, KeyBin) of
         {ok, MetadataBin} ->
             Metadata = binary_to_term(MetadataBin),
-            case (Metadata#metadata.del == 0) of
+            case (Metadata#metadata.del == ?DEL_FALSE) of
                 true  -> get_fun1(Metadata, StartPos, EndPos);
                 false -> not_found
             end;
@@ -402,7 +402,7 @@ put_fun0(ObjectPool) ->
                 checksum = Checksum0,
                 del      = DelFlag} = Object ->
             Ret = case DelFlag of
-                      0 ->
+                      ?DEL_FALSE ->
                           case head(term_to_binary({AddrId, Key})) of
                               {ok, MetadataBin} ->
                                   #metadata{checksum = Checksum1} = binary_to_term(MetadataBin),
@@ -413,7 +413,7 @@ put_fun0(ObjectPool) ->
                               _ ->
                                   not_match
                           end;
-                      1 ->
+                      ?DEL_TRUE ->
                           not_match
                   end,
 

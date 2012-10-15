@@ -38,7 +38,10 @@
 -define(ERROR_INVALID_DATA,            "invalid data").
 -define(ERROR_DATA_SIZE_DID_NOT_MATCH, "data-size did not match").
 
+-define(DEL_TRUE,  1).
+-define(DEL_FALSE, 0).
 
+-type(del_flag() :: ?DEL_TRUE | ?DEL_FALSE).
 -type(type_of_method() :: get | put | delete | head).
 
 
@@ -69,7 +72,7 @@
           timestamp  = 0      :: integer(), %% timestamp
           checksum   = 0      :: integer(), %% checksum (MD5 > hex-to-integer)
           ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
-          del        = 0      :: integer()  %% [{0,not_deleted}, {1,deleted}]
+          del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
          }).
 
 -record(object, {
@@ -92,8 +95,8 @@
           timestamp  = 0      :: integer(), %% timestamp
           checksum   = 0      :: integer(), %% checksum (MD5 > hex-to-integer)
           ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
-          del        = 0      :: integer(), %% delete flag
-          req_id     = 0      :: integer()  %% request id
+          req_id     = 0      :: integer(), %% request id
+          del = ?DEL_FALSE    :: del_flag() %% delete flag
          }).
 
 -record(storage_stats, {
