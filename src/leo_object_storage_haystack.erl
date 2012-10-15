@@ -114,7 +114,7 @@ close(WriteHandler, ReadHandler) ->
 %% @doc Insert an object and a metadata into the object-storage
 %%
 -spec(put(pid()) ->
-             ok | {error, any()}).
+             {ok, integer()} | {error, any()}).
 put(ObjectPool) ->
     put_fun0(ObjectPool).
 
@@ -135,7 +135,12 @@ get(KeyBin, StartPos, EndPos) ->
 -spec(delete(ObjectPool::pid()) ->
              ok | {error, any()}).
 delete(ObjectPool) ->
-    put_fun0(ObjectPool).
+    case put_fun0(ObjectPool) of
+        {ok, _Checksum} ->
+            ok;
+        {error, Cause} ->
+            {error, Cause}
+    end.
 
 
 %% @doc Retrieve a metada from backend_db from the object-storage
@@ -181,7 +186,13 @@ store(Metadata, Bin) ->
                      ring_hash  = Metadata#metadata.ring_hash,
                      del        = Metadata#metadata.del},
     ObjectPool = leo_object_storage_pool:new(Key, Metadata, Object),
-    put_fun0(ObjectPool).
+    case put_fun0(ObjectPool) of
+        {ok, _Checksum} ->
+            ok;
+        {error, Cause} ->
+            {error, Cause}
+    end.
+
 
 %%--------------------------------------------------------------------
 %% INNER FUNCTIONS
@@ -408,7 +419,7 @@ put_fun0(ObjectPool) ->
 
             case Ret of
                 match ->
-                    ok;
+                    {ok, Checksum0};
                 not_match ->
                     #backend_info{write_handler = ObjectStorageWriteHandler} = StorageInfo,
 
@@ -458,7 +469,8 @@ put_fun1(#object{addr_id    = AddrId,
 
 put_fun2(Needle, #metadata{key      = Key,
                            addr_id  = AddrId,
-                           offset   = Offset} = Meta) ->
+                           offset   = Offset,
+                           checksum  = Checksum} = Meta) ->
     #backend_info{write_handler = WriteHandler} = StorageInfo,
 
     case file:pwrite(WriteHandler, Offset, Needle) of
@@ -466,7 +478,7 @@ put_fun2(Needle, #metadata{key      = Key,
             case catch leo_backend_db_api:put(
                          MetaDBId, term_to_binary({AddrId, Key}), term_to_binary(Meta)) of
                 ok ->
-                    ok;
+                    {ok, Checksum};
                 {'EXIT', Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING}, {function, "put_fun2/2"},

@@ -93,8 +93,8 @@ operate_([Path1, Path2]) ->
                                                       dsize     = byte_size(Bin),
                                                       timestamp = leo_date:now(),
                                                       clock     = leo_date:clock()}),
-    Res0 = leo_object_storage_api:put({AddrId, Key}, ObjectPool0),
-    ?assertEqual(ok, Res0),
+    {ok, ETag} = leo_object_storage_api:put({AddrId, Key}, ObjectPool0),
+    ?debugVal(ETag),
 
     %% 2. Get
     {ok, Meta1, ObjectPool1} = leo_object_storage_api:get({AddrId, Key}),
@@ -156,8 +156,7 @@ operate_([Path1, Path2]) ->
                                                       timestamp = leo_date:now(),
                                                       clock     = leo_date:clock(),
                                                       del       = 1}),
-    Res3 = leo_object_storage_api:delete({AddrId, Key}, ObjectPool2),
-    ?assertEqual(ok, Res3),
+    ok = leo_object_storage_api:delete({AddrId, Key}, ObjectPool2),
 
     %% 7. Get
     Res4 = leo_object_storage_api:get({AddrId, Key}),
@@ -264,6 +263,7 @@ compact_([Path1, Path2]) ->
 
     ok = leo_object_storage_api:start([{4, Path1}, {4, Path2}]),
 
+    ?debugVal(ok),
     ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
     ok = put_test_data(127,  "air/on/g/string/1", <<"JSB1">>),
     ok = put_test_data(255,  "air/on/g/string/2", <<"JSB2">>),
@@ -370,7 +370,7 @@ put_test_data(AddrId, Key, Bin) ->
                                                      timestamp = leo_date:now(),
                                                      clock     = leo_date:clock()
                                                     }),
-    ok = leo_object_storage_api:put({AddrId, Key}, ObjectPool),
+    {ok, _Checksum} = leo_object_storage_api:put({AddrId, Key}, ObjectPool),
     ok.
 
 get_test_data(AddrId, Key) ->
