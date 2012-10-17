@@ -529,7 +529,7 @@ calc_remain_disksize(MetaDBId, FilePath) ->
 %% @private
 -spec(is_deleted_rec(atom(), #metadata{}) ->
              boolean()).
-is_deleted_rec(_MetaDBId, #metadata{del = Del}) when Del =/= 0 ->
+is_deleted_rec(_MetaDBId, #metadata{del = Del}) when Del =/= ?DEL_FALSE ->
     true;
 is_deleted_rec(MetaDBId, #metadata{key      = Key,
                                    addr_id  = AddrId} = MetaFromAvs) ->

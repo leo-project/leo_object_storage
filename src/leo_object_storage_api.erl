@@ -107,7 +107,7 @@ start({error, Cause},_ObjectStorageInfo) ->
 %% @param Key = {$VNODE_ID, $OBJ_KEY}
 %%
 -spec(put(tuple(), pid()) ->
-             ok | {error, any()}).
+             {ok, integer()} | {error, any()}).
 put(Key, ObjectPool) ->
     do_request(put, [Key, ObjectPool]).
 
@@ -260,26 +260,6 @@ add_container(Id0, Props) ->
         Error ->
             io:format("[ERROR] add_container/2, ~w, ~p~n", [?LINE, Error])
     end.
-
-
-%% %% @doc Remove an object storage container from
-%% %%
-%% -spec(remove_container(integer()) ->
-%%              ok).
-%% remove_container(Id) ->
-%%     case ets:lookup(?ETS_CONTAINERS_TABLE, Id) of
-%%         [] -> {error, not_found};
-%%         [{_, Info}|_] ->
-%%             Id1 = leo_misc:get_value(obj_storage, Info),
-%%             Id2 = leo_misc:get_value(metadata,    Info),
-%%             case supervisor:terminate_child(leo_object_storage_sup, Id1) of
-%%                 ok ->
-%%                     leo_backend_db_api:stop(Id2),
-%%                     supervisor:delete_child(leo_object_storage_sup, Id1);
-%%                 Error ->
-%%                     Error
-%%             end
-%%     end.
 
 
 %%--------------------------------------------------------------------

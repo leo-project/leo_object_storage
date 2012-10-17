@@ -46,8 +46,8 @@
 %% ------------------------ %%
 %%       AVS-Related
 %% ------------------------ %%
--define(AVS_HEADER_VSN,     <<"LeoFS AVS-2.1",13,10>>).
--define(AVS_PART_OF_HEADER, <<"CHKSUM:128,KSIZE:16,BLEN_MSIZE:32,DSIZE:32,OFFSET:64,ADDRID:128,CLOCK:64,TIMESTAMP:56,DEL:8,BUF:496",13,10>>).
+-define(AVS_HEADER_VSN,     <<"LeoFS AVS-2.2",13,10>>).
+-define(AVS_PART_OF_HEADER, <<"CHKSUM:128,KSIZE:16,BLEN_MSIZE:32,DSIZE:32,OFFSET:64,ADDRID:128,CLOCK:64,TIMESTAMP:42,DEL:1,BUF:517,CHUNK_SIZE:32,CHUNK_NUM:24,CHUNK_INDEX:24",13,10>>).
 -define(AVS_PART_OF_BODY,   <<"KEY/binary,DATA/binary",13,10>>).
 -define(AVS_PART_OF_FOOTER, <<"PADDING:64",13,10>>).
 -define(AVS_SUPER_BLOCK,     <<?AVS_HEADER_VSN/binary,
@@ -62,15 +62,18 @@
 -define(BLEN_OFFSET,        64). %% offset
 -define(BLEN_ADDRID,       128). %% ring-address id
 -define(BLEN_CLOCK,         64). %% clock
--define(BLEN_TS_Y,          16). %% timestamp-year
--define(BLEN_TS_M,           8). %% timestamp-month
--define(BLEN_TS_D,           8). %% timestamp-day
--define(BLEN_TS_H,           8). %% timestamp-hour
--define(BLEN_TS_N,           8). %% timestamp-min
--define(BLEN_TS_S,           8). %% timestamp-sec
--define(BLEN_DEL,            8). %% delete flag
+-define(BLEN_TS_Y,          12). %% timestamp-year
+-define(BLEN_TS_M,           6). %% timestamp-month
+-define(BLEN_TS_D,           6). %% timestamp-day
+-define(BLEN_TS_H,           6). %% timestamp-hour
+-define(BLEN_TS_N,           6). %% timestamp-min
+-define(BLEN_TS_S,           6). %% timestamp-sec
+-define(BLEN_DEL,            1). %% delete flag
+-define(BLEN_CHUNK_SIZE,    32). %% * chunked data size    (for large-object)
+-define(BLEN_CHUNK_NUM,     24). %% * # of chunked objects (for large-object)
+-define(BLEN_CHUNK_INDEX,   24). %% * chunked object index (for large-object)
 %% ----------------------------- %%
--define(BLEN_BUF,          496). %% buffer
+-define(BLEN_BUF,          437). %% buffer
 %% ----------------------------- %%
 -define(BLEN_HEADER,      1024). %% 128 Byte
 -define(LEN_PADDING,         8). %% footer
@@ -111,7 +114,7 @@ close(WriteHandler, ReadHandler) ->
 %% @doc Insert an object and a metadata into the object-storage
 %%
 -spec(put(pid()) ->
-             ok | {error, any()}).
+             {ok, integer()} | {error, any()}).
 put(ObjectPool) ->
     put_fun0(ObjectPool).
 
@@ -132,7 +135,12 @@ get(KeyBin, StartPos, EndPos) ->
 -spec(delete(ObjectPool::pid()) ->
              ok | {error, any()}).
 delete(ObjectPool) ->
-    put_fun0(ObjectPool).
+    case put_fun0(ObjectPool) of
+        {ok, _Checksum} ->
+            ok;
+        {error, Cause} ->
+            {error, Cause}
+    end.
 
 
 %% @doc Retrieve a metada from backend_db from the object-storage
@@ -178,7 +186,13 @@ store(Metadata, Bin) ->
                      ring_hash  = Metadata#metadata.ring_hash,
                      del        = Metadata#metadata.del},
     ObjectPool = leo_object_storage_pool:new(Key, Metadata, Object),
-    put_fun0(ObjectPool).
+    case put_fun0(ObjectPool) of
+        {ok, _Checksum} ->
+            ok;
+        {error, Cause} ->
+            {error, Cause}
+    end.
+
 
 %%--------------------------------------------------------------------
 %% INNER FUNCTIONS
@@ -250,7 +264,7 @@ get_fun(KeyBin, StartPos, EndPos) ->
     case catch leo_backend_db_api:get(MetaDBId, KeyBin) of
         {ok, MetadataBin} ->
             Metadata = binary_to_term(MetadataBin),
-            case (Metadata#metadata.del == 0) of
+            case (Metadata#metadata.del == ?DEL_FALSE) of
                 true  -> get_fun1(Metadata, StartPos, EndPos);
                 false -> not_found
             end;
@@ -335,6 +349,9 @@ create_needle(#object{addr_id    = AddrId,
                       dsize      = DSize,
                       msize      = MSize,
                       meta       = _MBin,
+                      csize      = CSize,
+                      cnumber    = CNum,
+                      cindex     = CIndex,
                       data       = Body,
                       clock      = Clock,
                       offset     = Offset,
@@ -345,15 +362,26 @@ create_needle(#object{addr_id    = AddrId,
         calendar:gregorian_seconds_to_datetime(Timestamp),
 
     Padding = <<0:64>>,
-    Bin = <<KeyBin/binary, Body/binary, Padding/binary>>,
-    Needle = <<Checksum:?BLEN_CHKSUM,
-               KSize:?BLEN_KSIZE, DSize:?BLEN_DSIZE, MSize:?BLEN_MSIZE, Offset:?BLEN_OFFSET,
-               AddrId:?BLEN_ADDRID,
-               Clock:?BLEN_CLOCK,
-               Year:?BLEN_TS_Y, Month:?BLEN_TS_M, Day:?BLEN_TS_D,
-               Hour:?BLEN_TS_H, Min:?BLEN_TS_N,   Second:?BLEN_TS_S,
-               Del:?BLEN_DEL, 0:?BLEN_BUF,
-               Bin/binary>>,
+    Bin     = << KeyBin/binary, Body/binary, Padding/binary >>,
+    Needle  = << Checksum:?BLEN_CHKSUM,
+                 KSize:?BLEN_KSIZE,
+                 DSize:?BLEN_DSIZE,
+                 MSize:?BLEN_MSIZE,
+                 Offset:?BLEN_OFFSET,
+                 AddrId:?BLEN_ADDRID,
+                 Clock:?BLEN_CLOCK,
+                 Year:?BLEN_TS_Y,
+                 Month:?BLEN_TS_M,
+                 Day:?BLEN_TS_D,
+                 Hour:?BLEN_TS_H,
+                 Min:?BLEN_TS_N,
+                 Second:?BLEN_TS_S,
+                 Del:?BLEN_DEL,
+                 CSize:?BLEN_CHUNK_SIZE,
+                 CNum:?BLEN_CHUNK_NUM,
+                 CIndex:?BLEN_CHUNK_INDEX,
+                 0:?BLEN_BUF,
+                 Bin/binary >>,
     Needle.
 
 
@@ -374,7 +402,7 @@ put_fun0(ObjectPool) ->
                 checksum = Checksum0,
                 del      = DelFlag} = Object ->
             Ret = case DelFlag of
-                      0 ->
+                      ?DEL_FALSE ->
                           case head(term_to_binary({AddrId, Key})) of
                               {ok, MetadataBin} ->
                                   #metadata{checksum = Checksum1} = binary_to_term(MetadataBin),
@@ -385,13 +413,13 @@ put_fun0(ObjectPool) ->
                               _ ->
                                   not_match
                           end;
-                      1 ->
+                      ?DEL_TRUE ->
                           not_match
                   end,
 
             case Ret of
                 match ->
-                    ok;
+                    {ok, Checksum0};
                 not_match ->
                     #backend_info{write_handler = ObjectStorageWriteHandler} = StorageInfo,
 
@@ -413,8 +441,11 @@ put_fun1(#object{addr_id    = AddrId,
                  dsize      = DSize,
                  msize      = MSize,
                  meta       = _MBin,
-                 clock      = Clock,
+                 csize      = CSize,
+                 cnumber    = CNum,
+                 cindex     = CIndex,
                  offset     = Offset,
+                 clock      = Clock,
                  timestamp  = Timestamp,
                  checksum   = Checksum,
                  ring_hash  = RingHash,
@@ -425,6 +456,9 @@ put_fun1(#object{addr_id    = AddrId,
                      ksize     = KSize,
                      msize     = MSize,
                      dsize     = DSize,
+                     csize     = CSize,
+                     cnumber   = CNum,
+                     cindex    = CIndex,
                      offset    = Offset,
                      clock     = Clock,
                      timestamp = Timestamp,
@@ -435,7 +469,8 @@ put_fun1(#object{addr_id    = AddrId,
 
 put_fun2(Needle, #metadata{key      = Key,
                            addr_id  = AddrId,
-                           offset   = Offset} = Meta) ->
+                           offset   = Offset,
+                           checksum = Checksum} = Meta) ->
     #backend_info{write_handler = WriteHandler} = StorageInfo,
 
     case file:pwrite(WriteHandler, Offset, Needle) of
@@ -443,7 +478,7 @@ put_fun2(Needle, #metadata{key      = Key,
             case catch leo_backend_db_api:put(
                          MetaDBId, term_to_binary({AddrId, Key}), term_to_binary(Meta)) of
                 ok ->
-                    ok;
+                    {ok, Checksum};
                 {'EXIT', Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING}, {function, "put_fun2/2"},
@@ -468,6 +503,9 @@ compact_put(WriteHandler, #metadata{key       = Key,
                                     ksize     = KSize,
                                     msize     = MSize,
                                     dsize     = DSize,
+                                    csize     = CSize,
+                                    cnumber   = CNum,
+                                    cindex    = CIndex,
                                     clock     = Clock,
                                     timestamp = Timestamp,
                                     checksum  = Checksum,
@@ -480,6 +518,9 @@ compact_put(WriteHandler, #metadata{key       = Key,
                                            ksize      = KSize,
                                            dsize      = DSize,
                                            msize      = MSize,
+                                           csize      = CSize,
+                                           cnumber    = CNum,
+                                           cindex     = CIndex,
                                            data       = BodyBin,
                                            clock      = Clock,
                                            offset     = Offset,
@@ -536,14 +577,25 @@ compact_get(ReadHandler, Offset) ->
 -spec(compact_get(pid(), integer(), integer(), binary()) ->
              ok | {error, any()}).
 compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
-    <<Checksum:?BLEN_CHKSUM,
-      KSize:?BLEN_KSIZE, DSize:?BLEN_DSIZE, MSize:?BLEN_MSIZE, OrgOffset:?BLEN_OFFSET,
-      AddrId:?BLEN_ADDRID/integer, NumOfClock:?BLEN_CLOCK,
-      Year:?BLEN_TS_Y, Month:?BLEN_TS_M, Day:?BLEN_TS_D,
-      Hour:?BLEN_TS_H, Min:?BLEN_TS_N,   Second:?BLEN_TS_S,
-      Del:?BLEN_DEL,
-      _Buffer:?BLEN_BUF>> = HeaderBin,
-
+    << Checksum:?BLEN_CHKSUM,
+       KSize:?BLEN_KSIZE,
+       DSize:?BLEN_DSIZE,
+       MSize:?BLEN_MSIZE,
+       OrgOffset:?BLEN_OFFSET,
+       AddrId:?BLEN_ADDRID,
+       NumOfClock:?BLEN_CLOCK,
+       Year:?BLEN_TS_Y,
+       Month:?BLEN_TS_M,
+       Day:?BLEN_TS_D,
+       Hour:?BLEN_TS_H,
+       Min:?BLEN_TS_N,
+       Second:?BLEN_TS_S,
+       Del:?BLEN_DEL,
+       _CSize:?BLEN_CHUNK_SIZE,
+       _CNum:?BLEN_CHUNK_NUM,
+       _CIndex:?BLEN_CHUNK_INDEX,
+       _:?BLEN_BUF
+    >> = HeaderBin,
     RemainSize = KSize + DSize + ?LEN_PADDING,
 
     case file:pread(ReadHandler, Offset + HeaderSize, RemainSize) of
