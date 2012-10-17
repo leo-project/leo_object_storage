@@ -470,7 +470,7 @@ put_fun1(#object{addr_id    = AddrId,
 put_fun2(Needle, #metadata{key      = Key,
                            addr_id  = AddrId,
                            offset   = Offset,
-                           checksum  = Checksum} = Meta) ->
+                           checksum = Checksum} = Meta) ->
     #backend_info{write_handler = WriteHandler} = StorageInfo,
 
     case file:pwrite(WriteHandler, Offset, Needle) of
