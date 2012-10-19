@@ -50,10 +50,10 @@
 -define(AVS_PART_OF_HEADER, <<"CHKSUM:128,KSIZE:16,BLEN_MSIZE:32,DSIZE:32,OFFSET:64,ADDRID:128,CLOCK:64,TIMESTAMP:42,DEL:1,BUF:517,CHUNK_SIZE:32,CHUNK_NUM:24,CHUNK_INDEX:24",13,10>>).
 -define(AVS_PART_OF_BODY,   <<"KEY/binary,DATA/binary",13,10>>).
 -define(AVS_PART_OF_FOOTER, <<"PADDING:64",13,10>>).
--define(AVS_SUPER_BLOCK,     <<?AVS_HEADER_VSN/binary,
-                               ?AVS_PART_OF_HEADER/binary,
-                               ?AVS_PART_OF_BODY/binary,
-                               ?AVS_PART_OF_FOOTER/binary>>).
+-define(AVS_SUPER_BLOCK,    <<?AVS_HEADER_VSN/binary,
+                              ?AVS_PART_OF_HEADER/binary,
+                              ?AVS_PART_OF_BODY/binary,
+                              ?AVS_PART_OF_FOOTER/binary>>).
 %% ------------------------ %%
 -define(BLEN_CHKSUM,       128). %% chechsum (MD5)
 -define(BLEN_KSIZE,         16). %% key size
@@ -289,7 +289,8 @@ get_fun1(#metadata{key      = Key,
                    ksize    = KeySize,
                    dsize    = ObjectSize,
                    addr_id  = AddrId,
-                   offset   = Offset} = Metadata, StartPos, EndPos) ->
+                   offset   = Offset,
+                   cnumber  = 0} = Metadata, StartPos, EndPos) ->
     %% If end-position equal 0,
     %% Then actual end-position is object-size.
     NewEndPos = case (EndPos == 0) of
@@ -324,7 +325,15 @@ get_fun1(#metadata{key      = Key,
                                    [{module, ?MODULE_STRING}, {function, "get_fun/1"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
-    end.
+    end;
+
+%% For parent of chunked object
+get_fun1(#metadata{key     = Key,
+                   addr_id = AddrId} = Metadata, _, _) ->
+    {ok, Metadata, leo_object_storage_pool:new(#object{key     = Key,
+                                                       addr_id = AddrId,
+                                                       data    = <<>>,
+                                                       dsize   = 0})}.
 
 
 %% @doc Insert a super-block into an object container (*.avs)
