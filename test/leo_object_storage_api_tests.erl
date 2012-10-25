@@ -53,6 +53,7 @@ setup() ->
 teardown([Path1, Path2]) ->
     os:cmd("rm -rf " ++ Path1),
     os:cmd("rm -rf " ++ Path2),
+    timer:sleep(500),
     ok.
 
 
@@ -86,28 +87,21 @@ operate_([Path1, Path2]) ->
     AddrId = 0,
     Key = "air/on/g/string",
     Bin = <<"J.S.Bach">>,
-    ObjectPool0 = leo_object_storage_pool:new(#object{method    = put,
-                                                      addr_id   = AddrId,
-                                                      key       = Key,
-                                                      data      = Bin,
-                                                      dsize     = byte_size(Bin),
-                                                      timestamp = leo_date:now(),
-                                                      clock     = leo_date:clock()}),
-    {ok, ETag} = leo_object_storage_api:put({AddrId, Key}, ObjectPool0),
-    ?debugVal(ETag),
+    Object0 =#object{method    = put,
+                     addr_id   = AddrId,
+                     key       = Key,
+                     data      = Bin,
+                     ksize     = length(Key),
+                     dsize     = byte_size(Bin),
+                     timestamp = leo_date:now(),
+                     clock     = leo_date:clock()},
+    {ok, _ETag} = leo_object_storage_api:put({AddrId, Key}, Object0),
 
     %% 2. Get
-    {ok, Meta1, ObjectPool1} = leo_object_storage_api:get({AddrId, Key}),
+    {ok, Meta1, _Object1} = leo_object_storage_api:get({AddrId, Key}),
     ?assertEqual(AddrId, Meta1#metadata.addr_id),
     ?assertEqual(Key,    Meta1#metadata.key),
     ?assertEqual(0,      Meta1#metadata.del),
-
-    Obj0 = leo_object_storage_pool:get(ObjectPool1),
-    ?assertEqual(AddrId,         Obj0#object.addr_id),
-    ?assertEqual(Key,            Obj0#object.key),
-    ?assertEqual(Bin,            Obj0#object.data),
-    ?assertEqual(byte_size(Bin), Obj0#object.dsize),
-    ?assertEqual(0,              Obj0#object.del),
 
     %% 3. Store (for Copy)
     ok = leo_object_storage_api:store(Meta1, Bin),
@@ -119,26 +113,21 @@ operate_([Path1, Path2]) ->
 
     %% 4. Get - Various cases
     %% >> Case of regular.
-    {ok, _Meta1_1, ObjectPool1_1} = leo_object_storage_api:get({AddrId, Key}, 4, 8),
-    Obj0_1 = leo_object_storage_pool:get(ObjectPool1_1),
-
-    ?assertEqual(4, byte_size(Obj0_1#object.data)),
-    ?assertEqual(<<"Bach">>, Obj0_1#object.data),
+    {ok, _Meta1_1, Object1_1} = leo_object_storage_api:get({AddrId, Key}, 4, 8),
+    ?assertEqual(4, byte_size(Object1_1#object.data)),
+    ?assertEqual(<<"Bach">>, Object1_1#object.data),
 
     %% >> Case of "end-position over data-size".
-    {ok, _Meta1_2, ObjectPool1_2} = leo_object_storage_api:get({AddrId, Key}, 5, 9),
-    Obj0_2 = leo_object_storage_pool:get(ObjectPool1_2),
-    ?assertEqual(<<"ach">>, Obj0_2#object.data),
+    {ok, _Meta1_2, Object1_2} = leo_object_storage_api:get({AddrId, Key}, 5, 9),
+    ?assertEqual(<<"ach">>, Object1_2#object.data),
 
     %% >> Case of "end-position is zero". It's means "end-position is data-size".
-    {ok, _Meta1_3, ObjectPool1_3} = leo_object_storage_api:get({AddrId, Key}, 2, 0),
-    Obj0_3 = leo_object_storage_pool:get(ObjectPool1_3),
-    ?assertEqual(<<"S.Bach">>, Obj0_3#object.data),
+    {ok, _Meta1_3, Object1_3} = leo_object_storage_api:get({AddrId, Key}, 2, 0),
+    ?assertEqual(<<"S.Bach">>, Object1_3#object.data),
 
     %% >> Case of "start-position over data-size"
-    {ok, _Meta1_4, ObjectPool1_4} = leo_object_storage_api:get({AddrId, Key}, 8, 0),
-    Obj0_4 = leo_object_storage_pool:get(ObjectPool1_4),
-    ?assertEqual(<<>>, Obj0_4#object.data),
+    {ok, _Meta1_4, Object1_4} = leo_object_storage_api:get({AddrId, Key}, 8, 0),
+    ?assertEqual(<<>>, Object1_4#object.data),
 
 
     %% 5. Head
@@ -149,14 +138,14 @@ operate_([Path1, Path2]) ->
     ?assertEqual(0,      Meta2#metadata.del),
 
     %% 6. Delete
-    ObjectPool2 = leo_object_storage_pool:new(#object{method    = delete,
-                                                      key       = Key,
-                                                      addr_id   = AddrId,
-                                                      data      = <<>>,
-                                                      timestamp = leo_date:now(),
-                                                      clock     = leo_date:clock(),
-                                                      del       = 1}),
-    ok = leo_object_storage_api:delete({AddrId, Key}, ObjectPool2),
+    Object2 = #object{method    = delete,
+                      key       = Key,
+                      addr_id   = AddrId,
+                      data      = <<>>,
+                      timestamp = leo_date:now(),
+                      clock     = leo_date:clock(),
+                      del       = 1},
+    ok = leo_object_storage_api:delete({AddrId, Key}, Object2),
 
     %% 7. Get
     Res4 = leo_object_storage_api:get({AddrId, Key}),
@@ -263,7 +252,6 @@ compact_([Path1, Path2]) ->
 
     ok = leo_object_storage_api:start([{4, Path1}, {4, Path2}]),
 
-    ?debugVal(ok),
     ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
     ok = put_test_data(127,  "air/on/g/string/1", <<"JSB1">>),
     ok = put_test_data(255,  "air/on/g/string/2", <<"JSB2">>),
@@ -280,14 +268,16 @@ compact_([Path1, Path2]) ->
 
     AddrId = 4095,
     Key    = "air/on/g/string/7",
-    ObjectPool = leo_object_storage_pool:new(#object{method    = delete,
-                                                     key       = Key,
-                                                     addr_id   = AddrId,
-                                                     data      = <<>>,
-                                                     timestamp = leo_date:now(),
-                                                     clock     = leo_date:clock(),
-                                                     del       = 1}),
-    ok = leo_object_storage_api:delete({AddrId, Key}, ObjectPool),
+    Object = #object{method    = delete,
+                     key       = Key,
+                     ksize     = length(Key),
+                     addr_id   = AddrId,
+                     data      = <<>>,
+                     dsize     = 0,
+                     timestamp = leo_date:now(),
+                     clock     = leo_date:clock(),
+                     del       = 1},
+    ok = leo_object_storage_api:delete({AddrId, Key}, Object),
 
     %% inspect for compaction
     {ok, Res0} = leo_object_storage_api:stats(),
@@ -362,20 +352,20 @@ compact_([Path1, Path2]) ->
 %% INNER FUNCTIONS
 %%--------------------------------------------------------------------
 put_test_data(AddrId, Key, Bin) ->
-    ObjectPool = leo_object_storage_pool:new(#object{method    = put,
-                                                     addr_id   = AddrId,
-                                                     key       = Key,
-                                                     data      = Bin,
-                                                     dsize     = byte_size(Bin),
-                                                     timestamp = leo_date:now(),
-                                                     clock     = leo_date:clock()
-                                                    }),
-    {ok, _Checksum} = leo_object_storage_api:put({AddrId, Key}, ObjectPool),
+    Object = #object{method    = put,
+                     addr_id   = AddrId,
+                     key       = Key,
+                     key_bin   = list_to_binary(Key),
+                     data      = Bin,
+                     ksize     = length(Key),
+                     dsize     = byte_size(Bin),
+                     timestamp = leo_date:now(),
+                     clock     = leo_date:clock()
+                    },
+    {ok, _Checksum} = leo_object_storage_api:put({AddrId, Key}, Object),
     ok.
 
 get_test_data(AddrId, Key) ->
-    {ok, Meta, ObjectPool} = leo_object_storage_api:get({AddrId, Key}),
-    Obj = leo_object_storage_pool:get(ObjectPool),
-    {ok, Meta, Obj}.
+    leo_object_storage_api:get({AddrId, Key}).
 
 -endif.

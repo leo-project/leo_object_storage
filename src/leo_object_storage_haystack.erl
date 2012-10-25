@@ -113,16 +113,16 @@ close(WriteHandler, ReadHandler) ->
 
 %% @doc Insert an object and a metadata into the object-storage
 %%
--spec(put(pid()) ->
+-spec(put(#object{}) ->
              {ok, integer()} | {error, any()}).
-put(ObjectPool) ->
-    put_fun0(ObjectPool).
+put(Object) ->
+    put_fun0(Object).
 
 
 %% @doc Retrieve an object and a metadata from the object-storage
 %%
--spec(get(KeyBin::binary()) ->
-             {ok, #metadata{}, pid()} | {error, any()}).
+-spec(get(binary()) ->
+             {ok, #metadata{}, #object{}} | {error, any()}).
 get(KeyBin) ->
     get(KeyBin, 0, 0).
 
@@ -132,10 +132,10 @@ get(KeyBin, StartPos, EndPos) ->
 
 %% @doc Remove an object and a metadata from the object-storage
 %%
--spec(delete(ObjectPool::pid()) ->
+-spec(delete(#object{}) ->
              ok | {error, any()}).
-delete(ObjectPool) ->
-    case put_fun0(ObjectPool) of
+delete(Object) ->
+    case put_fun0(Object) of
         {ok, _Checksum} ->
             ok;
         {error, Cause} ->
@@ -145,7 +145,7 @@ delete(ObjectPool) ->
 
 %% @doc Retrieve a metada from backend_db from the object-storage
 %%
--spec(head(KeyBin::binary()) ->
+-spec(head(binary()) ->
              {ok, #metadata{}} | not_found | {error, any()}).
 head(KeyBin) ->
     case catch leo_backend_db_api:get(MetaDBId, KeyBin) of
@@ -185,8 +185,7 @@ store(Metadata, Bin) ->
                      checksum   = Checksum,
                      ring_hash  = Metadata#metadata.ring_hash,
                      del        = Metadata#metadata.del},
-    ObjectPool = leo_object_storage_pool:new(Key, Metadata, Object),
-    case put_fun0(ObjectPool) of
+    case put_fun0(Object) of
         {ok, _Checksum} ->
             ok;
         {error, Cause} ->
@@ -281,10 +280,10 @@ get_fun(KeyBin, StartPos, EndPos) ->
 get_fun1(#metadata{key      = Key,
                    dsize    = ObjectSize,
                    addr_id  = AddrId} = Metadata, StartPos, _) when StartPos >= ObjectSize ->
-    {ok, Metadata, leo_object_storage_pool:new(#object{key     = Key,
-                                                       addr_id = AddrId,
-                                                       data    = <<>>,
-                                                       dsize   = 0})};
+    {ok, Metadata, #object{key     = Key,
+                           addr_id = AddrId,
+                           data    = <<>>,
+                           dsize   = 0}};
 get_fun1(#metadata{key      = Key,
                    ksize    = KeySize,
                    dsize    = ObjectSize,
@@ -314,10 +313,10 @@ get_fun1(#metadata{key      = Key,
     %% Retrieve the object
     case file:pread(ReadHandler, NewOffset, NewObjectSize) of
         {ok, Bin} ->
-            {ok, Metadata, leo_object_storage_pool:new(#object{key     = Key,
-                                                               addr_id = AddrId,
-                                                               data    = Bin,
-                                                               dsize   = NewObjectSize})};
+            {ok, Metadata, #object{key     = Key,
+                                   addr_id = AddrId,
+                                   data    = Bin,
+                                   dsize   = NewObjectSize}};
         eof = Cause ->
             {error, Cause};
         {error, Cause} ->
@@ -330,10 +329,10 @@ get_fun1(#metadata{key      = Key,
 %% For parent of chunked object
 get_fun1(#metadata{key     = Key,
                    addr_id = AddrId} = Metadata, _, _) ->
-    {ok, Metadata, leo_object_storage_pool:new(#object{key     = Key,
-                                                       addr_id = AddrId,
-                                                       data    = <<>>,
-                                                       dsize   = 0})}.
+    {ok, Metadata, #object{key     = Key,
+                           addr_id = AddrId,
+                           data    = <<>>,
+                           dsize   = 0}}.
 
 
 %% @doc Insert a super-block into an object container (*.avs)
@@ -396,51 +395,40 @@ create_needle(#object{addr_id    = AddrId,
 
 %% @doc Insert an object into the object-storage
 %% @private
-put_fun0(ObjectPool) ->
-    case catch leo_object_storage_pool:get(ObjectPool) of
-        {'EXIT', Cause} ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "put_fun0/1"},
-                                    {line, ?LINE}, {body, Cause}]),
-            {error, ?ERR_TYPE_TIMEOUT};
-        not_found ->
-            {error, ?ERR_TYPE_TIMEOUT};
-
-        #object{addr_id  = AddrId,
-                key      = Key,
-                checksum = Checksum0,
-                del      = DelFlag} = Object ->
-            Ret = case DelFlag of
-                      ?DEL_FALSE ->
-                          case head(term_to_binary({AddrId, Key})) of
-                              {ok, MetadataBin} ->
-                                  #metadata{checksum = Checksum1} = binary_to_term(MetadataBin),
-                                  case (Checksum0 == Checksum1) of
-                                      true  -> match;
-                                      false -> not_match
-                                  end;
-                              _ ->
-                                  not_match
+put_fun0(#object{addr_id  = AddrId,
+                 key      = Key,
+                 checksum = Checksum0,
+                 del      = DelFlag} = Object) ->
+    Ret = case DelFlag of
+              ?DEL_FALSE ->
+                  case head(term_to_binary({AddrId, Key})) of
+                      {ok, MetadataBin} ->
+                          #metadata{checksum = Checksum1} = binary_to_term(MetadataBin),
+                          case (Checksum0 == Checksum1) of
+                              true  -> match;
+                              false -> not_match
                           end;
-                      ?DEL_TRUE ->
+                      _ ->
                           not_match
-                  end,
+                  end;
+              ?DEL_TRUE ->
+                  not_match
+          end,
 
-            case Ret of
-                match ->
-                    {ok, Checksum0};
-                not_match ->
-                    #backend_info{write_handler = ObjectStorageWriteHandler} = StorageInfo,
+    case Ret of
+        match ->
+            {ok, Checksum0};
+        not_match ->
+            #backend_info{write_handler = ObjectStorageWriteHandler} = StorageInfo,
 
-                    case file:position(ObjectStorageWriteHandler, eof) of
-                        {ok, Offset} ->
-                            put_fun1(Object#object{offset = Offset});
-                        {error, Cause} ->
-                            error_logger:error_msg("~p,~p,~p,~p~n",
-                                                   [{module, ?MODULE_STRING}, {function, "put_fun0/1"},
-                                                    {line, ?LINE}, {body, Cause}]),
-                            {error, Cause}
-                    end
+            case file:position(ObjectStorageWriteHandler, eof) of
+                {ok, Offset} ->
+                    put_fun1(Object#object{offset = Offset});
+                {error, Cause} ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING}, {function, "put_fun0/1"},
+                                            {line, ?LINE}, {body, Cause}]),
+                    {error, Cause}
             end
     end.
 
@@ -607,12 +595,14 @@ compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
     >> = HeaderBin,
     RemainSize = KSize + DSize + ?LEN_PADDING,
 
-    case file:pread(ReadHandler, Offset + HeaderSize, RemainSize) of
+    case file:pread(ReadHandler, (Offset + HeaderSize), RemainSize) of
         {ok, RemainBin} ->
             RemainLen = byte_size(RemainBin),
+
             case RemainLen of
                 RemainSize ->
                     <<KeyValue:KSize/binary, BodyValue:DSize/binary, _Footer/binary>> = RemainBin,
+
                     case leo_hex:binary_to_integer(erlang:md5(BodyValue)) of
                         Checksum ->
                             Timestamp = calendar:datetime_to_gregorian_seconds(
