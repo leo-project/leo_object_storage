@@ -45,6 +45,9 @@
 
 -define(STATE_COMPACTING,  'compacting'). %% running
 -define(STATE_ACTIVE,      'active').     %% idle
+
+-define(CHKSUM_EMPTY, 281949768489412648962353822266799178366).
+
 -type(storage_status() :: ?STATE_COMPACTING | ?STATE_ACTIVE).
 
 %%--------------------------------------------------------------------
@@ -106,10 +109,19 @@ start({error, Cause},_ObjectStorageInfo) ->
 %% @doc Insert an object into the object-storage
 %% @param Key = {$VNODE_ID, $OBJ_KEY}
 %%
--spec(put(tuple(), pid()) ->
+-spec(put(tuple(), #object{}) ->
              {ok, integer()} | {error, any()}).
-put(Key, ObjectPool) ->
-    do_request(put, [Key, ObjectPool]).
+put(Key0, #object{key  = Key1,
+                  data = Data} = Object) ->
+    Checksum = case Data of
+                   <<>> -> ?CHKSUM_EMPTY;
+                   _    -> leo_hex:binary_to_integer(erlang:md5(Data))
+               end,
+    do_request(put, [Key0, Object#object{
+                             ksize    = length(Key1),
+                             key_bin  = list_to_binary(Key1),
+                             checksum = Checksum}]).
+
 
 
 %% @doc Retrieve an object and a metadata from the object-storage
@@ -120,17 +132,21 @@ get(Key) ->
     get(Key, 0, 0).
 
 -spec(get(tuple(), integer(), integer()) ->
-             {ok, list()} | not_found | {error, any()}).
+             {ok, #metadata{}, #object{}} | not_found | {error, any()}).
 get(Key, StartPos, EndPos) ->
     do_request(get, [Key, StartPos, EndPos]).
 
 
 %% @doc Remove an object from the object-storage
 %%
--spec(delete(tuple(), pid()) ->
+-spec(delete(tuple(), #object{}) ->
              ok | {error, any()}).
-delete(Key, ObjectPool) ->
-    do_request(delete, [Key, ObjectPool]).
+delete(Key0,  #object{key = Key1} = Object) ->
+    do_request(delete, [Key0, Object#object{ksize    = length(Key1),
+                                            key_bin  = list_to_binary(Key1),
+                                            dsize    = 0,
+                                            data     = <<>>,
+                                            checksum = ?CHKSUM_EMPTY}]).
 
 
 %% @doc Retrieve a metadata from the object-storage
@@ -372,23 +388,23 @@ do_request(get, [Key, StartPos, EndPos]) ->
     KeyBin = term_to_binary(Key),
     ?SERVER_MODULE:get(get_object_storage_pid(KeyBin), KeyBin, StartPos, EndPos);
 
-do_request(put, [Key, ObjectPool]) ->
+do_request(put, [Key, Object]) ->
     KeyBin = term_to_binary(Key),
     Id = get_object_storage_pid(KeyBin),
 
     case get_pid_status(Id) of
         ?STATE_ACTIVE ->
-            ?SERVER_MODULE:put(get_object_storage_pid(KeyBin), ObjectPool);
+            ?SERVER_MODULE:put(get_object_storage_pid(KeyBin), Object);
         ?STATE_COMPACTING ->
             {error, doing_compaction}
     end;
-do_request(delete, [Key, ObjectPool]) ->
+do_request(delete, [Key, Object]) ->
     KeyBin = term_to_binary(Key),
     Id = get_object_storage_pid(KeyBin),
 
     case get_pid_status(Id) of
         ?STATE_ACTIVE ->
-            ?SERVER_MODULE:delete(get_object_storage_pid(KeyBin), ObjectPool);
+            ?SERVER_MODULE:delete(get_object_storage_pid(KeyBin), Object);
         ?STATE_COMPACTING ->
             {error, doing_compaction}
     end;

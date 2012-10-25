@@ -85,26 +85,26 @@ stop(Id) ->
 %%--------------------------------------------------------------------
 %% @doc Insert an object and an object's metadata into the object-storage
 %%
--spec(put(atom(), pid()) ->
+-spec(put(atom(), #object{}) ->
              ok | {error, any()}).
-put(Id, ObjectPool) ->
-    gen_server:call(Id, {put, ObjectPool}).
+put(Id, Object) ->
+    gen_server:call(Id, {put, Object}).
 
 
 %% @doc Retrieve an object from the object-storage
 %%
 -spec(get(atom(), binary(), integer(), integer()) ->
-             {ok, #metadata{}, list()} | not_found | {error, any()}).
+             {ok, #metadata{}, #object{}} | not_found | {error, any()}).
 get(Id, KeyBin, StartPos, EndPos) ->
     gen_server:call(Id, {get, KeyBin, StartPos, EndPos}).
 
 
 %% @doc Remove an object from the object-storage - (logical-delete)
 %%
--spec(delete(atom(), pid()) ->
+-spec(delete(atom(), #object{}) ->
              ok | {error, any()}).
-delete(Id, ObjectPool) ->
-    gen_server:call(Id, {delete, ObjectPool}).
+delete(Id, Object) ->
+    gen_server:call(Id, {delete, Object}).
 
 
 %% @doc Retrieve an object's metadata from the object-storage
@@ -206,12 +206,12 @@ handle_call(stop, _From, #state{meta_db_id     = MetaDBId,
     {stop, normal, ok, State};
 
 
-handle_call({put, ObjectPool}, _From, #state{meta_db_id     = MetaDBId,
-                                             object_storage = StorageInfo,
-                                             num_of_objects = NumOfObjs} = State) ->
+handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
+                                         object_storage = StorageInfo,
+                                         num_of_objects = NumOfObjs} = State) ->
     #backend_info{backend = Module} = StorageInfo,
     Obj = Module:new(MetaDBId, StorageInfo),
-    Reply = Obj:put(ObjectPool),
+    Reply = Obj:put(Object),
 
     NewState = after_proc(Reply, State),
     erlang:garbage_collect(self()),
@@ -231,12 +231,12 @@ handle_call({get, KeyBin, StartPos, EndPos}, _From, #state{meta_db_id     = Meta
     {reply, Reply, NewState};
 
 
-handle_call({delete, ObjectPool}, _From, #state{meta_db_id     = MetaDBId,
-                                                object_storage = StorageInfo,
-                                                num_of_objects = NumOfObjs} = State) ->
+handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
+                                            object_storage = StorageInfo,
+                                            num_of_objects = NumOfObjs} = State) ->
     #backend_info{backend = Module} = StorageInfo,
     Obj = Module:new(MetaDBId, StorageInfo),
-    Reply = Obj:delete(ObjectPool),
+    Reply = Obj:delete(Object),
 
     NewState = after_proc(Reply, State),
     {reply, Reply, NewState#state{num_of_objects = NumOfObjs - 1}};
@@ -403,7 +403,6 @@ compact_fun(#state{meta_db_id       = MetaDBId,
 
                           case ObjStorage:open(TmpPath) of
                               {ok, [TmpWriteHandler, TmpReadHandler]} ->
-
                                   case do_stats(MetaDBId, StorageInfo) of
                                       {ok, #storage_stats{active_num = ActiveObjs}} ->
                                           {ok, State#state{object_storage = StorageInfo#backend_info{
