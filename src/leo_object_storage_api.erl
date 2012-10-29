@@ -120,7 +120,7 @@ get(Key) ->
     get(Key, 0, 0).
 
 -spec(get(tuple(), integer(), integer()) ->
-             {ok, list()} | not_found | {error, any()}).
+             {ok, #metadata{}, #object{}} | not_found | {error, any()}).
 get(Key, StartPos, EndPos) ->
     do_request(get, [Key, StartPos, EndPos]).
 

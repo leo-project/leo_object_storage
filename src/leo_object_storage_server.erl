@@ -94,7 +94,7 @@ put(Id, ObjectPool) ->
 %% @doc Retrieve an object from the object-storage
 %%
 -spec(get(atom(), binary(), integer(), integer()) ->
-             {ok, #metadata{}, list()} | not_found | {error, any()}).
+             {ok, #metadata{}, #object{}} | not_found | {error, any()}).
 get(Id, KeyBin, StartPos, EndPos) ->
     gen_server:call(Id, {get, KeyBin, StartPos, EndPos}).
 
