@@ -28,6 +28,8 @@
 -export([new/1,
          run/4]).
 
+-include_lib("leo_object_storage/include/leo_object_storage.hrl").
+
 
 %% @doc initialize
 %%
@@ -35,8 +37,9 @@
              ok).
 new(_Id) ->
     Procs = basho_bench_config:get(obj_storage_procs, 64),
-    Path  = basho_bench_config:get(obj_storage_path,  "/avs/"),
-    ok = leo_object_storage_api:new(0, Procs, Path),
+    Path  = basho_bench_config:get(obj_storage_path,  "./avs/"),
+
+    ok = leo_object_storage_api:start([{Procs, Path}]),
     {ok, null}.
 
 
@@ -44,17 +47,26 @@ new(_Id) ->
 %%
 -spec(run(get, any(), any(), any()) ->
              {ok, any()} | {error, any(), any()}).
-run(get,_KeyGen, _ValueGen, State) ->
-    %% Key = KeyGen(),
-    {ok, State};
-    %% case leo_redundant_manager_api:get_redundancies_by_key(integer_to_list(Key)) of
-    %%     {ok, _} ->
-    %%         {ok, State};
-    %%     {error, Reason} ->
-    %%         {error, Reason, State}
-    %% end;
+run(get, KeyGen, _ValueGen, State) ->
+    Key = KeyGen(),
+    case leo_object_storage_api:get(Key) of
+        {ok, _} ->
+            {ok, State};
+        not_found ->
+            {ok, State};
+        {error, Cause} ->
+            {error, Cause, State}
+    end;
 
 run(put, KeyGen, ValueGen, State) ->
-    _Key = KeyGen(),
-    _Val = ValueGen(),
-    {ok, State}.
+    Key  = KeyGen(),
+    Val  = ValueGen(),
+    Pool = leo_object_storage_pool:new(#object{key  = Key,
+                                               data = Val}),
+    case leo_object_storage_api:put(Key, Pool) of
+        {ok, _ETag} ->
+            {ok, State};
+        {error, Cause} ->
+            {error, Cause, State}
+    end.
+
