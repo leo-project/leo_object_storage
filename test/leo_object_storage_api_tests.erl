@@ -97,12 +97,10 @@ operate_([Path1, Path2]) ->
     ?debugVal(ETag),
 
     %% 2. Get
-    {ok, Meta1, ObjectPool1} = leo_object_storage_api:get({AddrId, Key}),
+    {ok, Meta1, Obj0} = leo_object_storage_api:get({AddrId, Key}),
     ?assertEqual(AddrId, Meta1#metadata.addr_id),
     ?assertEqual(Key,    Meta1#metadata.key),
     ?assertEqual(0,      Meta1#metadata.del),
-
-    Obj0 = leo_object_storage_pool:get(ObjectPool1),
     ?assertEqual(AddrId,         Obj0#object.addr_id),
     ?assertEqual(Key,            Obj0#object.key),
     ?assertEqual(Bin,            Obj0#object.data),
@@ -119,25 +117,20 @@ operate_([Path1, Path2]) ->
 
     %% 4. Get - Various cases
     %% >> Case of regular.
-    {ok, _Meta1_1, ObjectPool1_1} = leo_object_storage_api:get({AddrId, Key}, 4, 8),
-    Obj0_1 = leo_object_storage_pool:get(ObjectPool1_1),
-
+    {ok, _Meta1_1, Obj0_1} = leo_object_storage_api:get({AddrId, Key}, 4, 8),
     ?assertEqual(4, byte_size(Obj0_1#object.data)),
     ?assertEqual(<<"Bach">>, Obj0_1#object.data),
 
     %% >> Case of "end-position over data-size".
-    {ok, _Meta1_2, ObjectPool1_2} = leo_object_storage_api:get({AddrId, Key}, 5, 9),
-    Obj0_2 = leo_object_storage_pool:get(ObjectPool1_2),
+    {ok, _Meta1_2, Obj0_2} = leo_object_storage_api:get({AddrId, Key}, 5, 9),
     ?assertEqual(<<"ach">>, Obj0_2#object.data),
 
     %% >> Case of "end-position is zero". It's means "end-position is data-size".
-    {ok, _Meta1_3, ObjectPool1_3} = leo_object_storage_api:get({AddrId, Key}, 2, 0),
-    Obj0_3 = leo_object_storage_pool:get(ObjectPool1_3),
+    {ok, _Meta1_3, Obj0_3} = leo_object_storage_api:get({AddrId, Key}, 2, 0),
     ?assertEqual(<<"S.Bach">>, Obj0_3#object.data),
 
     %% >> Case of "start-position over data-size"
-    {ok, _Meta1_4, ObjectPool1_4} = leo_object_storage_api:get({AddrId, Key}, 8, 0),
-    Obj0_4 = leo_object_storage_pool:get(ObjectPool1_4),
+    {ok, _Meta1_4, Obj0_4} = leo_object_storage_api:get({AddrId, Key}, 8, 0),
     ?assertEqual(<<>>, Obj0_4#object.data),
 
 
@@ -374,8 +367,6 @@ put_test_data(AddrId, Key, Bin) ->
     ok.
 
 get_test_data(AddrId, Key) ->
-    {ok, Meta, ObjectPool} = leo_object_storage_api:get({AddrId, Key}),
-    Obj = leo_object_storage_pool:get(ObjectPool),
-    {ok, Meta, Obj}.
+    leo_object_storage_api:get({AddrId, Key}).
 
 -endif.

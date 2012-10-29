@@ -122,7 +122,7 @@ put(ObjectPool) ->
 %% @doc Retrieve an object and a metadata from the object-storage
 %%
 -spec(get(KeyBin::binary()) ->
-             {ok, #metadata{}, pid()} | {error, any()}).
+             {ok, #metadata{}, #object{}} | {error, any()}).
 get(KeyBin) ->
     get(KeyBin, 0, 0).
 
@@ -281,10 +281,10 @@ get_fun(KeyBin, StartPos, EndPos) ->
 get_fun1(#metadata{key      = Key,
                    dsize    = ObjectSize,
                    addr_id  = AddrId} = Metadata, StartPos, _) when StartPos >= ObjectSize ->
-    {ok, Metadata, leo_object_storage_pool:new(#object{key     = Key,
-                                                       addr_id = AddrId,
-                                                       data    = <<>>,
-                                                       dsize   = 0})};
+    {ok, Metadata, #object{key     = Key,
+                           addr_id = AddrId,
+                           data    = <<>>,
+                           dsize   = 0}};
 get_fun1(#metadata{key      = Key,
                    ksize    = KeySize,
                    dsize    = ObjectSize,
@@ -314,10 +314,10 @@ get_fun1(#metadata{key      = Key,
     %% Retrieve the object
     case file:pread(ReadHandler, NewOffset, NewObjectSize) of
         {ok, Bin} ->
-            {ok, Metadata, leo_object_storage_pool:new(#object{key     = Key,
-                                                               addr_id = AddrId,
-                                                               data    = Bin,
-                                                               dsize   = NewObjectSize})};
+            {ok, Metadata, #object{key     = Key,
+                                   addr_id = AddrId,
+                                   data    = Bin,
+                                   dsize   = NewObjectSize}};
         eof = Cause ->
             {error, Cause};
         {error, Cause} ->
@@ -330,10 +330,10 @@ get_fun1(#metadata{key      = Key,
 %% For parent of chunked object
 get_fun1(#metadata{key     = Key,
                    addr_id = AddrId} = Metadata, _, _) ->
-    {ok, Metadata, leo_object_storage_pool:new(#object{key     = Key,
-                                                       addr_id = AddrId,
-                                                       data    = <<>>,
-                                                       dsize   = 0})}.
+    {ok, Metadata, #object{key     = Key,
+                           addr_id = AddrId,
+                           data    = <<>>,
+                           dsize   = 0}}.
 
 
 %% @doc Insert a super-block into an object container (*.avs)
