@@ -64,16 +64,15 @@ key() ->
     erlang:put("K", N+1),
     lists:append(["key_", integer_to_list(N)]).
 
-object(Method) ->
+objpool(Method) ->
     N = erlang:get("K"),
     Key = lists:append(["key_", integer_to_list(N)]),
     Bin = crypto:rand_bytes(1024),
-    #object{method   = Method,
-            addr_id  = 0,
-            key      = Key,
-            data     = Bin,
-            dsize    = byte_size(Bin)}.
-
+    leo_object_storage_pool:new(#object{method   = Method,
+                                        addr_id  = 0,
+                                        key      = Key,
+                                        data     = Bin,
+                                        dsize    = byte_size(Bin)}).
 
 %% @doc Property TEST
 %%
@@ -107,9 +106,9 @@ initial_state() ->
 %% @doc Command
 %%
 command(_S) ->
-    Cmd0 = [{call, leo_object_storage_api, put,    [key(), object(put)]},
+    Cmd0 = [{call, leo_object_storage_api, put,    [key(), objpool(put)]},
             {call, leo_object_storage_api, get,    [key()]},
-            {call, leo_object_storage_api, delete, [key(), object(delete)]}],
+            {call, leo_object_storage_api, delete, [key(), objpool(delete)]}],
     oneof(Cmd0).
 
 
