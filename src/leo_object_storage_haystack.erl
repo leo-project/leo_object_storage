@@ -601,18 +601,25 @@ compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
        Second:?BLEN_TS_S,
        Del:?BLEN_DEL,
        _CSize:?BLEN_CHUNK_SIZE,
-       _CNum:?BLEN_CHUNK_NUM,
+       CNum:?BLEN_CHUNK_NUM,
        _CIndex:?BLEN_CHUNK_INDEX,
        _:?BLEN_BUF
     >> = HeaderBin,
-    RemainSize = KSize + DSize + ?LEN_PADDING,
+
+    DSize4Read = case (CNum > 0) of
+                     true  -> 0;
+                     false -> DSize
+                 end,
+    RemainSize = KSize + DSize4Read + ?LEN_PADDING,
 
     case file:pread(ReadHandler, Offset + HeaderSize, RemainSize) of
         {ok, RemainBin} ->
             RemainLen = byte_size(RemainBin),
+
             case RemainLen of
                 RemainSize ->
-                    <<KeyValue:KSize/binary, BodyValue:DSize/binary, _Footer/binary>> = RemainBin,
+                    <<KeyValue:KSize/binary, BodyValue:DSize4Read/binary, _Footer/binary>> = RemainBin,
+
                     case leo_hex:binary_to_integer(erlang:md5(BodyValue)) of
                         Checksum ->
                             Timestamp = calendar:datetime_to_gregorian_seconds(
