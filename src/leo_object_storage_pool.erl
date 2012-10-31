@@ -59,7 +59,9 @@ new(Object0, Timeout) ->
             ksize     = KSize,
             dsize     = DSize,
             data      = Bin,
-            timestamp = Timestamp} = Object1,
+            timestamp = Timestamp,
+            del       = Del
+           } = Object1,
 
     Checksum = case Bin of
                    <<>> -> 281949768489412648962353822266799178366;
@@ -72,11 +74,13 @@ new(Object0, Timeout) ->
                           ksize     = KSize,
                           dsize     = DSize,
                           checksum  = Checksum,
-                          timestamp = Timestamp}, Object1#object{checksum = Checksum}, Timeout]).
+                          timestamp = Timestamp,
+                          del       = Del},
+           Object1#object{checksum = Checksum}, Timeout]).
 
 new(Key, Metadata, Object) ->
     spawn(?MODULE, loop, [Key, Metadata, Object, ?DEF_TIMEOUT]).
-    
+
 
 %% @doc Receiver
 %%
