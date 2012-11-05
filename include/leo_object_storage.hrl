@@ -57,7 +57,7 @@
          }).
 
 -record(metadata, {
-          key                 :: string(),  %% filename
+          key = <<>>          :: binary(),  %% filename
           addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
           ksize      = 0      :: integer(), %% file-path size
           dsize      = 0      :: integer(), %% data size
@@ -77,8 +77,7 @@
 
 -record(object, {
           method,
-          key        = []     :: list(),    %% filename-string
-          key_bin    = <<>>   :: binary(),  %% filename-bin
+          key        = <<>>   :: binary(),  %% filename
           addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
           data       = <<>>   :: binary(),  %% file
           meta       = <<>>   :: binary(),  %% custom-metadata

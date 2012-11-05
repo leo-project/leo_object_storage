@@ -48,7 +48,7 @@ teardown(_) ->
 
 all_(_) ->
     AddrId = 255,
-    Key  = "air/on/g/string",
+    Key  = <<"air/on/g/string">>,
     Bin  = <<"J.S.Bach">>,
     Size = byte_size(Bin),
     Ring = 12345,

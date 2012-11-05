@@ -51,9 +51,7 @@ new(#object{clock = 0} = Object, Timeout) ->
     new(Object#object{clock = leo_date:clock()}, Timeout);
 
 new(Object0, Timeout) ->
-    KeyBin  = erlang:list_to_binary(Object0#object.key),
-    Object1 = Object0#object{key_bin = KeyBin,
-                             ksize   = erlang:byte_size(KeyBin)},
+    Object1 = Object0#object{ksize = erlang:byte_size(Object0#object.key)},
     #object{key       = Key,
             addr_id   = AddrId,
             ksize     = KSize,
