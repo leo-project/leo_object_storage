@@ -121,13 +121,13 @@ put(ObjectPool) ->
 
 %% @doc Retrieve an object and a metadata from the object-storage
 %%
--spec(get(KeyBin::binary()) ->
+-spec(get(binary()) ->
              {ok, #metadata{}, #object{}} | {error, any()}).
-get(KeyBin) ->
-    get(KeyBin, 0, 0).
+get(Key) ->
+    get(Key, 0, 0).
 
-get(KeyBin, StartPos, EndPos) ->
-    get_fun(KeyBin, StartPos, EndPos).
+get(Key, StartPos, EndPos) ->
+    get_fun(Key, StartPos, EndPos).
 
 
 %% @doc Remove an object and a metadata from the object-storage
@@ -145,10 +145,10 @@ delete(ObjectPool) ->
 
 %% @doc Retrieve a metada from backend_db from the object-storage
 %%
--spec(head(KeyBin::binary()) ->
+-spec(head(binary()) ->
              {ok, #metadata{}} | not_found | {error, any()}).
-head(KeyBin) ->
-    case catch leo_backend_db_api:get(MetaDBId, KeyBin) of
+head(Key) ->
+    case catch leo_backend_db_api:get(MetaDBId, Key) of
         {ok, MetadataBin} ->
             {ok, MetadataBin};
         not_found = Cause ->
@@ -162,8 +162,8 @@ head(KeyBin) ->
 %%
 -spec(fetch(binary(), function()) ->
              ok | {error, any()}).
-fetch(KeyBin, Fun) ->
-    leo_backend_db_api:fetch(MetaDBId, KeyBin, Fun).
+fetch(Key, Fun) ->
+    leo_backend_db_api:fetch(MetaDBId, Key, Fun).
 
 
 %% @doc Store metadata and binary
@@ -176,7 +176,6 @@ store(Metadata, Bin) ->
 
     Object = #object{addr_id    = Metadata#metadata.addr_id,
                      key        = Key,
-                     key_bin    = list_to_binary(Key),
                      ksize      = Metadata#metadata.ksize,
                      dsize      = Metadata#metadata.dsize,
                      data       = Bin,
@@ -260,8 +259,8 @@ open_fun(FilePath, RetryTimes) ->
 %%--------------------------------------------------------------------
 %% @doc Retrieve an object from object-storage
 %% @private
-get_fun(KeyBin, StartPos, EndPos) ->
-    case catch leo_backend_db_api:get(MetaDBId, KeyBin) of
+get_fun(Key, StartPos, EndPos) ->
+    case catch leo_backend_db_api:get(MetaDBId, Key) of
         {ok, MetadataBin} ->
             Metadata = binary_to_term(MetadataBin),
             case (Metadata#metadata.del == ?DEL_FALSE) of
@@ -353,7 +352,7 @@ put_super_block(ObjectStorageWriteHandler) ->
 %% @doc Create a needle
 %% @private
 create_needle(#object{addr_id    = AddrId,
-                      key_bin    = KeyBin,
+                      key        = Key,
                       ksize      = KSize,
                       dsize      = DSize,
                       msize      = MSize,
@@ -371,7 +370,7 @@ create_needle(#object{addr_id    = AddrId,
         calendar:gregorian_seconds_to_datetime(Timestamp),
 
     Padding = <<0:64>>,
-    Bin     = << KeyBin/binary, Body/binary, Padding/binary >>,
+    Bin     = << Key/binary, Body/binary, Padding/binary >>,
     Needle  = << Checksum:?BLEN_CHKSUM,
                  KSize:?BLEN_KSIZE,
                  DSize:?BLEN_DSIZE,
@@ -507,8 +506,7 @@ put_fun2(Needle, #metadata{key      = Key,
 %% @private
 -spec(compact_put(pid(), #metadata{}, binary(), binary()) ->
              ok | {error, any()}).
-compact_put(WriteHandler, #metadata{key       = Key,
-                                    addr_id   = AddrId,
+compact_put(WriteHandler, #metadata{addr_id   = AddrId,
                                     ksize     = KSize,
                                     msize     = MSize,
                                     dsize     = DSize,
@@ -522,8 +520,7 @@ compact_put(WriteHandler, #metadata{key       = Key,
     case file:position(WriteHandler, eof) of
         {ok, Offset} ->
             Needle = create_needle(#object{addr_id    = AddrId,
-                                           key        = Key,
-                                           key_bin    = KeyBin,
+                                           key        = KeyBin,
                                            ksize      = KSize,
                                            dsize      = DSize,
                                            msize      = MSize,
@@ -624,7 +621,7 @@ compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
                         Checksum ->
                             Timestamp = calendar:datetime_to_gregorian_seconds(
                                           {{Year, Month, Day}, {Hour, Min, Second}}),
-                            Meta = #metadata{key       = binary_to_list(KeyValue),
+                            Meta = #metadata{key       = KeyValue,
                                              addr_id   = AddrId,
                                              ksize     = KSize,
                                              msize     = MSize,

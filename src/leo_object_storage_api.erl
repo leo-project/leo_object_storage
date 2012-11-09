@@ -165,7 +165,7 @@ fetch_by_addr_id(AddrId, Fun) ->
 
 %% @doc Fetch objects by key (object-name)
 %%
--spec(fetch_by_key(string(), function()) ->
+-spec(fetch_by_key(binary(), function()) ->
              {ok, list()} | not_found).
 fetch_by_key(Key, Fun) ->
     case get_object_storage_pid(all) of
@@ -206,11 +206,9 @@ compact(FunHasChargeOfNode) ->
         List ->
             lists:foldl(
               fun(Id, Acc) ->
-                      %% @TODO >>
                       ok = application:set_env(?APP_NAME, Id, ?STATE_COMPACTING), %% > compacting
                       NewAcc = [?SERVER_MODULE:compact(Id, FunHasChargeOfNode)|Acc],
-                      ok = application:set_env(?APP_NAME, Id, ?STATE_ACTIVE),    %% > active
-                      %% << @TODO
+                      ok = application:set_env(?APP_NAME, Id, ?STATE_ACTIVE),     %% > active
                       NewAcc
               end, [], List)
     end.

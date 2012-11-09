@@ -84,7 +84,7 @@ operate_([Path1, Path2]) ->
 
     %% 1. Put
     AddrId = 0,
-    Key = "air/on/g/string",
+    Key = <<"air/on/g/string">>,
     Bin = <<"J.S.Bach">>,
     ObjectPool0 = leo_object_storage_pool:new(#object{method    = put,
                                                       addr_id   = AddrId,
@@ -171,11 +171,11 @@ operate_([Path1, Path2]) ->
 fetch_by_addr_id_([Path1, Path2]) ->
     ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
 
-    ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
-    ok = put_test_data(127,  "air/on/g/string/1", <<"JSB1">>),
-    ok = put_test_data(255,  "air/on/g/string/2", <<"JSB2">>),
-    ok = put_test_data(511,  "air/on/g/string/3", <<"JSB3">>),
-    ok = put_test_data(1023, "air/on/g/string/4", <<"JSB4">>),
+    ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0">>),
+    ok = put_test_data(127,  <<"air/on/g/string/1">>, <<"JSB1">>),
+    ok = put_test_data(255,  <<"air/on/g/string/2">>, <<"JSB2">>),
+    ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3">>),
+    ok = put_test_data(1023, <<"air/on/g/string/4">>, <<"JSB4">>),
 
     FromAddrId = 0,
     ToAddrId   = 255,
@@ -203,19 +203,19 @@ fetch_by_addr_id_([Path1, Path2]) ->
 fetch_by_key_([Path1, Path2]) ->
     ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
 
-    ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
-    ok = put_test_data(127,  "air/on/g/string/1", <<"JSB1">>),
-    ok = put_test_data(255,  "air/on/g/string/2", <<"JSB2">>),
-    ok = put_test_data(511,  "air/on/g/string/3", <<"JSB3">>),
-    ok = put_test_data(1023, "air/on/g/string/4", <<"JSB4">>),
+    ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0">>),
+    ok = put_test_data(127,  <<"air/on/g/string/1">>, <<"JSB1">>),
+    ok = put_test_data(255,  <<"air/on/g/string/2">>, <<"JSB2">>),
+    ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3">>),
+    ok = put_test_data(1023, <<"air/on/g/string/4">>, <<"JSB4">>),
 
     Fun = fun(K, V, Acc) ->
                   {_AddrId,Key} = binary_to_term(K),
                   Metadata      = binary_to_term(V),
 
-                  case (Key == "air/on/g/string/0" orelse
-                        Key == "air/on/g/string/2" orelse
-                        Key == "air/on/g/string/4") of
+                  case (Key == <<"air/on/g/string/0">> orelse
+                        Key == <<"air/on/g/string/2">> orelse
+                        Key == <<"air/on/g/string/4">>) of
                       true  ->
                           [Metadata|Acc];
                       false ->
@@ -233,14 +233,14 @@ fetch_by_key_([Path1, Path2]) ->
 stats_([Path1, Path2]) ->
     ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
 
-    ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
-    ok = put_test_data(127,  "air/on/g/string/1", <<"JSB1">>),
-    ok = put_test_data(255,  "air/on/g/string/2", <<"JSB2">>),
-    ok = put_test_data(511,  "air/on/g/string/3", <<"JSB3">>),
-    ok = put_test_data(767,  "air/on/g/string/4", <<"JSB4">>),
-    ok = put_test_data(1023, "air/on/g/string/5", <<"JSB5">>),
-    ok = put_test_data(2047, "air/on/g/string/6", <<"JSB6">>),
-    ok = put_test_data(4095, "air/on/g/string/7", <<"JSB7">>),
+    ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0">>),
+    ok = put_test_data(127,  <<"air/on/g/string/1">>, <<"JSB1">>),
+    ok = put_test_data(255,  <<"air/on/g/string/2">>, <<"JSB2">>),
+    ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3">>),
+    ok = put_test_data(767,  <<"air/on/g/string/4">>, <<"JSB4">>),
+    ok = put_test_data(1023, <<"air/on/g/string/5">>, <<"JSB5">>),
+    ok = put_test_data(2047, <<"air/on/g/string/6">>, <<"JSB6">>),
+    ok = put_test_data(4095, <<"air/on/g/string/7">>, <<"JSB7">>),
 
     {ok, Res} = leo_object_storage_api:stats(),
     ?assertEqual(8, length(Res)),
@@ -256,23 +256,20 @@ compact_([Path1, Path2]) ->
 
     ok = leo_object_storage_api:start([{4, Path1}, {4, Path2}]),
 
-    ?debugVal(ok),
-    ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0">>),
-    ok = put_test_data(127,  "air/on/g/string/1", <<"JSB1">>),
-    ok = put_test_data(255,  "air/on/g/string/2", <<"JSB2">>),
-    ok = put_test_data(511,  "air/on/g/string/3", <<"JSB3">>),
-    ok = put_test_data(767,  "air/on/g/string/4", <<"JSB4">>),
-    ok = put_test_data(1023, "air/on/g/string/5", <<"JSB5">>),
-    ok = put_test_data(2047, "air/on/g/string/6", <<"JSB6">>),
-
-    ok = put_test_data(4095, "air/on/g/string/7", <<"JSB7">>), %% 1st time
-    ok = put_test_data(4095, "air/on/g/string/7", <<"JSB7">>), %% 2nd time
-
-    ok = put_test_data(0,    "air/on/g/string/0", <<"JSB0-1">>),
-    ok = put_test_data(511,  "air/on/g/string/3", <<"JSB3-1">>),
+    ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0">>),
+    ok = put_test_data(127,  <<"air/on/g/string/1">>, <<"JSB1">>),
+    ok = put_test_data(255,  <<"air/on/g/string/2">>, <<"JSB2">>),
+    ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3">>),
+    ok = put_test_data(767,  <<"air/on/g/string/4">>, <<"JSB4">>),
+    ok = put_test_data(1023, <<"air/on/g/string/5">>, <<"JSB5">>),
+    ok = put_test_data(2047, <<"air/on/g/string/6">>, <<"JSB6">>),
+    ok = put_test_data(4095, <<"air/on/g/string/7">>, <<"JSB7">>), %% 1st time
+    ok = put_test_data(4095, <<"air/on/g/string/7">>, <<"JSB7">>), %% 2nd time
+    ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0-1">>),
+    ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3-1">>),
 
     AddrId = 4095,
-    Key    = "air/on/g/string/7",
+    Key    = <<"air/on/g/string/7">>,
     ObjectPool = leo_object_storage_pool:new(#object{method    = delete,
                                                      key       = Key,
                                                      addr_id   = AddrId,
@@ -292,6 +289,7 @@ compact_([Path1, Path2]) ->
     ?assertEqual(10, Sum0),
     timer:sleep(250),
 
+
     FunHasChargeOfNode = fun(_Key_) ->
                                  true
                          end,
@@ -310,9 +308,9 @@ compact_([Path1, Path2]) ->
 
     %% inspect for after compaction
     TestAddrId0 = 0,
-    TestKey0    = "air/on/g/string/0",
+    TestKey0    = <<"air/on/g/string/0">>,
     TestAddrId1 = 511,
-    TestKey1    = "air/on/g/string/3",
+    TestKey1    = <<"air/on/g/string/3">>,
 
     {ok, Meta0, Obj0} = get_test_data(TestAddrId0, TestKey0),
     {ok, Meta1, Obj1} = get_test_data(TestAddrId1, TestKey1),

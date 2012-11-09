@@ -95,8 +95,8 @@ put(Id, ObjectPool) ->
 %%
 -spec(get(atom(), binary(), integer(), integer()) ->
              {ok, #metadata{}, #object{}} | not_found | {error, any()}).
-get(Id, KeyBin, StartPos, EndPos) ->
-    gen_server:call(Id, {get, KeyBin, StartPos, EndPos}).
+get(Id, Key, StartPos, EndPos) ->
+    gen_server:call(Id, {get, Key, StartPos, EndPos}).
 
 
 %% @doc Remove an object from the object-storage - (logical-delete)
@@ -111,16 +111,16 @@ delete(Id, ObjectPool) ->
 %%
 -spec(head(atom(), binary()) ->
              {ok, #metadata{}} | {error, any()}).
-head(Id, KeyBin) ->
-    gen_server:call(Id, {head, KeyBin}).
+head(Id, Key) ->
+    gen_server:call(Id, {head, Key}).
 
 
 %% @doc Retrieve objects from the object-storage by Key and Function
 %%
 -spec(fetch(atom(), binary(), function()) ->
              {ok, list()} | {error, any()}).
-fetch(Id, KeyBin, Fun) ->
-    gen_server:call(Id, {fetch, KeyBin, Fun}).
+fetch(Id, Key, Fun) ->
+    gen_server:call(Id, {fetch, Key, Fun}).
 
 
 %% @doc Store metadata and data
@@ -219,11 +219,11 @@ handle_call({put, ObjectPool}, _From, #state{meta_db_id     = MetaDBId,
     {reply, Reply, NewState#state{num_of_objects = NumOfObjs + 1}};
 
 
-handle_call({get, KeyBin, StartPos, EndPos}, _From, #state{meta_db_id     = MetaDBId,
-                                                           object_storage = StorageInfo} = State) ->
+handle_call({get, Key, StartPos, EndPos}, _From, #state{meta_db_id     = MetaDBId,
+                                                        object_storage = StorageInfo} = State) ->
     #backend_info{backend = Module} = StorageInfo,
     Obj = Module:new(MetaDBId, StorageInfo),
-    Reply = Obj:get(KeyBin, StartPos, EndPos),
+    Reply = Obj:get(Key, StartPos, EndPos),
 
     NewState = after_proc(Reply, State),
     erlang:garbage_collect(self()),
@@ -242,20 +242,20 @@ handle_call({delete, ObjectPool}, _From, #state{meta_db_id     = MetaDBId,
     {reply, Reply, NewState#state{num_of_objects = NumOfObjs - 1}};
 
 
-handle_call({head, KeyBin}, _From, #state{meta_db_id     = MetaDBId,
-                                          object_storage = StorageInfo} = State) ->
+handle_call({head, Key}, _From, #state{meta_db_id     = MetaDBId,
+                                       object_storage = StorageInfo} = State) ->
     #backend_info{backend = Module} = StorageInfo,
     Obj = Module:new(MetaDBId, StorageInfo),
-    Reply = Obj:head(KeyBin),
+    Reply = Obj:head(Key),
 
     {reply, Reply, State};
 
 
-handle_call({fetch, KeyBin, Fun}, _From, #state{meta_db_id     = MetaDBId,
-                                                object_storage = StorageInfo} = State) ->
+handle_call({fetch, Key, Fun}, _From, #state{meta_db_id     = MetaDBId,
+                                             object_storage = StorageInfo} = State) ->
     #backend_info{backend = Module} = StorageInfo,
     Obj = Module:new(MetaDBId, StorageInfo),
-    Reply = Obj:fetch(KeyBin, Fun),
+    Reply = Obj:fetch(Key, Fun),
 
     {reply, Reply, State};
 
