@@ -86,14 +86,16 @@ operate_([Path1, Path2]) ->
     AddrId = 0,
     Key = <<"air/on/g/string">>,
     Bin = <<"J.S.Bach">>,
-    ObjectPool0 = leo_object_storage_pool:new(#object{method    = put,
-                                                      addr_id   = AddrId,
-                                                      key       = Key,
-                                                      data      = Bin,
-                                                      dsize     = byte_size(Bin),
-                                                      timestamp = leo_date:now(),
-                                                      clock     = leo_date:clock()}),
-    {ok, ETag} = leo_object_storage_api:put({AddrId, Key}, ObjectPool0),
+    Object = #object{method    = put,
+                     addr_id   = AddrId,
+                     key       = Key,
+                     ksize     = byte_size(Key),
+                     data      = Bin,
+                     dsize     = byte_size(Bin),
+                     checksum  = leo_hex:binary_to_integer(erlang:md5(Bin)),
+                     timestamp = leo_date:now(),
+                     clock     = leo_date:clock()},
+    {ok, ETag} = leo_object_storage_api:put({AddrId, Key}, Object),
     ?debugVal(ETag),
 
     %% 2. Get
@@ -142,14 +144,17 @@ operate_([Path1, Path2]) ->
     ?assertEqual(0,      Meta2#metadata.del),
 
     %% 6. Delete
-    ObjectPool2 = leo_object_storage_pool:new(#object{method    = delete,
-                                                      key       = Key,
-                                                      addr_id   = AddrId,
-                                                      data      = <<>>,
-                                                      timestamp = leo_date:now(),
-                                                      clock     = leo_date:clock(),
-                                                      del       = 1}),
-    ok = leo_object_storage_api:delete({AddrId, Key}, ObjectPool2),
+    Object2 = #object{method    = delete,
+                      key       = Key,
+                      ksize     = byte_size(Key),
+                      addr_id   = AddrId,
+                      data      = <<>>,
+                      dsize     = 0,
+                      checksum  = leo_hex:binary_to_integer(erlang:md5(<<>>)),
+                      timestamp = leo_date:now(),
+                      clock     = leo_date:clock(),
+                      del       = 1},
+    ok = leo_object_storage_api:delete({AddrId, Key}, Object2),
 
     %% 7. Get
     Res4 = leo_object_storage_api:get({AddrId, Key}),
@@ -270,14 +275,17 @@ compact_([Path1, Path2]) ->
 
     AddrId = 4095,
     Key    = <<"air/on/g/string/7">>,
-    ObjectPool = leo_object_storage_pool:new(#object{method    = delete,
-                                                     key       = Key,
-                                                     addr_id   = AddrId,
-                                                     data      = <<>>,
-                                                     timestamp = leo_date:now(),
-                                                     clock     = leo_date:clock(),
-                                                     del       = 1}),
-    ok = leo_object_storage_api:delete({AddrId, Key}, ObjectPool),
+    Object = #object{method    = delete,
+                     key       = Key,
+                     ksize     = byte_size(Key),
+                     addr_id   = AddrId,
+                     data      = <<>>,
+                     dsize     = 0,
+                     checksum  = leo_hex:binary_to_integer(erlang:md5(<<>>)),
+                     timestamp = leo_date:now(),
+                     clock     = leo_date:clock(),
+                     del       = 1},
+    ok = leo_object_storage_api:delete({AddrId, Key}, Object),
 
     %% inspect for compaction
     {ok, Res0} = leo_object_storage_api:stats(),
@@ -353,15 +361,17 @@ compact_([Path1, Path2]) ->
 %% INNER FUNCTIONS
 %%--------------------------------------------------------------------
 put_test_data(AddrId, Key, Bin) ->
-    ObjectPool = leo_object_storage_pool:new(#object{method    = put,
-                                                     addr_id   = AddrId,
-                                                     key       = Key,
-                                                     data      = Bin,
-                                                     dsize     = byte_size(Bin),
-                                                     timestamp = leo_date:now(),
-                                                     clock     = leo_date:clock()
-                                                    }),
-    {ok, _Checksum} = leo_object_storage_api:put({AddrId, Key}, ObjectPool),
+    Object = #object{method    = put,
+                     addr_id   = AddrId,
+                     key       = Key,
+                     ksize     = byte_size(Key),
+                     data      = Bin,
+                     dsize     = byte_size(Bin),
+                     checksum  = leo_hex:binary_to_integer(erlang:md5(Bin)),
+                     timestamp = leo_date:now(),
+                     clock     = leo_date:clock()
+                    },
+    {ok, _Checksum} = leo_object_storage_api:put({AddrId, Key}, Object),
     ok.
 
 get_test_data(AddrId, Key) ->

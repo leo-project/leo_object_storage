@@ -113,10 +113,10 @@ close(WriteHandler, ReadHandler) ->
 
 %% @doc Insert an object and a metadata into the object-storage
 %%
--spec(put(pid()) ->
+-spec(put(#object{}) ->
              {ok, integer()} | {error, any()}).
-put(ObjectPool) ->
-    put_fun0(ObjectPool).
+put(Object) ->
+    put_fun0(Object).
 
 
 %% @doc Retrieve an object and a metadata from the object-storage
@@ -132,10 +132,10 @@ get(Key, StartPos, EndPos) ->
 
 %% @doc Remove an object and a metadata from the object-storage
 %%
--spec(delete(ObjectPool::pid()) ->
+-spec(delete(#object{}) ->
              ok | {error, any()}).
-delete(ObjectPool) ->
-    case put_fun0(ObjectPool) of
+delete(Object) ->
+    case put_fun0(Object) of
         {ok, _Checksum} ->
             ok;
         {error, Cause} ->
@@ -179,13 +179,15 @@ store(Metadata, Bin) ->
                      ksize      = Metadata#metadata.ksize,
                      dsize      = Metadata#metadata.dsize,
                      data       = Bin,
+                     cindex     = Metadata#metadata.cindex,
+                     csize      = Metadata#metadata.csize,
+                     cnumber    = Metadata#metadata.cnumber,
                      clock      = Metadata#metadata.clock,
                      timestamp  = Metadata#metadata.timestamp,
                      checksum   = Checksum,
                      ring_hash  = Metadata#metadata.ring_hash,
                      del        = Metadata#metadata.del},
-    ObjectPool = leo_object_storage_pool:new(Key, Metadata, Object),
-    case put_fun0(ObjectPool) of
+    case put_fun0(Object) of
         {ok, _Checksum} ->
             ok;
         {error, Cause} ->
@@ -395,58 +397,23 @@ create_needle(#object{addr_id    = AddrId,
 
 %% @doc Insert an object into the object-storage
 %% @private
-put_fun0(ObjectPool) ->
-    case catch leo_object_storage_pool:get(ObjectPool) of
-        {'EXIT', Cause} ->
+put_fun0(Object) ->
+    #backend_info{write_handler = ObjectStorageWriteHandler} = StorageInfo,
+
+    case file:position(ObjectStorageWriteHandler, eof) of
+        {ok, Offset} ->
+            put_fun1(Object#object{offset = Offset});
+        {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING}, {function, "put_fun0/1"},
                                     {line, ?LINE}, {body, Cause}]),
-            {error, ?ERR_TYPE_TIMEOUT};
-        not_found ->
-            {error, ?ERR_TYPE_TIMEOUT};
-
-        #object{addr_id  = AddrId,
-                key      = Key,
-                checksum = Checksum0,
-                del      = DelFlag} = Object ->
-            Ret = case DelFlag of
-                      ?DEL_FALSE ->
-                          case head(term_to_binary({AddrId, Key})) of
-                              {ok, MetadataBin} ->
-                                  #metadata{checksum = Checksum1} = binary_to_term(MetadataBin),
-                                  case (Checksum0 == Checksum1) of
-                                      true  -> match;
-                                      false -> not_match
-                                  end;
-                              _ ->
-                                  not_match
-                          end;
-                      ?DEL_TRUE ->
-                          not_match
-                  end,
-
-            case Ret of
-                match ->
-                    {ok, Checksum0};
-                not_match ->
-                    #backend_info{write_handler = ObjectStorageWriteHandler} = StorageInfo,
-
-                    case file:position(ObjectStorageWriteHandler, eof) of
-                        {ok, Offset} ->
-                            put_fun1(Object#object{offset = Offset});
-                        {error, Cause} ->
-                            error_logger:error_msg("~p,~p,~p,~p~n",
-                                                   [{module, ?MODULE_STRING}, {function, "put_fun0/1"},
-                                                    {line, ?LINE}, {body, Cause}]),
-                            {error, Cause}
-                    end
-            end
+            {error, Cause}
     end.
 
 put_fun1(#object{addr_id    = AddrId,
                  key        = Key,
-                 ksize      = KSize,
                  dsize      = DSize,
+                 data       = Bin,
                  msize      = MSize,
                  meta       = _MBin,
                  csize      = CSize,
@@ -455,10 +422,16 @@ put_fun1(#object{addr_id    = AddrId,
                  offset     = Offset,
                  clock      = Clock,
                  timestamp  = Timestamp,
-                 checksum   = Checksum,
                  ring_hash  = RingHash,
                  del        = Del} = Object) ->
-    Needle = create_needle(Object),
+    KSize    = byte_size(Key),
+    Checksum = case Bin of
+                   <<>> -> 281949768489412648962353822266799178366;
+                   _    -> leo_hex:binary_to_integer(erlang:md5(Bin))
+               end,
+
+    Needle = create_needle(Object#object{ksize    = KSize,
+                                         checksum = Checksum}),
     Meta = #metadata{key       = Key,
                      addr_id   = AddrId,
                      ksize     = KSize,
@@ -597,9 +570,9 @@ compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
        Min:?BLEN_TS_N,
        Second:?BLEN_TS_S,
        Del:?BLEN_DEL,
-       _CSize:?BLEN_CHUNK_SIZE,
+       CSize:?BLEN_CHUNK_SIZE,
        CNum:?BLEN_CHUNK_NUM,
-       _CIndex:?BLEN_CHUNK_INDEX,
+       CIndex:?BLEN_CHUNK_INDEX,
        _:?BLEN_BUF
     >> = HeaderBin,
 
@@ -626,6 +599,9 @@ compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
                                              ksize     = KSize,
                                              msize     = MSize,
                                              dsize     = DSize,
+                                             csize     = CSize,
+                                             cnumber   = CNum,
+                                             cindex    = CIndex,
                                              offset    = OrgOffset,
                                              clock     = NumOfClock,
                                              timestamp = Timestamp,

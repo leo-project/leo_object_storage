@@ -106,10 +106,10 @@ start({error, Cause},_ObjectStorageInfo) ->
 %% @doc Insert an object into the object-storage
 %% @param Key = {$VNODE_ID, $OBJ_KEY}
 %%
--spec(put(tuple(), pid()) ->
+-spec(put(tuple(), #object{}) ->
              {ok, integer()} | {error, any()}).
-put(Key, ObjectPool) ->
-    do_request(put, [Key, ObjectPool]).
+put(Key, Object) ->
+    do_request(put, [Key, Object]).
 
 
 %% @doc Retrieve an object and a metadata from the object-storage
@@ -127,10 +127,10 @@ get(Key, StartPos, EndPos) ->
 
 %% @doc Remove an object from the object-storage
 %%
--spec(delete(tuple(), pid()) ->
+-spec(delete(tuple(), #object{}) ->
              ok | {error, any()}).
-delete(Key, ObjectPool) ->
-    do_request(delete, [Key, ObjectPool]).
+delete(Key, Object) ->
+    do_request(delete, [Key, Object]).
 
 
 %% @doc Retrieve a metadata from the object-storage
@@ -370,23 +370,23 @@ do_request(get, [Key, StartPos, EndPos]) ->
     KeyBin = term_to_binary(Key),
     ?SERVER_MODULE:get(get_object_storage_pid(KeyBin), KeyBin, StartPos, EndPos);
 
-do_request(put, [Key, ObjectPool]) ->
+do_request(put, [Key, Object]) ->
     KeyBin = term_to_binary(Key),
     Id = get_object_storage_pid(KeyBin),
 
     case get_pid_status(Id) of
         ?STATE_ACTIVE ->
-            ?SERVER_MODULE:put(get_object_storage_pid(KeyBin), ObjectPool);
+            ?SERVER_MODULE:put(get_object_storage_pid(KeyBin), Object);
         ?STATE_COMPACTING ->
             {error, doing_compaction}
     end;
-do_request(delete, [Key, ObjectPool]) ->
+do_request(delete, [Key, Object]) ->
     KeyBin = term_to_binary(Key),
     Id = get_object_storage_pid(KeyBin),
 
     case get_pid_status(Id) of
         ?STATE_ACTIVE ->
-            ?SERVER_MODULE:delete(get_object_storage_pid(KeyBin), ObjectPool);
+            ?SERVER_MODULE:delete(get_object_storage_pid(KeyBin), Object);
         ?STATE_COMPACTING ->
             {error, doing_compaction}
     end;
