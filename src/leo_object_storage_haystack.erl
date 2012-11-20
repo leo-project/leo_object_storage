@@ -412,8 +412,8 @@ put_fun0(Object) ->
 
 put_fun1(#object{addr_id    = AddrId,
                  key        = Key,
-                 ksize      = KSize,
                  dsize      = DSize,
+                 data       = Bin,
                  msize      = MSize,
                  meta       = _MBin,
                  csize      = CSize,
@@ -422,10 +422,16 @@ put_fun1(#object{addr_id    = AddrId,
                  offset     = Offset,
                  clock      = Clock,
                  timestamp  = Timestamp,
-                 checksum   = Checksum,
                  ring_hash  = RingHash,
                  del        = Del} = Object) ->
-    Needle = create_needle(Object),
+    KSize    = byte_size(Key),
+    Checksum = case Bin of
+                   <<>> -> 281949768489412648962353822266799178366;
+                   _    -> leo_hex:binary_to_integer(erlang:md5(Bin))
+               end,
+
+    Needle = create_needle(Object#object{ksize    = KSize,
+                                         checksum = Checksum}),
     Meta = #metadata{key       = Key,
                      addr_id   = AddrId,
                      ksize     = KSize,
