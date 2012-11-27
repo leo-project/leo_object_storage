@@ -23,7 +23,7 @@
 %% @doc
 %% @end
 %%======================================================================
--module(leo_object_storage_haystack, [MetaDBId, StorageInfo]).
+-module(leo_object_storage_haystack).
 
 -author('Yosuke Hara').
 -author('Yoshiyuki Kanno').
@@ -33,7 +33,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([open/1, close/2,
-         put/1, get/1, get/3, delete/1, head/1, fetch/2, store/2]).
+         put/3, get/3, get/5, delete/3, head/2, fetch/3, store/4]).
 
 -export([compact_put/4,
          compact_get/1,
@@ -113,29 +113,29 @@ close(WriteHandler, ReadHandler) ->
 
 %% @doc Insert an object and a metadata into the object-storage
 %%
--spec(put(#object{}) ->
+-spec(put(atom(), #backend_info{}, #object{}) ->
              {ok, integer()} | {error, any()}).
-put(Object) ->
-    put_fun0(Object).
+put(MetaDBId, StorageInfo, Object) ->
+    put_fun0(MetaDBId, StorageInfo, Object).
 
 
 %% @doc Retrieve an object and a metadata from the object-storage
 %%
--spec(get(binary()) ->
+-spec(get(atom(), #backend_info{}, binary()) ->
              {ok, #metadata{}, #object{}} | {error, any()}).
-get(Key) ->
-    get(Key, 0, 0).
+get(MetaDBId, StorageInfo, Key) ->
+    get(MetaDBId, StorageInfo, Key, 0, 0).
 
-get(Key, StartPos, EndPos) ->
-    get_fun(Key, StartPos, EndPos).
+get(MetaDBId, StorageInfo, Key, StartPos, EndPos) ->
+    get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos).
 
 
 %% @doc Remove an object and a metadata from the object-storage
 %%
--spec(delete(#object{}) ->
+-spec(delete(atom(), #backend_info{}, #object{}) ->
              ok | {error, any()}).
-delete(Object) ->
-    case put_fun0(Object) of
+delete(MetaDBId, StorageInfo, Object) ->
+    case put_fun0(MetaDBId, StorageInfo, Object) of
         {ok, _Checksum} ->
             ok;
         {error, Cause} ->
@@ -145,9 +145,9 @@ delete(Object) ->
 
 %% @doc Retrieve a metada from backend_db from the object-storage
 %%
--spec(head(binary()) ->
+-spec(head(atom(), binary()) ->
              {ok, #metadata{}} | not_found | {error, any()}).
-head(Key) ->
+head(MetaDBId, Key) ->
     case catch leo_backend_db_api:get(MetaDBId, Key) of
         {ok, MetadataBin} ->
             {ok, MetadataBin};
@@ -160,17 +160,17 @@ head(Key) ->
 
 %% @doc Fetch objects from the object-storage
 %%
--spec(fetch(binary(), function()) ->
+-spec(fetch(atom(), binary(), function()) ->
              ok | {error, any()}).
-fetch(Key, Fun) ->
+fetch(MetaDBId, Key, Fun) ->
     leo_backend_db_api:fetch(MetaDBId, Key, Fun).
 
 
 %% @doc Store metadata and binary
 %%
--spec(store(#metadata{}, binary()) ->
+-spec(store(atom(), #backend_info{}, #metadata{}, binary()) ->
              ok | {error, any()}).
-store(Metadata, Bin) ->
+store(MetaDBId, StorageInfo, Metadata, Bin) ->
     Key = Metadata#metadata.key,
     Checksum = leo_hex:binary_to_integer(erlang:md5(Bin)),
 
@@ -187,7 +187,8 @@ store(Metadata, Bin) ->
                      checksum   = Checksum,
                      ring_hash  = Metadata#metadata.ring_hash,
                      del        = Metadata#metadata.del},
-    case put_fun0(Object) of
+
+    case put_fun0(MetaDBId, StorageInfo, Object) of
         {ok, _Checksum} ->
             ok;
         {error, Cause} ->
@@ -261,12 +262,12 @@ open_fun(FilePath, RetryTimes) ->
 %%--------------------------------------------------------------------
 %% @doc Retrieve an object from object-storage
 %% @private
-get_fun(Key, StartPos, EndPos) ->
+get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos) ->
     case catch leo_backend_db_api:get(MetaDBId, Key) of
         {ok, MetadataBin} ->
             Metadata = binary_to_term(MetadataBin),
             case (Metadata#metadata.del == ?DEL_FALSE) of
-                true  -> get_fun1(Metadata, StartPos, EndPos);
+                true  -> get_fun1(MetaDBId, StorageInfo, Metadata, StartPos, EndPos);
                 false -> not_found
             end;
         Error ->
@@ -279,19 +280,19 @@ get_fun(Key, StartPos, EndPos) ->
     end.
 
 
-get_fun1(#metadata{key      = Key,
-                   dsize    = ObjectSize,
-                   addr_id  = AddrId} = Metadata, StartPos, _) when StartPos >= ObjectSize ->
+get_fun1(_MetaDBId,_StorageInfo, #metadata{key      = Key,
+                                           dsize    = ObjectSize,
+                                           addr_id  = AddrId} = Metadata, StartPos, _) when StartPos >= ObjectSize ->
     {ok, Metadata, #object{key     = Key,
                            addr_id = AddrId,
                            data    = <<>>,
                            dsize   = 0}};
-get_fun1(#metadata{key      = Key,
-                   ksize    = KeySize,
-                   dsize    = ObjectSize,
-                   addr_id  = AddrId,
-                   offset   = Offset,
-                   cnumber  = 0} = Metadata, StartPos, EndPos) ->
+get_fun1(_MetaDBId, StorageInfo, #metadata{key      = Key,
+                                           ksize    = KeySize,
+                                           dsize    = ObjectSize,
+                                           addr_id  = AddrId,
+                                           offset   = Offset,
+                                           cnumber  = 0} = Metadata, StartPos, EndPos) ->
     %% If end-position equal 0,
     %% Then actual end-position is object-size.
     NewEndPos = case (EndPos == 0) of
@@ -329,8 +330,8 @@ get_fun1(#metadata{key      = Key,
     end;
 
 %% For parent of chunked object
-get_fun1(#metadata{key     = Key,
-                   addr_id = AddrId} = Metadata, _, _) ->
+get_fun1(_MetaDBId,_StorageInfo, #metadata{key     = Key,
+                                           addr_id = AddrId} = Metadata, _, _) ->
     {ok, Metadata, #object{key     = Key,
                            addr_id = AddrId,
                            data    = <<>>,
@@ -397,12 +398,12 @@ create_needle(#object{addr_id    = AddrId,
 
 %% @doc Insert an object into the object-storage
 %% @private
-put_fun0(Object) ->
+put_fun0(MetaDBId, StorageInfo, Object) ->
     #backend_info{write_handler = ObjectStorageWriteHandler} = StorageInfo,
 
     case file:position(ObjectStorageWriteHandler, eof) of
         {ok, Offset} ->
-            put_fun1(Object#object{offset = Offset});
+            put_fun1(MetaDBId, StorageInfo, Object#object{offset = Offset});
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING}, {function, "put_fun0/1"},
@@ -410,20 +411,20 @@ put_fun0(Object) ->
             {error, Cause}
     end.
 
-put_fun1(#object{addr_id    = AddrId,
-                 key        = Key,
-                 dsize      = DSize,
-                 data       = Bin,
-                 msize      = MSize,
-                 meta       = _MBin,
-                 csize      = CSize,
-                 cnumber    = CNum,
-                 cindex     = CIndex,
-                 offset     = Offset,
-                 clock      = Clock,
-                 timestamp  = Timestamp,
-                 ring_hash  = RingHash,
-                 del        = Del} = Object) ->
+put_fun1(MetaDBId, StorageInfo, #object{addr_id    = AddrId,
+                                        key        = Key,
+                                        dsize      = DSize,
+                                        data       = Bin,
+                                        msize      = MSize,
+                                        meta       = _MBin,
+                                        csize      = CSize,
+                                        cnumber    = CNum,
+                                        cindex     = CIndex,
+                                        offset     = Offset,
+                                        clock      = Clock,
+                                        timestamp  = Timestamp,
+                                        ring_hash  = RingHash,
+                                        del        = Del} = Object) ->
     KSize    = byte_size(Key),
     Checksum = case Bin of
                    <<>> -> 281949768489412648962353822266799178366;
@@ -446,18 +447,19 @@ put_fun1(#object{addr_id    = AddrId,
                      checksum  = Checksum,
                      ring_hash = RingHash,
                      del       = Del},
-    put_fun2(Needle, Meta).
+    put_fun2(MetaDBId, StorageInfo, Needle, Meta).
 
-put_fun2(Needle, #metadata{key      = Key,
-                           addr_id  = AddrId,
-                           offset   = Offset,
-                           checksum = Checksum} = Meta) ->
+put_fun2(MetaDBId, StorageInfo, Needle, #metadata{key      = Key,
+                                                  addr_id  = AddrId,
+                                                  offset   = Offset,
+                                                  checksum = Checksum} = Meta) ->
     #backend_info{write_handler = WriteHandler} = StorageInfo,
 
     case file:pwrite(WriteHandler, Offset, Needle) of
         ok ->
-            case catch leo_backend_db_api:put(
-                         MetaDBId, term_to_binary({AddrId, Key}), term_to_binary(Meta)) of
+            case catch leo_backend_db_api:put(MetaDBId,
+                                              term_to_binary({AddrId, Key}),
+                                              term_to_binary(Meta)) of
                 ok ->
                     {ok, Checksum};
                 {'EXIT', Cause} ->

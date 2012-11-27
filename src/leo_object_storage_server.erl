@@ -168,9 +168,7 @@ init([Id, SeqNo, MetaDBId, ObjectStorage, RootPath]) ->
     %% open object-storage.
     case get_raw_path(object, ObjectStorageDir, ObjectStoragePath) of
         {ok, ObjectStorageRawPath} ->
-            Obj = ObjectStorage:new([],[]),
-
-            case Obj:open(ObjectStorageRawPath) of
+            case ObjectStorage:open(ObjectStorageRawPath) of
                 {ok, [ObjectWriteHandler, ObjectReadHandler]} ->
                     StorageInfo = #backend_info{backend       = ObjectStorage,
                                                 file_path     = ObjectStoragePath,
@@ -197,12 +195,10 @@ init([Id, SeqNo, MetaDBId, ObjectStorage, RootPath]) ->
     end.
 
 
-handle_call(stop, _From, #state{meta_db_id     = MetaDBId,
-                                object_storage = #backend_info{backend       = Module,
+handle_call(stop, _From, #state{object_storage = #backend_info{backend       = Module,
                                                                write_handler = WriteHandler,
-                                                               read_handler  = ReadHandler} = StorageInfo} = State) ->
-    Obj = Module:new(MetaDBId, StorageInfo),
-    Obj:close(WriteHandler, ReadHandler),
+                                                               read_handler  = ReadHandler}} = State) ->
+    Module:close(WriteHandler, ReadHandler),
     {stop, normal, ok, State};
 
 
@@ -210,8 +206,7 @@ handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
                                          object_storage = StorageInfo,
                                          num_of_objects = NumOfObjs} = State) ->
     #backend_info{backend = Module} = StorageInfo,
-    Obj = Module:new(MetaDBId, StorageInfo),
-    Reply = Obj:put(Object),
+    Reply = Module:put(MetaDBId, StorageInfo, Object),
 
     NewState = after_proc(Reply, State),
     erlang:garbage_collect(self()),
@@ -222,8 +217,7 @@ handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
 handle_call({get, Key, StartPos, EndPos}, _From, #state{meta_db_id     = MetaDBId,
                                                         object_storage = StorageInfo} = State) ->
     #backend_info{backend = Module} = StorageInfo,
-    Obj = Module:new(MetaDBId, StorageInfo),
-    Reply = Obj:get(Key, StartPos, EndPos),
+    Reply = Module:get(MetaDBId, StorageInfo, Key, StartPos, EndPos),
 
     NewState = after_proc(Reply, State),
     erlang:garbage_collect(self()),
@@ -235,8 +229,7 @@ handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
                                             object_storage = StorageInfo,
                                             num_of_objects = NumOfObjs} = State) ->
     #backend_info{backend = Module} = StorageInfo,
-    Obj = Module:new(MetaDBId, StorageInfo),
-    Reply = Obj:delete(Object),
+    Reply = Module:delete(MetaDBId, StorageInfo, Object),
 
     NewState = after_proc(Reply, State),
     {reply, Reply, NewState#state{num_of_objects = NumOfObjs - 1}};
@@ -245,8 +238,7 @@ handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
 handle_call({head, Key}, _From, #state{meta_db_id     = MetaDBId,
                                        object_storage = StorageInfo} = State) ->
     #backend_info{backend = Module} = StorageInfo,
-    Obj = Module:new(MetaDBId, StorageInfo),
-    Reply = Obj:head(Key),
+    Reply = Module:head(MetaDBId, Key),
 
     {reply, Reply, State};
 
@@ -254,8 +246,7 @@ handle_call({head, Key}, _From, #state{meta_db_id     = MetaDBId,
 handle_call({fetch, Key, Fun}, _From, #state{meta_db_id     = MetaDBId,
                                              object_storage = StorageInfo} = State) ->
     #backend_info{backend = Module} = StorageInfo,
-    Obj = Module:new(MetaDBId, StorageInfo),
-    Reply = Obj:fetch(Key, Fun),
+    Reply = Module:fetch(MetaDBId, Key, Fun),
 
     {reply, Reply, State};
 
@@ -264,8 +255,7 @@ handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
                                                   object_storage = StorageInfo,
                                                   num_of_objects = NumOfObjs} = State) ->
     #backend_info{backend = Module} = StorageInfo,
-    Obj = Module:new(MetaDBId, StorageInfo),
-    Reply = Obj:store(Metadata, Bin),
+    Reply = Module:store(MetaDBId, StorageInfo, Metadata, Bin),
 
     {reply, Reply, State#state{num_of_objects = NumOfObjs + 1}};
 
@@ -329,14 +319,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% @doc
 %% @private
-after_proc(Ret, #state{meta_db_id = MetaDBId,
-                       object_storage = #backend_info{backend   = Module,
-                                                      file_path = FilePath} = StorageInfo} = State) ->
+after_proc(Ret, #state{object_storage = #backend_info{backend   = Module,
+                                                      file_path = FilePath}} = State) ->
     case Ret of
         {error, ?ERROR_FD_CLOSED} ->
-            Obj = Module:new(MetaDBId, StorageInfo),
-
-            case Obj:open(FilePath) of
+            case Module:open(FilePath) of
                 {ok, [NewWriteHandler, NewReadHandler]} ->
                     BackendInfo = State#state.object_storage,
                     State#state{object_storage = BackendInfo#backend_info{
@@ -398,10 +385,9 @@ compact_fun(#state{meta_db_id       = MetaDBId,
               {ok, RemainSize} ->
                   case (RemainSize > 0) of
                       true ->
-                          ObjStorage = Module:new(MetaDBId, StorageInfo),
-                          TmpPath    = gen_raw_file_path(FilePath),
+                          TmpPath = gen_raw_file_path(FilePath),
 
-                          case ObjStorage:open(TmpPath) of
+                          case Module:open(TmpPath) of
                               {ok, [TmpWriteHandler, TmpReadHandler]} ->
 
                                   case do_stats(MetaDBId, StorageInfo) of
@@ -436,8 +422,7 @@ compact_fun1({ok, #state{meta_db_id     = MetaDBId,
     TmpReadHandler  = StorageInfo#backend_info.tmp_read_handler,
     TmpWriteHandler = StorageInfo#backend_info.tmp_write_handler,
 
-    ObjStorage = Module:new(MetaDBId, StorageInfo),
-    Res = case ObjStorage:compact_get(ReadHandler) of
+    Res = case Module:compact_get(ReadHandler) of
               {ok, Metadata, [_HeaderValue, KeyValue, BodyValue, NextOffset]} ->
                   case leo_backend_db_api:compact_start(MetaDBId) of
                       ok ->
@@ -446,8 +431,8 @@ compact_fun1({ok, #state{meta_db_id     = MetaDBId,
                                                           next_offset = NextOffset,
                                                           fun_has_charge_of_node = FunHasChargeOfNode},
                           Ret = do_compact(Metadata, CompactParams, State),
-                          _ = ObjStorage:close(WriteHandler,    ReadHandler),
-                          _ = ObjStorage:close(TmpWriteHandler, TmpReadHandler),
+                          _ = Module:close(WriteHandler,    ReadHandler),
+                          _ = Module:close(TmpWriteHandler, TmpReadHandler),
                           Ret;
                       Error0 ->
                           Error0
@@ -469,14 +454,12 @@ compact_fun2({ok, #state{meta_db_id     = MetaDBId,
     RootPath       = StorageInfo#backend_info.file_path,
     TmpFilePathRaw = StorageInfo#backend_info.tmp_file_path_raw,
 
-    Obj = Module:new(MetaDBId, StorageInfo),
     catch file:delete(RootPath),
-
     case file:make_symlink(TmpFilePathRaw, RootPath) of
         ok ->
             catch file:delete(StorageInfo#backend_info.file_path_raw),
 
-            case Obj:open(RootPath) of
+            case Module:open(RootPath) of
                 {ok, [NewWriteHandler, NewReadHandler]} ->
                     _ = leo_backend_db_api:compact_end(MetaDBId, true),
 
@@ -559,12 +542,10 @@ is_deleted_rec(_MetaDBId,_Meta0,_Meta1) ->
              {ok, #storage_stats{}} | {error, any()}).
 do_stats(MetaDBId, #backend_info{backend       = Module,
                                  file_path     = RootPath,
-                                 read_handler  = ReadHandler} = StorageInfo) ->
-    ObjStorage = Module:new(MetaDBId, StorageInfo),
-
-    case ObjStorage:compact_get(ReadHandler) of
+                                 read_handler  = ReadHandler}) ->
+    case Module:compact_get(ReadHandler) of
         {ok, Metadata, [_HeaderValue, _KeyValue, _BodyValue, NextOffset]} ->
-            case do_stats(MetaDBId, ObjStorage, ReadHandler, Metadata, NextOffset, #storage_stats{}) of
+            case do_stats(MetaDBId, Module, ReadHandler, Metadata, NextOffset, #storage_stats{}) of
                 {ok, Stats} ->
                     {ok, Stats#storage_stats{file_path   = RootPath,
                                              total_sizes = filelib:file_size(RootPath)}};
@@ -580,17 +561,17 @@ do_stats(MetaDBId, #backend_info{backend       = Module,
 
 -spec(do_stats(atom(), atom(), pid(), #metadata{}, integer(), #storage_stats{}) ->
              {ok, any()} | {error, any()}).
-do_stats(MetaDBId, ObjStorage, ReadHandler, Metadata, NextOffset, #storage_stats{total_num  = ObjTotal,
-                                                                                 active_num = ObjActive} = StorageStats) ->
+do_stats(MetaDBId, Module, ReadHandler, Metadata, NextOffset, #storage_stats{total_num  = ObjTotal,
+                                                                             active_num = ObjActive} = StorageStats) ->
     NewStorageStats =
         case is_deleted_rec(MetaDBId, Metadata) of
             true  -> StorageStats#storage_stats{total_num  = ObjTotal  + 1};
             false -> StorageStats#storage_stats{total_num  = ObjTotal  + 1,
                                                 active_num = ObjActive + 1}
         end,
-    case ObjStorage:compact_get(ReadHandler, NextOffset) of
+    case Module:compact_get(ReadHandler, NextOffset) of
         {ok, NewMetadata, [_HeaderValue, _NewKeyValue, _NewBodyValue, NewNextOffset]} ->
-            do_stats(MetaDBId, ObjStorage, ReadHandler, NewMetadata, NewNextOffset, NewStorageStats);
+            do_stats(MetaDBId, Module, ReadHandler, NewMetadata, NewNextOffset, NewStorageStats);
         {error, eof} ->
             {ok, NewStorageStats};
         Error ->
@@ -616,11 +597,9 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
             Module = StorageInfo#backend_info.backend,
             TmpWriteHandler = StorageInfo#backend_info.tmp_write_handler,
 
-            ObjStorage = Module:new(MetaDBId, StorageInfo),
-
-            case ObjStorage:compact_put(TmpWriteHandler, Metadata,
-                                        CompactParams#compact_params.key_bin,
-                                        CompactParams#compact_params.body_bin) of
+            case Module:compact_put(TmpWriteHandler, Metadata,
+                                    CompactParams#compact_params.key_bin,
+                                    CompactParams#compact_params.body_bin) of
                 {ok, Offset} ->
                     NewMeta = Metadata#metadata{offset = Offset},
                     Ret = leo_backend_db_api:compact_put(
@@ -637,13 +616,11 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
 
 %% @doc Reduce unnecessary objects from object-container.
 %% @private
-do_compact1(ok,_Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
-                                                object_storage = StorageInfo} = State) ->
+do_compact1(ok,_Metadata, CompactParams, #state{object_storage = StorageInfo} = State) ->
     Module      = StorageInfo#backend_info.backend,
     ReadHandler = StorageInfo#backend_info.read_handler,
-    ObjStorage  = Module:new(MetaDBId, StorageInfo),
 
-    case ObjStorage:compact_get(ReadHandler, CompactParams#compact_params.next_offset) of
+    case Module:compact_get(ReadHandler, CompactParams#compact_params.next_offset) of
         {ok, NewMetadata, [_HeaderValue, NewKeyValue, NewBodyValue, NewNextOffset]} ->
             do_compact(NewMetadata, CompactParams#compact_params{key_bin     = NewKeyValue,
                                                                  body_bin    = NewBodyValue,
