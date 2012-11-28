@@ -29,6 +29,8 @@
 
 -behaviour(supervisor).
 
+-include_lib("eunit/include/eunit.hrl").
+
 -export([start_link/0,
          stop/0,
          init/1]).

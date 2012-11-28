@@ -175,16 +175,9 @@ init([Id, SeqNo, MetaDBId, ObjectStorage, RootPath]) ->
                                                 file_path_raw = ObjectStorageRawPath,
                                                 write_handler = ObjectWriteHandler,
                                                 read_handler  = ObjectReadHandler},
-                    case do_stats(MetaDBId, StorageInfo) of
-                        {ok, #storage_stats{active_num = ActiveObjs}} ->
-                            {ok, #state{id = Id,
-                                        meta_db_id     = MetaDBId,
-                                        object_storage = StorageInfo,
-                                        num_of_objects = ActiveObjs}};
-                        {error, Cause} ->
-                            io:format("~w, cause:~p~n", [?LINE, Cause]),
-                            {stop, Cause}
-                    end;
+                    {ok, #state{id = Id,
+                                meta_db_id     = MetaDBId,
+                                object_storage = StorageInfo}};
                 {error, Cause} ->
                     io:format("~w, cause:~p~n", [?LINE, Cause]),
                     {stop, Cause}
@@ -265,7 +258,6 @@ handle_call(stats, _From, #state{meta_db_id     = _MetaDBId,
                                  num_of_objects = NumOfObjs} = State) ->
     FilePath = StorageInfo#backend_info.file_path,
     Res = {ok, #storage_stats{file_path   = FilePath,
-                              total_sizes = filelib:file_size(FilePath),
                               total_num   = NumOfObjs}},
     {reply, Res, State};
 
