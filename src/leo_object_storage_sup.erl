@@ -52,7 +52,11 @@ start_link() ->
 stop() ->
     case whereis(?MODULE) of
         Pid when is_pid(Pid) == true ->
-            ok = terminate_children(supervisor:which_children(Pid)),
+            List = supervisor:which_children(Pid),
+            Len  = length(List),
+
+            ok = terminate_children(List),
+            timer:sleep(Len * 100),
             exit(Pid, shutdown),
             ok;
         _ ->
