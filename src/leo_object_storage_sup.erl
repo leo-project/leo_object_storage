@@ -52,9 +52,11 @@ start_link() ->
 stop() ->
     case whereis(?MODULE) of
         Pid when is_pid(Pid) == true ->
+            ok = terminate_children(supervisor:which_children(Pid)),
             exit(Pid, shutdown),
             ok;
-        _ -> not_started
+        _ ->
+            not_started
     end.
 
 
@@ -72,4 +74,12 @@ init([]) ->
 %% ---------------------------------------------------------------------
 %% Inner Function(s)
 %% ---------------------------------------------------------------------
+terminate_children([]) ->
+    ok;
+terminate_children([{Id,_Pid, worker,[Module|_]}|T]) ->
+    _ = Module:stop(Id),
+    terminate_children(T);
+terminate_children([_|T]) ->
+    terminate_children(T).
+
 

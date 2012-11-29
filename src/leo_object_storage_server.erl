@@ -78,6 +78,9 @@ start_link(Id, SeqNo, MetaDBId, ObjectStorageMod, RootPath) ->
 %%
 -spec(stop(atom()) -> ok).
 stop(Id) ->
+    error_logger:info_msg("~p,~p,~p,~p~n",
+                          [{module, ?MODULE_STRING}, {function, "stop/1"},
+                           {line, ?LINE}, {body, Id}]),
     gen_server:call(Id, stop).
 
 %%--------------------------------------------------------------------
@@ -191,7 +194,7 @@ init([Id, SeqNo, MetaDBId, ObjectStorage, RootPath]) ->
 handle_call(stop, _From, #state{object_storage = #backend_info{backend       = Module,
                                                                write_handler = WriteHandler,
                                                                read_handler  = ReadHandler}} = State) ->
-    Module:close(WriteHandler, ReadHandler),
+    ok = Module:close(WriteHandler, ReadHandler),
     {stop, normal, ok, State};
 
 
