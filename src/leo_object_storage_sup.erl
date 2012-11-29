@@ -76,8 +76,8 @@ init([]) ->
 %% ---------------------------------------------------------------------
 terminate_children([]) ->
     ok;
-terminate_children([{Id,_Pid, worker,[Module|_]}|T]) ->
-    _ = Module:stop(Id),
+terminate_children([{Id,_Pid, worker, [Mod|_]}|T]) ->
+    Mod:stop(Id),
     terminate_children(T);
 terminate_children([_|T]) ->
     terminate_children(T).

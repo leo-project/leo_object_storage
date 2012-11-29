@@ -195,7 +195,7 @@ handle_call(stop, _From, #state{object_storage = #backend_info{backend       = M
                                                                write_handler = WriteHandler,
                                                                read_handler  = ReadHandler}} = State) ->
     ok = Module:close(WriteHandler, ReadHandler),
-    {stop, normal, ok, State};
+    {stop, shutdown, ok, State};
 
 
 handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
@@ -297,7 +297,14 @@ handle_info(_Info, State) ->
 %% terminate. It should be the opposite of Module:init/1 and do any necessary
 %% cleaning up. When it returns, the gen_server terminates with Reason.
 %% The return value is ignored.
-terminate(_Reason, _State) ->
+terminate(_Reason, #state{id = Id,
+                          object_storage = #backend_info{backend       = Module,
+                                                         write_handler = WriteHandler,
+                                                         read_handler  = ReadHandler}}) ->
+    error_logger:info_msg("~p,~p,~p,~p~n",
+                          [{module, ?MODULE_STRING}, {function, "terminate/2"},
+                           {line, ?LINE}, {body, Id}]),
+    ok = Module:close(WriteHandler, ReadHandler),
     ok.
 
 %% Func: code_change(OldVsn, State, Extra) -> {ok, NewState}
