@@ -51,6 +51,7 @@
           vnode_id           :: integer(),
           object_storage     :: #backend_info{},
           storage_stats      :: #storage_stats{},
+          state_filepath     :: string(),
           num_of_objects = 0 :: integer()
          }).
 
@@ -167,6 +168,14 @@ stats(Id) ->
 init([Id, SeqNo, MetaDBId, ObjectStorage, RootPath]) ->
     ObjectStorageDir  = lists:append([RootPath, ?DEF_OBJECT_STORAGE_SUB_DIR]),
     ObjectStoragePath = lists:append([ObjectStorageDir, integer_to_list(SeqNo), ?AVS_FILE_EXT]),
+    StateFilePath     = lists:append([RootPath, ?DEF_STATE_SUB_DIR, atom_to_list(Id)]),
+
+    NumOfObjects =
+        case file:consult(StateFilePath) of
+            {ok, Props} ->
+                leo_misc:get_value('num_of_objects', Props, 0);
+            _ -> 0
+        end,
 
     %% open object-storage.
     case get_raw_path(object, ObjectStorageDir, ObjectStoragePath) of
@@ -180,7 +189,10 @@ init([Id, SeqNo, MetaDBId, ObjectStorage, RootPath]) ->
                                                 read_handler  = ObjectReadHandler},
                     {ok, #state{id = Id,
                                 meta_db_id     = MetaDBId,
-                                object_storage = StorageInfo}};
+                                object_storage = StorageInfo,
+                                state_filepath = StateFilePath,
+                                num_of_objects = NumOfObjects
+                               }};
                 {error, Cause} ->
                     io:format("~w, cause:~p~n", [?LINE, Cause]),
                     {stop, Cause}
@@ -191,9 +203,16 @@ init([Id, SeqNo, MetaDBId, ObjectStorage, RootPath]) ->
     end.
 
 
-handle_call(stop, _From, #state{object_storage = #backend_info{backend       = Module,
-                                                               write_handler = WriteHandler,
-                                                               read_handler  = ReadHandler}} = State) ->
+handle_call(stop, _From, #state{id = Id,
+                                state_filepath = StateFilePath,
+                                num_of_objects = NumOfObjects,
+                                object_storage = #backend_info{
+                                  backend        = Module,
+                                  write_handler  = WriteHandler,
+                                  read_handler   = ReadHandler}} = State) ->
+    _ = filelib:ensure_dir(StateFilePath),
+    _ = leo_file:file_unconsult(StateFilePath, [{id, Id},
+                                                {num_of_objects, NumOfObjects}]),
     ok = Module:close(WriteHandler, ReadHandler),
     {stop, shutdown, ok, State};
 
