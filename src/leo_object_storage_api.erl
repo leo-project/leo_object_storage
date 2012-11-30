@@ -86,14 +86,25 @@ start(ok, ObjectStorageInfo) ->
     %%
     case whereis(leo_object_storage_sup) of
         undefined ->
-            {error, "NOT started supervisor"};
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING}, {function, "start/2"},
+                                    {line, ?LINE}, {body, "NOT started supervisor"}]),
+            exit(not_initialized);
         SupRef ->
             case supervisor:count_children(SupRef) of
                 [{specs, _},{active, Active},
                  {supervisors, _},{workers, Workers}] when Active == Workers  ->
                     ok;
                 _ ->
-                    {error, "Could NOT launch worker processes"}
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING}, {function, "start/2"},
+                                            {line, ?LINE}, {body, "Could NOT start worker processes"}]),
+                    case leo_object_storage_sup:stop() of
+                        ok ->
+                            exit(invalid_launch);
+                        not_started ->
+                            exit(noproc)
+                    end
             end
     end;
 
