@@ -289,8 +289,11 @@ start_app() ->
             ok;
         {error, {already_started, Module}} ->
             ok;
-        Error ->
-            Error
+        {error, Cause} ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING}, {function, "start_app/0"},
+                                    {line, ?LINE}, {body, Cause}]),
+            {exit, Cause}
     end.
 
 
