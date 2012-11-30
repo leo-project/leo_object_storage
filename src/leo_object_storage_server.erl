@@ -63,6 +63,7 @@
          }).
 
 -define(AVS_FILE_EXT, ".avs").
+-define(DEF_TIMEOUT, 30000).
 
 %%====================================================================
 %% API
@@ -82,7 +83,7 @@ stop(Id) ->
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "stop/1"},
                            {line, ?LINE}, {body, Id}]),
-    gen_server:call(Id, stop).
+    gen_server:call(Id, stop, ?DEF_TIMEOUT).
 
 %%--------------------------------------------------------------------
 %% API - object operations.
@@ -92,7 +93,7 @@ stop(Id) ->
 -spec(put(atom(), #object{}) ->
              ok | {error, any()}).
 put(Id, Object) ->
-    gen_server:call(Id, {put, Object}).
+    gen_server:call(Id, {put, Object}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve an object from the object-storage
@@ -100,7 +101,7 @@ put(Id, Object) ->
 -spec(get(atom(), binary(), integer(), integer()) ->
              {ok, #metadata{}, #object{}} | not_found | {error, any()}).
 get(Id, Key, StartPos, EndPos) ->
-    gen_server:call(Id, {get, Key, StartPos, EndPos}).
+    gen_server:call(Id, {get, Key, StartPos, EndPos}, ?DEF_TIMEOUT).
 
 
 %% @doc Remove an object from the object-storage - (logical-delete)
@@ -108,7 +109,7 @@ get(Id, Key, StartPos, EndPos) ->
 -spec(delete(atom(), #object{}) ->
              ok | {error, any()}).
 delete(Id, Object) ->
-    gen_server:call(Id, {delete, Object}).
+    gen_server:call(Id, {delete, Object}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve an object's metadata from the object-storage
@@ -116,7 +117,7 @@ delete(Id, Object) ->
 -spec(head(atom(), binary()) ->
              {ok, #metadata{}} | {error, any()}).
 head(Id, Key) ->
-    gen_server:call(Id, {head, Key}).
+    gen_server:call(Id, {head, Key}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve objects from the object-storage by Key and Function
@@ -124,7 +125,7 @@ head(Id, Key) ->
 -spec(fetch(atom(), binary(), function()) ->
              {ok, list()} | {error, any()}).
 fetch(Id, Key, Fun) ->
-    gen_server:call(Id, {fetch, Key, Fun}).
+    gen_server:call(Id, {fetch, Key, Fun}, ?DEF_TIMEOUT).
 
 
 %% @doc Store metadata and data
@@ -132,7 +133,7 @@ fetch(Id, Key, Fun) ->
 -spec(store(atom(), #metadata{}, binary()) ->
              ok | {error, any()}).
 store(Id, Metadata, Bin) ->
-    gen_server:call(Id, {store, Metadata, Bin}).
+    gen_server:call(Id, {store, Metadata, Bin}, ?DEF_TIMEOUT).
 
 
 %%--------------------------------------------------------------------
@@ -143,7 +144,7 @@ store(Id, Metadata, Bin) ->
 -spec(compact(atom(), function()) ->
              ok | {error, any()}).
 compact(Id, FunHasChargeOfNode) ->
-    gen_server:call(Id, {compact, FunHasChargeOfNode}).
+    gen_server:call(Id, {compact, FunHasChargeOfNode}, ?DEF_TIMEOUT).
 
 %%--------------------------------------------------------------------
 %% API - get the storage stats
@@ -154,7 +155,7 @@ compact(Id, FunHasChargeOfNode) ->
              {ok, #storage_stats{}} |
              {error, any()}).
 stats(Id) ->
-    gen_server:call(Id, stats).
+    gen_server:call(Id, stats, ?DEF_TIMEOUT).
 
 
 %%====================================================================
