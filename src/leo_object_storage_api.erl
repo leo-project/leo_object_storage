@@ -63,7 +63,6 @@ start(ObjectStorageInfo) ->
     start(Res, ObjectStorageInfo).
 
 start(ok, ObjectStorageInfo) ->
-    Storage1  = get_object_storage_mod(),
     Metadata1 = get_metadata_db(),
 
     _ = lists:foldl(
@@ -71,7 +70,6 @@ start(ok, ObjectStorageInfo) ->
                   Path1 = get_path(Path0),
                   Props = [{num_of_containers, Containers},
                            {path,              Path1},
-                           {storage_mod,       Storage1},
                            {metadata_db,       Metadata1}],
 
                   true  = ets:insert(?ETS_INFO_TABLE, {list_to_atom(?MODULE_STRING ++ integer_to_list(I)), Props}),
@@ -248,15 +246,16 @@ add_container(Id0, Props) ->
     Id2 = gen_id(metadata,    Id0),
 
     Path       = leo_misc:get_value('path',        Props),
-    StorageMod = leo_misc:get_value('storage_mod', Props),
     MetadataDB = leo_misc:get_value('metadata_db', Props),
 
     %% Launch metadata-db
     ok = leo_backend_db_api:new(Id2, 1, MetadataDB,
-                                Path ++ ?DEF_METADATA_STORAGE_SUB_DIR ++ integer_to_list(Id0)),
+                                lists:append([Path,
+                                              ?DEF_METADATA_STORAGE_SUB_DIR,
+                                              integer_to_list(Id0)])),
 
     %% Launch object-storage
-    Args = [Id1, Id0, Id2, StorageMod, Path],
+    Args = [Id1, Id0, Id2, Path],
     ChildSpec = {Id1,
                  {leo_object_storage_server, start_link, Args},
                  permanent, 2000, worker, [leo_object_storage_server]},
@@ -267,7 +266,8 @@ add_container(Id0, Props) ->
                                                             {metadata,    Id2}]}),
             ok;
         Error ->
-            io:format("[ERROR] add_container/2, ~w, ~p~n", [?LINE, Error])
+            io:format("[ERROR] add_container/2, ~w, ~p~n", [?LINE, Error]),
+            Error
     end.
 
 
@@ -316,17 +316,6 @@ get_path(Path0) ->
                 false -> Path1 ++ "/"
             end,
     Path2.
-
-
-%% %% @doc Retrieve an object storage module
-%% %% @private
--spec(get_object_storage_mod() ->
-             atom()).
-get_object_storage_mod() ->
-    case application:get_env(?APP_NAME, object_storage) of
-        {ok, haystack} -> leo_object_storage_haystack;
-        _ ->              leo_object_storage_haystack
-    end.
 
 
 %% %% @doc Retrieve a metadata-db

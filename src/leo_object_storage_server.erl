@@ -34,7 +34,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 %% API
--export([start_link/5, stop/1]).
+-export([start_link/4, stop/1]).
 -export([put/2, get/4, delete/2, head/2, fetch/3, store/3]).
 -export([compact/2, stats/1]).
 
@@ -70,11 +70,11 @@
 %%====================================================================
 %% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
 %% Description: Starts the server
--spec(start_link(atom(), integer(), atom(), atom(), string()) ->
+-spec(start_link(atom(), integer(), atom(), string()) ->
              ok | {error, any()}).
-start_link(Id, SeqNo, MetaDBId, ObjectStorageMod, RootPath) ->
+start_link(Id, SeqNo, MetaDBId, RootPath) ->
     gen_server:start_link({local, Id}, ?MODULE,
-                          [Id, SeqNo, MetaDBId, ObjectStorageMod, RootPath], []).
+                          [Id, SeqNo, MetaDBId, RootPath], []).
 
 %% @doc Stop this server
 %%
@@ -166,7 +166,7 @@ stats(Id) ->
 %%                         ignore               |
 %%                         {stop, Reason}
 %% Description: Initiates the server
-init([Id, SeqNo, MetaDBId, ObjectStorage, RootPath]) ->
+init([Id, SeqNo, MetaDBId, RootPath]) ->
     ObjectStorageDir  = lists:append([RootPath, ?DEF_OBJECT_STORAGE_SUB_DIR]),
     ObjectStoragePath = lists:append([ObjectStorageDir, integer_to_list(SeqNo), ?AVS_FILE_EXT]),
     StateFilePath     = lists:append([RootPath, ?DEF_STATE_SUB_DIR, atom_to_list(Id)]),
@@ -181,10 +181,9 @@ init([Id, SeqNo, MetaDBId, ObjectStorage, RootPath]) ->
     %% open object-storage.
     case get_raw_path(object, ObjectStorageDir, ObjectStoragePath) of
         {ok, ObjectStorageRawPath} ->
-            case ObjectStorage:open(ObjectStorageRawPath) of
+            case leo_object_storage_haystack:open(ObjectStorageRawPath) of
                 {ok, [ObjectWriteHandler, ObjectReadHandler]} ->
-                    StorageInfo = #backend_info{backend       = ObjectStorage,
-                                                file_path     = ObjectStoragePath,
+                    StorageInfo = #backend_info{file_path     = ObjectStoragePath,
                                                 file_path_raw = ObjectStorageRawPath,
                                                 write_handler = ObjectWriteHandler,
                                                 read_handler  = ObjectReadHandler},
@@ -208,21 +207,19 @@ handle_call(stop, _From, #state{id = Id,
                                 state_filepath = StateFilePath,
                                 num_of_objects = NumOfObjects,
                                 object_storage = #backend_info{
-                                  backend        = Module,
                                   write_handler  = WriteHandler,
                                   read_handler   = ReadHandler}} = State) ->
     _ = filelib:ensure_dir(StateFilePath),
     _ = leo_file:file_unconsult(StateFilePath, [{id, Id},
                                                 {num_of_objects, NumOfObjects}]),
-    ok = Module:close(WriteHandler, ReadHandler),
+    ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
     {stop, shutdown, ok, State};
 
 
 handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
                                          object_storage = StorageInfo,
                                          num_of_objects = NumOfObjs} = State) ->
-    #backend_info{backend = Module} = StorageInfo,
-    Reply = Module:put(MetaDBId, StorageInfo, Object),
+    Reply = leo_object_storage_haystack:put(MetaDBId, StorageInfo, Object),
 
     NewState = after_proc(Reply, State),
     erlang:garbage_collect(self()),
@@ -232,8 +229,7 @@ handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
 
 handle_call({get, Key, StartPos, EndPos}, _From, #state{meta_db_id     = MetaDBId,
                                                         object_storage = StorageInfo} = State) ->
-    #backend_info{backend = Module} = StorageInfo,
-    Reply = Module:get(MetaDBId, StorageInfo, Key, StartPos, EndPos),
+    Reply = leo_object_storage_haystack:get(MetaDBId, StorageInfo, Key, StartPos, EndPos),
 
     NewState = after_proc(Reply, State),
     erlang:garbage_collect(self()),
@@ -244,25 +240,20 @@ handle_call({get, Key, StartPos, EndPos}, _From, #state{meta_db_id     = MetaDBI
 handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
                                             object_storage = StorageInfo,
                                             num_of_objects = NumOfObjs} = State) ->
-    #backend_info{backend = Module} = StorageInfo,
-    Reply = Module:delete(MetaDBId, StorageInfo, Object),
+    Reply = leo_object_storage_haystack:delete(MetaDBId, StorageInfo, Object),
 
     NewState = after_proc(Reply, State),
     {reply, Reply, NewState#state{num_of_objects = NumOfObjs - 1}};
 
 
-handle_call({head, Key}, _From, #state{meta_db_id     = MetaDBId,
-                                       object_storage = StorageInfo} = State) ->
-    #backend_info{backend = Module} = StorageInfo,
-    Reply = Module:head(MetaDBId, Key),
+handle_call({head, Key}, _From, #state{meta_db_id = MetaDBId} = State) ->
+    Reply = leo_object_storage_haystack:head(MetaDBId, Key),
 
     {reply, Reply, State};
 
 
-handle_call({fetch, Key, Fun}, _From, #state{meta_db_id     = MetaDBId,
-                                             object_storage = StorageInfo} = State) ->
-    #backend_info{backend = Module} = StorageInfo,
-    Reply = Module:fetch(MetaDBId, Key, Fun),
+handle_call({fetch, Key, Fun}, _From, #state{meta_db_id = MetaDBId} = State) ->
+    Reply = leo_object_storage_haystack:fetch(MetaDBId, Key, Fun),
 
     {reply, Reply, State};
 
@@ -270,8 +261,7 @@ handle_call({fetch, Key, Fun}, _From, #state{meta_db_id     = MetaDBId,
 handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
                                                   object_storage = StorageInfo,
                                                   num_of_objects = NumOfObjs} = State) ->
-    #backend_info{backend = Module} = StorageInfo,
-    Reply = Module:store(MetaDBId, StorageInfo, Metadata, Bin),
+    Reply = leo_object_storage_haystack:store(MetaDBId, StorageInfo, Metadata, Bin),
 
     {reply, Reply, State#state{num_of_objects = NumOfObjs + 1}};
 
@@ -318,13 +308,12 @@ handle_info(_Info, State) ->
 %% cleaning up. When it returns, the gen_server terminates with Reason.
 %% The return value is ignored.
 terminate(_Reason, #state{id = Id,
-                          object_storage = #backend_info{backend       = Module,
-                                                         write_handler = WriteHandler,
+                          object_storage = #backend_info{write_handler = WriteHandler,
                                                          read_handler  = ReadHandler}}) ->
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "terminate/2"},
                            {line, ?LINE}, {body, Id}]),
-    ok = Module:close(WriteHandler, ReadHandler),
+    ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
     ok.
 
 %% Func: code_change(OldVsn, State, Extra) -> {ok, NewState}
@@ -341,11 +330,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% @doc
 %% @private
-after_proc(Ret, #state{object_storage = #backend_info{backend   = Module,
-                                                      file_path = FilePath}} = State) ->
+after_proc(Ret, #state{object_storage = #backend_info{file_path = FilePath}} = State) ->
     case Ret of
         {error, ?ERROR_FD_CLOSED} ->
-            case Module:open(FilePath) of
+            case leo_object_storage_haystack:open(FilePath) of
                 {ok, [NewWriteHandler, NewReadHandler]} ->
                     BackendInfo = State#state.object_storage,
                     State#state{object_storage = BackendInfo#backend_info{
@@ -400,7 +388,6 @@ get_raw_path(object, ObjectStorageRootDir, SymLinkPath) ->
              {ok, #state{}} | {error, any(), #state{}}).
 compact_fun(#state{meta_db_id       = MetaDBId,
                    object_storage   = StorageInfo} = State, FunHasChargeOfNode) ->
-    Module   = StorageInfo#backend_info.backend,
     FilePath = StorageInfo#backend_info.file_path,
 
     Res = case calc_remain_disksize(MetaDBId, FilePath) of
@@ -409,7 +396,7 @@ compact_fun(#state{meta_db_id       = MetaDBId,
                       true ->
                           TmpPath = gen_raw_file_path(FilePath),
 
-                          case Module:open(TmpPath) of
+                          case leo_object_storage_haystack:open(TmpPath) of
                               {ok, [TmpWriteHandler, TmpReadHandler]} ->
 
                                   case do_stats(MetaDBId, StorageInfo) of
@@ -438,13 +425,12 @@ compact_fun(#state{meta_db_id       = MetaDBId,
 %% @private
 compact_fun1({ok, #state{meta_db_id     = MetaDBId,
                          object_storage = StorageInfo} = State}, FunHasChargeOfNode) ->
-    Module          = StorageInfo#backend_info.backend,
     ReadHandler     = StorageInfo#backend_info.read_handler,
     WriteHandler    = StorageInfo#backend_info.write_handler,
     TmpReadHandler  = StorageInfo#backend_info.tmp_read_handler,
     TmpWriteHandler = StorageInfo#backend_info.tmp_write_handler,
 
-    Res = case Module:compact_get(ReadHandler) of
+    Res = case leo_object_storage_haystack:compact_get(ReadHandler) of
               {ok, Metadata, [_HeaderValue, KeyValue, BodyValue, NextOffset]} ->
                   case leo_backend_db_api:compact_start(MetaDBId) of
                       ok ->
@@ -453,8 +439,8 @@ compact_fun1({ok, #state{meta_db_id     = MetaDBId,
                                                           next_offset = NextOffset,
                                                           fun_has_charge_of_node = FunHasChargeOfNode},
                           Ret = do_compact(Metadata, CompactParams, State),
-                          _ = Module:close(WriteHandler,    ReadHandler),
-                          _ = Module:close(TmpWriteHandler, TmpReadHandler),
+                          _ = leo_object_storage_haystack:close(WriteHandler,    ReadHandler),
+                          _ = leo_object_storage_haystack:close(TmpWriteHandler, TmpReadHandler),
                           Ret;
                       Error0 ->
                           Error0
@@ -472,7 +458,6 @@ compact_fun1({Error,_State}, _) ->
 %% @private
 compact_fun2({ok, #state{meta_db_id     = MetaDBId,
                          object_storage = StorageInfo} = State}) ->
-    Module         = StorageInfo#backend_info.backend,
     RootPath       = StorageInfo#backend_info.file_path,
     TmpFilePathRaw = StorageInfo#backend_info.tmp_file_path_raw,
 
@@ -481,7 +466,7 @@ compact_fun2({ok, #state{meta_db_id     = MetaDBId,
         ok ->
             catch file:delete(StorageInfo#backend_info.file_path_raw),
 
-            case Module:open(RootPath) of
+            case leo_object_storage_haystack:open(RootPath) of
                 {ok, [NewWriteHandler, NewReadHandler]} ->
                     _ = leo_backend_db_api:compact_end(MetaDBId, true),
 
@@ -562,12 +547,11 @@ is_deleted_rec(_MetaDBId,_Meta0,_Meta1) ->
 %% @private
 -spec(do_stats(atom(), #backend_info{}) ->
              {ok, #storage_stats{}} | {error, any()}).
-do_stats(MetaDBId, #backend_info{backend       = Module,
-                                 file_path     = RootPath,
+do_stats(MetaDBId, #backend_info{file_path     = RootPath,
                                  read_handler  = ReadHandler}) ->
-    case Module:compact_get(ReadHandler) of
+    case leo_object_storage_haystack:compact_get(ReadHandler) of
         {ok, Metadata, [_HeaderValue, _KeyValue, _BodyValue, NextOffset]} ->
-            case do_stats(MetaDBId, Module, ReadHandler, Metadata, NextOffset, #storage_stats{}) of
+            case do_stats(MetaDBId, ReadHandler, Metadata, NextOffset, #storage_stats{}) of
                 {ok, Stats} ->
                     {ok, Stats#storage_stats{file_path   = RootPath,
                                              total_sizes = filelib:file_size(RootPath)}};
@@ -581,19 +565,19 @@ do_stats(MetaDBId, #backend_info{backend       = Module,
             Error
     end.
 
--spec(do_stats(atom(), atom(), pid(), #metadata{}, integer(), #storage_stats{}) ->
+-spec(do_stats(atom(), pid(), #metadata{}, integer(), #storage_stats{}) ->
              {ok, any()} | {error, any()}).
-do_stats(MetaDBId, Module, ReadHandler, Metadata, NextOffset, #storage_stats{total_num  = ObjTotal,
-                                                                             active_num = ObjActive} = StorageStats) ->
+do_stats(MetaDBId, ReadHandler, Metadata, NextOffset, #storage_stats{total_num  = ObjTotal,
+                                                                     active_num = ObjActive} = StorageStats) ->
     NewStorageStats =
         case is_deleted_rec(MetaDBId, Metadata) of
             true  -> StorageStats#storage_stats{total_num  = ObjTotal  + 1};
             false -> StorageStats#storage_stats{total_num  = ObjTotal  + 1,
                                                 active_num = ObjActive + 1}
         end,
-    case Module:compact_get(ReadHandler, NextOffset) of
+    case leo_object_storage_haystack:compact_get(ReadHandler, NextOffset) of
         {ok, NewMetadata, [_HeaderValue, _NewKeyValue, _NewBodyValue, NewNextOffset]} ->
-            do_stats(MetaDBId, Module, ReadHandler, NewMetadata, NewNextOffset, NewStorageStats);
+            do_stats(MetaDBId, ReadHandler, NewMetadata, NewNextOffset, NewStorageStats);
         {error, eof} ->
             {ok, NewStorageStats};
         Error ->
@@ -616,12 +600,11 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
         false ->
             %% Insert into the temporary object-container.
             %%
-            Module = StorageInfo#backend_info.backend,
             TmpWriteHandler = StorageInfo#backend_info.tmp_write_handler,
 
-            case Module:compact_put(TmpWriteHandler, Metadata,
-                                    CompactParams#compact_params.key_bin,
-                                    CompactParams#compact_params.body_bin) of
+            case leo_object_storage_haystack:compact_put(TmpWriteHandler, Metadata,
+                                                         CompactParams#compact_params.key_bin,
+                                                         CompactParams#compact_params.body_bin) of
                 {ok, Offset} ->
                     NewMeta = Metadata#metadata{offset = Offset},
                     Ret = leo_backend_db_api:compact_put(
@@ -639,10 +622,9 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
 %% @doc Reduce unnecessary objects from object-container.
 %% @private
 do_compact1(ok,_Metadata, CompactParams, #state{object_storage = StorageInfo} = State) ->
-    Module      = StorageInfo#backend_info.backend,
     ReadHandler = StorageInfo#backend_info.read_handler,
 
-    case Module:compact_get(ReadHandler, CompactParams#compact_params.next_offset) of
+    case leo_object_storage_haystack:compact_get(ReadHandler, CompactParams#compact_params.next_offset) of
         {ok, NewMetadata, [_HeaderValue, NewKeyValue, NewBodyValue, NewNextOffset]} ->
             do_compact(NewMetadata, CompactParams#compact_params{key_bin     = NewKeyValue,
                                                                  body_bin    = NewBodyValue,
