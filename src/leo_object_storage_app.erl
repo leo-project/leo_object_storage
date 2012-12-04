@@ -29,6 +29,8 @@
 
 -behaviour(application).
 
+-include_lib("eunit/include/eunit.hrl").
+
 %% Application and Supervisor callbacks
 -export([start/2, stop/1, profile_output/0]).
 

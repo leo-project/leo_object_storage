@@ -29,6 +29,7 @@
 -define(DEF_METADATA_DB,               'bitcask').
 -define(DEF_OBJECT_STORAGE_SUB_DIR,    "object/").
 -define(DEF_METADATA_STORAGE_SUB_DIR,  "metadata/").
+-define(DEF_STATE_SUB_DIR,             "state/").
 
 
 %% Error Constants
