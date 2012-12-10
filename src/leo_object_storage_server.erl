@@ -311,7 +311,6 @@ terminate(_Reason, #state{id = Id,
     _ = leo_file:file_unconsult(StateFilePath, [{id, Id},
                                                 {num_of_objects, NumOfObjects}]),
     ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
-
     ok.
 
 %% Func: code_change(OldVsn, State, Extra) -> {ok, NewState}
