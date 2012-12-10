@@ -203,16 +203,7 @@ init([Id, SeqNo, MetaDBId, RootPath]) ->
     end.
 
 
-handle_call(stop, _From, #state{id = Id,
-                                state_filepath = StateFilePath,
-                                num_of_objects = NumOfObjects,
-                                object_storage = #backend_info{
-                                  write_handler  = WriteHandler,
-                                  read_handler   = ReadHandler}} = State) ->
-    _ = filelib:ensure_dir(StateFilePath),
-    _ = leo_file:file_unconsult(StateFilePath, [{id, Id},
-                                                {num_of_objects, NumOfObjects}]),
-    ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
+handle_call(stop, _From, State) ->
     {stop, shutdown, ok, State};
 
 
@@ -308,12 +299,19 @@ handle_info(_Info, State) ->
 %% cleaning up. When it returns, the gen_server terminates with Reason.
 %% The return value is ignored.
 terminate(_Reason, #state{id = Id,
+                          state_filepath = StateFilePath,
+                          num_of_objects = NumOfObjects,
                           object_storage = #backend_info{write_handler = WriteHandler,
                                                          read_handler  = ReadHandler}}) ->
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "terminate/2"},
                            {line, ?LINE}, {body, Id}]),
+
+    _ = filelib:ensure_dir(StateFilePath),
+    _ = leo_file:file_unconsult(StateFilePath, [{id, Id},
+                                                {num_of_objects, NumOfObjects}]),
     ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
+
     ok.
 
 %% Func: code_change(OldVsn, State, Extra) -> {ok, NewState}
