@@ -451,7 +451,7 @@ compact_fun1({ok, #state{meta_db_id     = MetaDBId,
     compact_fun2({Res, State});
 
 compact_fun1({Error,_State}, _) ->
-    Error.
+    {Error,_State}.
 
 
 %% @doc Reduce objects from the object-container.
