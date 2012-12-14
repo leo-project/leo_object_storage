@@ -267,15 +267,18 @@ handle_call(stats, _From, #state{meta_db_id     = _MetaDBId,
 
 
 handle_call({compact, FunHasChargeOfNode},  _From, #state{meta_db_id = MetaDBId} = State) ->
-    {Reply, State1} = compact_fun(State, FunHasChargeOfNode),
-
-    State2 = case do_stats(MetaDBId, State1#state.object_storage) of
-                 {ok, #storage_stats{active_num = ActiveObjs}} ->
-                     State1#state{num_of_objects = ActiveObjs};
-                 {error, _Cause} ->
-                     State1#state{num_of_objects = 0}
-             end,
-    {reply, Reply, State2}.
+    case compact_fun(State, FunHasChargeOfNode) of
+        {ok = Reply, State1} ->
+            State2 = case do_stats(MetaDBId, State1#state.object_storage) of
+                         {ok, #storage_stats{active_num = ActiveObjs}} ->
+                             State1#state{num_of_objects = ActiveObjs};
+                         {error, _Cause} ->
+                             State1#state{num_of_objects = 0}
+                     end,
+            {reply, Reply, State2};
+        {Reply, State1} ->
+            {reply, Reply, State1}
+    end.
 
 
 %% Function: handle_cast(Msg, State) -> {noreply, State}          |
