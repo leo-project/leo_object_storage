@@ -544,7 +544,11 @@ compact_get(ReadHandler, Offset) ->
                 HeaderSize ->
                     compact_get(ReadHandler, Offset, HeaderSize, HeaderBin);
                 _ ->
-                    {error, ?ERROR_DATA_SIZE_DID_NOT_MATCH}
+                    Cause = ?ERROR_DATA_SIZE_DID_NOT_MATCH,
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING}, {function, "compact_get/2"},
+                                            {line, ?LINE}, {body, Cause}]),
+                    {error, Cause}
             end;
         eof = Cause ->
             {error, Cause};
@@ -612,10 +616,18 @@ compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
                             {ok, Meta, [HeaderBin, KeyValue, BodyValue,
                                         Offset + HeaderSize + RemainSize]};
                         _ ->
-                            {error, ?ERROR_INVALID_DATA}
+                            Cause = ?ERROR_INVALID_DATA,
+                            error_logger:error_msg("~p,~p,~p,~p~n",
+                                                   [{module, ?MODULE_STRING}, {function, "compact_get/4"},
+                                                    {line, ?LINE}, {body, Cause}]),
+                            {error, Cause}
                     end;
                 _ ->
-                    {error, ?ERROR_DATA_SIZE_DID_NOT_MATCH}
+                    Cause = ?ERROR_DATA_SIZE_DID_NOT_MATCH,
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING}, {function, "compact_get/4"},
+                                            {line, ?LINE}, {body, Cause}]),
+                    {error, Cause}
             end;
         eof = Cause ->
             {error, Cause};
