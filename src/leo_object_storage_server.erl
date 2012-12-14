@@ -144,7 +144,7 @@ store(Id, Metadata, Bin) ->
 -spec(compact(atom(), function()) ->
              ok | {error, any()}).
 compact(Id, FunHasChargeOfNode) ->
-    gen_server:call(Id, {compact, FunHasChargeOfNode}, ?DEF_TIMEOUT).
+    gen_server:call(Id, {compact, FunHasChargeOfNode}, infinity).
 
 %%--------------------------------------------------------------------
 %% API - get the storage stats
