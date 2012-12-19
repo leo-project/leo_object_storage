@@ -34,7 +34,7 @@
          put/2, get/1, get/3, delete/2, head/1,
          fetch_by_addr_id/2, fetch_by_key/2,
          store/2,
-         compact/1, stats/0
+         compact/2, stats/0
         ]).
 
 
@@ -206,20 +206,56 @@ store(Metadata, Bin) ->
 
 
 %% @doc Compact object-storage and metadata
--spec(compact(function()) ->
+-spec(compact(function(), integer()) ->
              ok | list()).
-compact(FunHasChargeOfNode) ->
+compact(FunHasChargeOfNode, MaxProc) ->
     case get_object_storage_pid(all) of
         undefined ->
             void;
         List ->
-            lists:foldl(
-              fun(Id, Acc) ->
-                      ok = application:set_env(?APP_NAME, Id, ?STATE_COMPACTING), %% > compacting
-                      NewAcc = [?SERVER_MODULE:compact(Id, FunHasChargeOfNode)|Acc],
-                      ok = application:set_env(?APP_NAME, Id, ?STATE_ACTIVE),     %% > active
-                      NewAcc
-              end, [], List)
+            loop_parent(List, MaxProc, FunHasChargeOfNode, length(List), [])
+    end.
+
+%% @doc Loop of parallel execution controller(parent)
+-spec(loop_parent(list(), integer(), function(), integer(), list()) -> list()).
+loop_parent([Id|Rest], MaxProc, FunHasChargeOfNode, RestJobNum, Childs)
+    when MaxProc > 0 ->
+    From = self(),
+    Pid = spawn(fun() -> loop_child(From, FunHasChargeOfNode) end),
+    erlang:send(Pid, {compact, Id}),
+    loop_parent(Rest, MaxProc - 1, FunHasChargeOfNode, RestJobNum, [Pid|Childs]);
+loop_parent([Id|Rest], 0, FunHasChargeOfNode, RestJobNum, Childs) ->
+    receive
+        {done, Pid} ->
+            erlang:send(Pid, {compact, Id}),
+            loop_parent(Rest, 0, FunHasChargeOfNode, RestJobNum - 1, Childs);
+        _ ->
+            loop_parent([Id|Rest], 0, FunHasChargeOfNode, RestJobNum, Childs)
+    end;
+loop_parent([], 0, FunHasChargeOfNode, RestJobNum, Childs)
+    when RestJobNum > 0 ->
+    receive
+        {done, _Pid} ->
+            loop_parent([], 0, FunHasChargeOfNode, RestJobNum - 1, Childs);
+        _ ->
+            loop_parent([], 0, FunHasChargeOfNode, RestJobNum, Childs)
+    end;
+loop_parent([], 0, _FunHasChargeOfNode, 0, Childs) ->
+    [erlang:send(Pid, stop) || Pid <- Childs]. 
+
+%% @doc Loop of job executor(child)
+loop_child(From, FunHasChargeOfNode) ->
+    receive
+        {compact, Id} ->
+            ok = application:set_env(?APP_NAME, Id, ?STATE_COMPACTING), %% > compacting
+            ?SERVER_MODULE:compact(Id, FunHasChargeOfNode),
+            ok = application:set_env(?APP_NAME, Id, ?STATE_ACTIVE),     %% > active
+            erlang:send(From, {done, self()}),
+            loop_child(From, FunHasChargeOfNode);
+        stop ->
+            ok;
+        _ ->
+            {error, unknown_message}
     end.
 
 %% @doc Retrieve the storage stats
