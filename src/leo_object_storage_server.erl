@@ -59,7 +59,8 @@
           key_bin                :: binary(),
           body_bin               :: binary(),
           next_offset            :: integer(),
-          fun_has_charge_of_node :: function()
+          fun_has_charge_of_node :: function(),
+          num_of_active_object   :: integer()
          }).
 
 -define(AVS_FILE_EXT, ".avs").
@@ -266,20 +267,9 @@ handle_call(stats, _From, #state{meta_db_id     = _MetaDBId,
     {reply, Res, State};
 
 
-handle_call({compact, FunHasChargeOfNode},  _From, #state{meta_db_id = MetaDBId} = State) ->
-    case compact_fun(State, FunHasChargeOfNode) of
-        {ok = Reply, State1} ->
-            State2 = case do_stats(MetaDBId, State1#state.object_storage) of
-                         {ok, #storage_stats{active_num = ActiveObjs}} ->
-                             State1#state{num_of_objects = ActiveObjs};
-                         {error, _Cause} ->
-                             State1#state{num_of_objects = 0}
-                     end,
-            {reply, Reply, State2};
-        {Reply, State1} ->
-            {reply, Reply, State1}
-    end.
-
+handle_call({compact, FunHasChargeOfNode},  _From, State) ->
+    {Reply, State1} = compact_fun(State, FunHasChargeOfNode),
+    {reply, Reply, State1}.
 
 %% Function: handle_cast(Msg, State) -> {noreply, State}          |
 %%                                      {noreply, State, Timeout} |
@@ -398,17 +388,10 @@ compact_fun(#state{meta_db_id       = MetaDBId,
 
                           case leo_object_storage_haystack:open(TmpPath) of
                               {ok, [TmpWriteHandler, TmpReadHandler]} ->
-
-                                  case do_stats(MetaDBId, StorageInfo) of
-                                      {ok, #storage_stats{active_num = ActiveObjs}} ->
-                                          {ok, State#state{object_storage = StorageInfo#backend_info{
+                                  {ok, State#state{object_storage = StorageInfo#backend_info{
                                                                               tmp_file_path_raw = TmpPath,
                                                                               tmp_write_handler = TmpWriteHandler,
-                                                                              tmp_read_handler  = TmpReadHandler},
-                                                           num_of_objects = ActiveObjs}};
-                                      Error ->
-                                          {Error, State}
-                                  end;
+                                                                              tmp_read_handler  = TmpReadHandler}}};
                               Error ->
                                   {Error, State}
                           end;
@@ -437,6 +420,7 @@ compact_fun1({ok, #state{meta_db_id     = MetaDBId,
                           CompactParams = #compact_params{key_bin     = KeyValue,
                                                           body_bin    = BodyValue,
                                                           next_offset = NextOffset,
+                                                          num_of_active_object = 0,
                                                           fun_has_charge_of_node = FunHasChargeOfNode},
                           Ret = do_compact(Metadata, CompactParams, State),
                           _ = leo_object_storage_haystack:close(WriteHandler,    ReadHandler),
@@ -456,7 +440,7 @@ compact_fun1({Error,_State}, _) ->
 
 %% @doc Reduce objects from the object-container.
 %% @private
-compact_fun2({ok, #state{meta_db_id     = MetaDBId,
+compact_fun2({{ok, NumActive}, #state{meta_db_id     = MetaDBId,
                          object_storage = StorageInfo} = State}) ->
     RootPath       = StorageInfo#backend_info.file_path,
     TmpFilePathRaw = StorageInfo#backend_info.tmp_file_path_raw,
@@ -471,7 +455,8 @@ compact_fun2({ok, #state{meta_db_id     = MetaDBId,
                     _ = leo_backend_db_api:compact_end(MetaDBId, true),
 
                     BackendInfo = State#state.object_storage,
-                    NewState    = State#state{object_storage =
+                    NewState    = State#state{num_of_objects = NumActive,
+                                              object_storage =
                                                   BackendInfo#backend_info{
                                                     file_path_raw = TmpFilePathRaw,
                                                     read_handler  = NewReadHandler,
@@ -542,49 +527,6 @@ is_deleted_rec(_MetaDBId, Meta0, Meta1) when Meta0#metadata.offset =/= Meta1#met
 is_deleted_rec(_MetaDBId,_Meta0,_Meta1) ->
     false.
 
-
-%% @doc Execute getting status.
-%% @private
--spec(do_stats(atom(), #backend_info{}) ->
-             {ok, #storage_stats{}} | {error, any()}).
-do_stats(MetaDBId, #backend_info{file_path     = RootPath,
-                                 read_handler  = ReadHandler}) ->
-    case leo_object_storage_haystack:compact_get(ReadHandler) of
-        {ok, Metadata, [_HeaderValue, _KeyValue, _BodyValue, NextOffset]} ->
-            case do_stats(MetaDBId, ReadHandler, Metadata, NextOffset, #storage_stats{}) of
-                {ok, Stats} ->
-                    {ok, Stats#storage_stats{file_path   = RootPath,
-                                             total_sizes = filelib:file_size(RootPath)}};
-                Error ->
-                    Error
-            end;
-        {error, eof} ->
-            {ok, #storage_stats{file_path   = RootPath,
-                                total_sizes = filelib:file_size(RootPath)}};
-        Error ->
-            Error
-    end.
-
--spec(do_stats(atom(), pid(), #metadata{}, integer(), #storage_stats{}) ->
-             {ok, any()} | {error, any()}).
-do_stats(MetaDBId, ReadHandler, Metadata, NextOffset, #storage_stats{total_num  = ObjTotal,
-                                                                     active_num = ObjActive} = StorageStats) ->
-    NewStorageStats =
-        case is_deleted_rec(MetaDBId, Metadata) of
-            true  -> StorageStats#storage_stats{total_num  = ObjTotal  + 1};
-            false -> StorageStats#storage_stats{total_num  = ObjTotal  + 1,
-                                                active_num = ObjActive + 1}
-        end,
-    case leo_object_storage_haystack:compact_get(ReadHandler, NextOffset) of
-        {ok, NewMetadata, [_HeaderValue, _NewKeyValue, _NewBodyValue, NewNextOffset]} ->
-            do_stats(MetaDBId, ReadHandler, NewMetadata, NewNextOffset, NewStorageStats);
-        {error, eof} ->
-            {ok, NewStorageStats};
-        Error ->
-            Error
-    end.
-
-
 %% @doc Reduce unnecessary objects from object-container.
 %% @private
 -spec(do_compact(#metadata{}, #compact_params{}, #state{}) ->
@@ -593,6 +535,7 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
                                            object_storage = StorageInfo} = State) ->
     FunHasChargeOfNode = CompactParams#compact_params.fun_has_charge_of_node,
     HasChargeOfNode    = FunHasChargeOfNode(CompactParams#compact_params.key_bin),
+    NumActive          = CompactParams#compact_params.num_of_active_object,
 
     case (is_deleted_rec(MetaDBId, Metadata) orelse HasChargeOfNode == false) of
         true ->
@@ -612,7 +555,7 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
                             term_to_binary({Metadata#metadata.addr_id,
                                             Metadata#metadata.key}),
                             term_to_binary(NewMeta)),
-                    do_compact1(Ret, NewMeta, CompactParams, State);
+                    do_compact1(Ret, NewMeta, CompactParams#compact_params{num_of_active_object = NumActive + 1}, State);
                 Error ->
                     do_compact1(Error, Metadata, CompactParams, State)
             end
@@ -631,7 +574,7 @@ do_compact1(ok,_Metadata, CompactParams, #state{object_storage = StorageInfo} = 
                                                                  next_offset = NewNextOffset},
                        State);
         {error, eof} ->
-            ok;
+            {ok, CompactParams#compact_params.num_of_active_object};
         Error ->
             Error
     end;
