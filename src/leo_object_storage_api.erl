@@ -34,14 +34,15 @@
          put/2, get/1, get/3, delete/2, head/1,
          fetch_by_addr_id/2, fetch_by_key/2,
          store/2,
-         compact/1, stats/0
+         compact/2, stats/0
         ]).
 
 
--define(ETS_CONTAINERS_TABLE, 'leo_object_storage_containers').
--define(ETS_INFO_TABLE,       'leo_object_storage_info').
--define(SERVER_MODULE,        'leo_object_storage_server').
--define(DEVICE_ID_INTERVALS,  10000).
+-define(ETS_CONTAINERS_TABLE,        'leo_object_storage_containers').
+-define(ETS_INFO_TABLE,              'leo_object_storage_info').
+-define(ETS_COMPACTION_STATUS_TABLE, 'leo_object_storage_compaction_status').
+-define(SERVER_MODULE,               'leo_object_storage_server').
+-define(DEVICE_ID_INTERVALS,         10000).
 
 -define(STATE_COMPACTING,  'compacting'). %% running
 -define(STATE_ACTIVE,      'active').     %% idle
@@ -206,20 +207,56 @@ store(Metadata, Bin) ->
 
 
 %% @doc Compact object-storage and metadata
--spec(compact(function()) ->
+-spec(compact(function(), integer()) ->
              ok | list()).
-compact(FunHasChargeOfNode) ->
+compact(FunHasChargeOfNode, MaxProc) ->
     case get_object_storage_pid(all) of
         undefined ->
             void;
         List ->
-            lists:foldl(
-              fun(Id, Acc) ->
-                      ok = application:set_env(?APP_NAME, Id, ?STATE_COMPACTING), %% > compacting
-                      NewAcc = [?SERVER_MODULE:compact(Id, FunHasChargeOfNode)|Acc],
-                      ok = application:set_env(?APP_NAME, Id, ?STATE_ACTIVE),     %% > active
-                      NewAcc
-              end, [], List)
+            loop_parent(List, MaxProc, FunHasChargeOfNode, length(List), [])
+    end.
+
+%% @doc Loop of parallel execution controller(parent)
+-spec(loop_parent(list(), integer(), function(), integer(), list()) -> list()).
+loop_parent([Id|Rest], MaxProc, FunHasChargeOfNode, RestJobNum, Childs)
+  when MaxProc > 0 ->
+    From = self(),
+    Pid = spawn(fun() -> loop_child(From, FunHasChargeOfNode) end),
+    erlang:send(Pid, {compact, Id}),
+    loop_parent(Rest, MaxProc - 1, FunHasChargeOfNode, RestJobNum, [Pid|Childs]);
+loop_parent([Id|Rest], 0, FunHasChargeOfNode, RestJobNum, Childs) ->
+    receive
+        {done, Pid} ->
+            erlang:send(Pid, {compact, Id}),
+            loop_parent(Rest, 0, FunHasChargeOfNode, RestJobNum - 1, Childs);
+        _ ->
+            loop_parent([Id|Rest], 0, FunHasChargeOfNode, RestJobNum, Childs)
+    end;
+loop_parent([], 0, FunHasChargeOfNode, RestJobNum, Childs)
+  when RestJobNum > 0 ->
+    receive
+        {done, _Pid} ->
+            loop_parent([], 0, FunHasChargeOfNode, RestJobNum - 1, Childs);
+        _ ->
+            loop_parent([], 0, FunHasChargeOfNode, RestJobNum, Childs)
+    end;
+loop_parent([], 0, _FunHasChargeOfNode, 0, Childs) ->
+    [erlang:send(Pid, stop) || Pid <- Childs].
+
+%% @doc Loop of job executor(child)
+loop_child(From, FunHasChargeOfNode) ->
+    receive
+        {compact, Id} ->
+            true = ets:insert(?ETS_COMPACTION_STATUS_TABLE, {Id, ?STATE_COMPACTING}),
+            ?SERVER_MODULE:compact(Id, FunHasChargeOfNode),
+            true = ets:insert(?ETS_COMPACTION_STATUS_TABLE, {Id, ?STATE_ACTIVE}),
+            erlang:send(From, {done, self()}),
+            loop_child(From, FunHasChargeOfNode);
+        stop ->
+            ok;
+        _ ->
+            {error, unknown_message}
     end.
 
 %% @doc Retrieve the storage stats
@@ -264,6 +301,7 @@ add_container(Id0, Props) ->
         {ok, _Pid} ->
             true = ets:insert(?ETS_CONTAINERS_TABLE, {Id0, [{obj_storage, Id1},
                                                             {metadata,    Id2}]}),
+            true = ets:insert(?ETS_COMPACTION_STATUS_TABLE, {Id1, ?STATE_ACTIVE}),
             ok;
         Error ->
             io:format("[ERROR] add_container/2, ~w, ~p~n", [?LINE, Error]),
@@ -285,6 +323,8 @@ start_app() ->
             catch ets:new(?ETS_CONTAINERS_TABLE,
                           [named_table, ordered_set, public, {read_concurrency, true}]),
             catch ets:new(?ETS_INFO_TABLE,
+                          [named_table, set, public, {read_concurrency, true}]),
+            catch ets:new(?ETS_COMPACTION_STATUS_TABLE,
                           [named_table, set, public, {read_concurrency, true}]),
             ok;
         {error, {already_started, Module}} ->
@@ -357,11 +397,11 @@ get_object_storage_pid(List, Arg) ->
 %% @private
 -spec(get_pid_status(pid()) -> storage_status()).
 get_pid_status(Pid) ->
-    case application:get_env(?APP_NAME, Pid) of
-        undefined ->
-            ?STATE_ACTIVE;
-        {ok, Status} ->
-            Status
+    case ets:lookup(?ETS_COMPACTION_STATUS_TABLE, Pid) of
+        [{_,Status}|_] ->
+            Status;
+        _ ->
+            ?STATE_ACTIVE
     end.
 
 
