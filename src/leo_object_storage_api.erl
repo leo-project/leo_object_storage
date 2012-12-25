@@ -220,7 +220,7 @@ compact(FunHasChargeOfNode, MaxProc) ->
 %% @doc Loop of parallel execution controller(parent)
 -spec(loop_parent(list(), integer(), function(), integer(), list()) -> list()).
 loop_parent([Id|Rest], MaxProc, FunHasChargeOfNode, RestJobNum, Childs)
-    when MaxProc > 0 ->
+  when MaxProc > 0 ->
     From = self(),
     Pid = spawn(fun() -> loop_child(From, FunHasChargeOfNode) end),
     erlang:send(Pid, {compact, Id}),
@@ -234,7 +234,7 @@ loop_parent([Id|Rest], 0, FunHasChargeOfNode, RestJobNum, Childs) ->
             loop_parent([Id|Rest], 0, FunHasChargeOfNode, RestJobNum, Childs)
     end;
 loop_parent([], 0, FunHasChargeOfNode, RestJobNum, Childs)
-    when RestJobNum > 0 ->
+  when RestJobNum > 0 ->
     receive
         {done, _Pid} ->
             loop_parent([], 0, FunHasChargeOfNode, RestJobNum - 1, Childs);
@@ -242,7 +242,7 @@ loop_parent([], 0, FunHasChargeOfNode, RestJobNum, Childs)
             loop_parent([], 0, FunHasChargeOfNode, RestJobNum, Childs)
     end;
 loop_parent([], 0, _FunHasChargeOfNode, 0, Childs) ->
-    [erlang:send(Pid, stop) || Pid <- Childs]. 
+    [erlang:send(Pid, stop) || Pid <- Childs].
 
 %% @doc Loop of job executor(child)
 loop_child(From, FunHasChargeOfNode) ->
@@ -397,7 +397,6 @@ get_object_storage_pid(List, Arg) ->
 %% @private
 -spec(get_pid_status(pid()) -> storage_status()).
 get_pid_status(Pid) ->
-%    case application:get_env(?APP_NAME, Pid) of
     case ets:lookup(?ETS_COMPACTION_STATUS_TABLE, Pid) of
         [{_,Status}|_] ->
             Status;

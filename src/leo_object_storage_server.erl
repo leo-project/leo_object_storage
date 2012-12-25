@@ -389,9 +389,9 @@ compact_fun(#state{meta_db_id       = MetaDBId,
                           case leo_object_storage_haystack:open(TmpPath) of
                               {ok, [TmpWriteHandler, TmpReadHandler]} ->
                                   {ok, State#state{object_storage = StorageInfo#backend_info{
-                                                                              tmp_file_path_raw = TmpPath,
-                                                                              tmp_write_handler = TmpWriteHandler,
-                                                                              tmp_read_handler  = TmpReadHandler}}};
+                                                                      tmp_file_path_raw = TmpPath,
+                                                                      tmp_write_handler = TmpWriteHandler,
+                                                                      tmp_read_handler  = TmpReadHandler}}};
                               Error ->
                                   {Error, State}
                           end;
@@ -441,7 +441,7 @@ compact_fun1({Error,_State}, _) ->
 %% @doc Reduce objects from the object-container.
 %% @private
 compact_fun2({{ok, NumActive}, #state{meta_db_id     = MetaDBId,
-                         object_storage = StorageInfo} = State}) ->
+                                      object_storage = StorageInfo} = State}) ->
     RootPath       = StorageInfo#backend_info.file_path,
     TmpFilePathRaw = StorageInfo#backend_info.tmp_file_path_raw,
 
