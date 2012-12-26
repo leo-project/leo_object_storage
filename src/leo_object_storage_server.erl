@@ -473,10 +473,19 @@ compact_fun2({_Error, #state{meta_db_id     = MetaDBId,
                              object_storage = StorageInfo} = State}) ->
     %% rollback (delete tmp files)
     %%
+    RootPath = StorageInfo#backend_info.file_path,
+    NewState = case leo_object_storage_haystack:open(RootPath) of
+        {ok, [NewWriteHandler, NewReadHandler]} ->
+            BackendInfo = State#state.object_storage,
+            State#state{object_storage = BackendInfo#backend_info{
+                         read_handler  = NewReadHandler,
+                         write_handler = NewWriteHandler}};
+        _Error ->
+            State
+    end,
     catch file:delete(StorageInfo#backend_info.tmp_file_path_raw),
     leo_backend_db_api:compact_end(MetaDBId, false),
-    {ok, State}.
-
+    {ok, NewState}.
 
 %% @doc Calculate remain disk-sizes.
 %% @private
