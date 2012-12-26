@@ -467,10 +467,16 @@ put_fun2(MetaDBId, StorageInfo, Needle, #metadata{key      = Key,
                                            [{module, ?MODULE_STRING}, {function, "put_fun2/2"},
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause};
-                Error ->
-                    Error
+                {error, Cause} ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING}, {function, "put_fun2/2"},
+                                            {line, ?LINE}, {body, Cause}]),
+                    {error, Cause}
             end;
         {error, Cause} ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING}, {function, "put_fun2/2"},
+                                    {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
 
@@ -553,6 +559,9 @@ compact_get(ReadHandler, Offset) ->
         eof = Cause ->
             {error, Cause};
         {error, Cause} ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING}, {function, "compact_get/2"},
+                                    {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
 
