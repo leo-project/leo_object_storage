@@ -301,8 +301,8 @@ compact_([Path1, Path2]) ->
     FunHasChargeOfNode = fun(_Key_) ->
                                  true
                          end,
-    Res1 = leo_object_storage_api:compact(FunHasChargeOfNode),
-    ?assertEqual([ok,ok,ok,ok,ok,ok,ok,ok], Res1),
+    Res1 = leo_object_storage_api:compact(FunHasChargeOfNode, 1),
+    ?debugVal(Res1),
 
     timer:sleep(250),
 
