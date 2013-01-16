@@ -38,14 +38,14 @@
         ]).
 
 
--define(ETS_CONTAINERS_TABLE,        'leo_object_storage_containers').
--define(ETS_INFO_TABLE,              'leo_object_storage_info').
--define(ETS_COMPACTION_STATUS_TABLE, 'leo_object_storage_compaction_status').
--define(SERVER_MODULE,               'leo_object_storage_server').
--define(DEVICE_ID_INTERVALS,         10000).
+-define(SERVER_MODULE,         'leo_object_storage_server').
+-define(ETS_CONTAINERS_TABLE,  'leo_object_storage_containers').
+-define(ETS_INFO_TABLE,        'leo_object_storage_info').
+-define(ENV_COMPACTION_STATUS, 'compaction_status').
+-define(DEVICE_ID_INTERVALS,   10000).
 
--define(STATE_COMPACTING,  'compacting'). %% running
--define(STATE_ACTIVE,      'active').     %% idle
+-define(STATE_COMPACTING,  'compacting').
+-define(STATE_ACTIVE,      'active').
 -type(storage_status() :: ?STATE_COMPACTING | ?STATE_ACTIVE).
 
 %%--------------------------------------------------------------------
@@ -53,7 +53,6 @@
 %%--------------------------------------------------------------------
 %% @doc Create object-storage processes
 %%
-
 -spec(start(list()) ->
              ok | {error, any()}).
 start([]) ->
@@ -64,16 +63,16 @@ start(ObjectStorageInfo) ->
     start(Res, ObjectStorageInfo).
 
 start(ok, ObjectStorageInfo) ->
-    Metadata1 = get_metadata_db(),
+    MetadataDB = ?env_metadata_db(),
 
     _ = lists:foldl(
           fun({Containers, Path0}, I) ->
                   Path1 = get_path(Path0),
                   Props = [{num_of_containers, Containers},
                            {path,              Path1},
-                           {metadata_db,       Metadata1}],
+                           {metadata_db,       MetadataDB}],
 
-                  true  = ets:insert(?ETS_INFO_TABLE, {list_to_atom(?MODULE_STRING ++ integer_to_list(I)), Props}),
+                  true = ets:insert(?ETS_INFO_TABLE, {list_to_atom(?MODULE_STRING ++ integer_to_list(I)), Props}),
                   ok = lists:foreach(fun(N) ->
                                              Id = (I * ?DEVICE_ID_INTERVALS) + N,
                                              ok = add_container(Id, Props)
@@ -82,7 +81,6 @@ start(ok, ObjectStorageInfo) ->
           end, 0, ObjectStorageInfo),
 
     %% Launch a supervisor.
-    %%
     case whereis(leo_object_storage_sup) of
         undefined ->
             error_logger:error_msg("~p,~p,~p,~p~n",
@@ -109,8 +107,6 @@ start(ok, ObjectStorageInfo) ->
 
 start({error, Cause},_ObjectStorageInfo) ->
     {error, Cause}.
-
-
 
 
 %% @doc Insert an object into the object-storage
@@ -217,49 +213,9 @@ compact(FunHasChargeOfNode, MaxProc) ->
             loop_parent(List, MaxProc, FunHasChargeOfNode, length(List), [])
     end.
 
-%% @doc Loop of parallel execution controller(parent)
--spec(loop_parent(list(), integer(), function(), integer(), list()) -> list()).
-loop_parent([Id|Rest], MaxProc, FunHasChargeOfNode, RestJobNum, Childs)
-  when MaxProc > 0 ->
-    From = self(),
-    Pid = spawn(fun() -> loop_child(From, FunHasChargeOfNode) end),
-    erlang:send(Pid, {compact, Id}),
-    loop_parent(Rest, MaxProc - 1, FunHasChargeOfNode, RestJobNum, [Pid|Childs]);
-loop_parent([Id|Rest], 0, FunHasChargeOfNode, RestJobNum, Childs) ->
-    receive
-        {done, Pid} ->
-            erlang:send(Pid, {compact, Id}),
-            loop_parent(Rest, 0, FunHasChargeOfNode, RestJobNum - 1, Childs);
-        _ ->
-            loop_parent([Id|Rest], 0, FunHasChargeOfNode, RestJobNum, Childs)
-    end;
-loop_parent([], 0, FunHasChargeOfNode, RestJobNum, Childs)
-  when RestJobNum > 0 ->
-    receive
-        {done, _Pid} ->
-            loop_parent([], 0, FunHasChargeOfNode, RestJobNum - 1, Childs);
-        _ ->
-            loop_parent([], 0, FunHasChargeOfNode, RestJobNum, Childs)
-    end;
-loop_parent([], 0, _FunHasChargeOfNode, 0, Childs) ->
-    [erlang:send(Pid, stop) || Pid <- Childs].
-
-%% @doc Loop of job executor(child)
-loop_child(From, FunHasChargeOfNode) ->
-    receive
-        {compact, Id} ->
-            true = ets:insert(?ETS_COMPACTION_STATUS_TABLE, {Id, ?STATE_COMPACTING}),
-            ?SERVER_MODULE:compact(Id, FunHasChargeOfNode),
-            true = ets:insert(?ETS_COMPACTION_STATUS_TABLE, {Id, ?STATE_ACTIVE}),
-            erlang:send(From, {done, self()}),
-            loop_child(From, FunHasChargeOfNode);
-        stop ->
-            ok;
-        _ ->
-            {error, unknown_message}
-    end.
 
 %% @doc Retrieve the storage stats
+%%
 -spec(stats() ->
              {ok, list()} | not_found).
 stats() ->
@@ -301,7 +257,8 @@ add_container(Id0, Props) ->
         {ok, _Pid} ->
             true = ets:insert(?ETS_CONTAINERS_TABLE, {Id0, [{obj_storage, Id1},
                                                             {metadata,    Id2}]}),
-            true = ets:insert(?ETS_COMPACTION_STATUS_TABLE, {Id1, ?STATE_ACTIVE}),
+
+            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id1}, ?STATE_ACTIVE),
             ok;
         Error ->
             io:format("[ERROR] add_container/2, ~w, ~p~n", [?LINE, Error]),
@@ -318,13 +275,13 @@ add_container(Id0, Props) ->
              ok | {error, any()}).
 start_app() ->
     Module = leo_object_storage,
+
     case application:start(Module) of
         ok ->
+            ok = leo_misc:init_env(),
             catch ets:new(?ETS_CONTAINERS_TABLE,
                           [named_table, ordered_set, public, {read_concurrency, true}]),
             catch ets:new(?ETS_INFO_TABLE,
-                          [named_table, set, public, {read_concurrency, true}]),
-            catch ets:new(?ETS_COMPACTION_STATUS_TABLE,
                           [named_table, set, public, {read_concurrency, true}]),
             ok;
         {error, {already_started, Module}} ->
@@ -358,17 +315,6 @@ get_path(Path0) ->
     Path2.
 
 
-%% %% @doc Retrieve a metadata-db
-%% %% @private
--spec(get_metadata_db() ->
-             atom()).
-get_metadata_db() ->
-    case application:get_env(?APP_NAME, metadata_storage) of
-        {ok, Metadata0} -> Metadata0;
-        _ ->               ?DEF_METADATA_DB
-    end.
-
-
 %% @doc Retrieve an object storage process-id
 %% @private
 -spec(get_object_storage_pid(all | integer()) ->
@@ -395,10 +341,10 @@ get_object_storage_pid(List, Arg) ->
 
 %% @doc Retrieve the status of object of pid
 %% @private
--spec(get_pid_status(pid()) -> storage_status()).
-get_pid_status(Pid) ->
-    case ets:lookup(?ETS_COMPACTION_STATUS_TABLE, Pid) of
-        [{_,Status}|_] ->
+-spec(get_status_by_id(pid()) -> storage_status()).
+get_status_by_id(Pid) ->
+    case leo_misc:get_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Pid}) of
+        {ok, Status} ->
             Status;
         _ ->
             ?STATE_ACTIVE
@@ -417,7 +363,7 @@ do_request(put, [Key, Object]) ->
     KeyBin = term_to_binary(Key),
     Id = get_object_storage_pid(KeyBin),
 
-    case get_pid_status(Id) of
+    case get_status_by_id(Id) of
         ?STATE_ACTIVE ->
             ?SERVER_MODULE:put(get_object_storage_pid(KeyBin), Object);
         ?STATE_COMPACTING ->
@@ -427,7 +373,7 @@ do_request(delete, [Key, Object]) ->
     KeyBin = term_to_binary(Key),
     Id = get_object_storage_pid(KeyBin),
 
-    case get_pid_status(Id) of
+    case get_status_by_id(Id) of
         ?STATE_ACTIVE ->
             ?SERVER_MODULE:delete(get_object_storage_pid(KeyBin), Object);
         ?STATE_COMPACTING ->
@@ -450,4 +396,58 @@ gen_id(metadata, Id) ->
     list_to_atom(lists:append(["leo_metadata",
                                "_",
                                integer_to_list(Id)])).
+
+
+%% @doc Loop of parallel execution controller(parent)
+%% @private
+-spec(loop_parent(list(), integer(), function(), integer(), list()) ->
+             list()).
+loop_parent([Id|Rest], MaxProc, FunHasChargeOfNode, RestJobNum, Childs) when MaxProc > 0 ->
+    From = self(),
+    Pid  = spawn(fun() ->
+                         loop_child(From, FunHasChargeOfNode)
+                 end),
+    erlang:send(Pid, {compact, Id}),
+    loop_parent(Rest, MaxProc - 1, FunHasChargeOfNode, RestJobNum, [Pid|Childs]);
+
+loop_parent([Id|Rest], 0, FunHasChargeOfNode, RestJobNum, Childs) ->
+    receive
+        {done, Pid} ->
+            erlang:send(Pid, {compact, Id}),
+            loop_parent(Rest, 0, FunHasChargeOfNode, RestJobNum - 1, Childs);
+        _ ->
+            loop_parent([Id|Rest], 0, FunHasChargeOfNode, RestJobNum, Childs)
+    end;
+
+loop_parent([], 0, FunHasChargeOfNode, RestJobNum, Childs)
+  when RestJobNum > 0 ->
+    receive
+        {done, _Pid} ->
+            loop_parent([], 0, FunHasChargeOfNode, RestJobNum - 1, Childs);
+        _ ->
+            loop_parent([], 0, FunHasChargeOfNode, RestJobNum, Childs)
+    end;
+
+loop_parent([], 0, _FunHasChargeOfNode, 0, Childs) ->
+    [erlang:send(Pid, stop) || Pid <- Childs].
+
+
+%% @doc Loop of job executor(child)
+%% @private
+-spec(loop_child(pid(), atom()) ->
+             ok | {error, any()}).
+loop_child(From, FunHasChargeOfNode) ->
+    receive
+        {compact, Id} ->
+            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id}, ?STATE_COMPACTING),
+            ?SERVER_MODULE:compact(Id, FunHasChargeOfNode),
+            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id}, ?STATE_ACTIVE),
+
+            erlang:send(From, {done, self()}),
+            loop_child(From, FunHasChargeOfNode);
+        stop ->
+            ok;
+        _ ->
+            {error, unknown_message}
+    end.
 

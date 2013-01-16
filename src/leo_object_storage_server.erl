@@ -487,6 +487,7 @@ compact_fun2({_Error, #state{meta_db_id     = MetaDBId,
     leo_backend_db_api:compact_end(MetaDBId, false),
     {ok, NewState}.
 
+
 %% @doc Calculate remain disk-sizes.
 %% @private
 -spec(calc_remain_disksize(atom(), string()) ->

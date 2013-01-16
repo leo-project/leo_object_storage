@@ -95,8 +95,7 @@ operate_([Path1, Path2]) ->
                      checksum  = leo_hex:binary_to_integer(erlang:md5(Bin)),
                      timestamp = leo_date:now(),
                      clock     = leo_date:clock()},
-    {ok, ETag} = leo_object_storage_api:put({AddrId, Key}, Object),
-    ?debugVal(ETag),
+    {ok,_ETag} = leo_object_storage_api:put({AddrId, Key}, Object),
 
     %% 2. Get
     {ok, Meta1, Obj0} = leo_object_storage_api:get({AddrId, Key}),
@@ -297,13 +296,10 @@ compact_([Path1, Path2]) ->
     ?assertEqual(10, Sum0),
     timer:sleep(250),
 
-
     FunHasChargeOfNode = fun(_Key_) ->
                                  true
                          end,
-    Res1 = leo_object_storage_api:compact(FunHasChargeOfNode, 1),
-    ?debugVal(Res1),
-
+    [stop] = leo_object_storage_api:compact(FunHasChargeOfNode, 1),
     timer:sleep(250),
 
     {ok, Res2} = leo_object_storage_api:stats(),
@@ -342,7 +338,6 @@ compact_([Path1, Path2]) ->
     ?assertEqual(6,            Obj1#object.dsize),
     ?assertEqual(<<"JSB3-1">>, Obj1#object.data),
     ?assertEqual(0,            Obj1#object.del),
-
 
     ok = leo_object_storage_sup:stop(),
     application:stop(leo_backend_db),

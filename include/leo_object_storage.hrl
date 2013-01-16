@@ -107,3 +107,10 @@
           active_num   = 0    :: integer()
          }).
 
+
+-define(env_metadata_db(),
+        case application:get_env(?APP_NAME, metadata_storage) of
+            {ok, EnvMetadataDB} -> EnvMetadataDB;
+            _ -> ?DEF_METADATA_DB
+        end).
+
