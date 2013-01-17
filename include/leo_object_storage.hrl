@@ -44,6 +44,8 @@
 
 -type(del_flag() :: ?DEL_TRUE | ?DEL_FALSE).
 -type(type_of_method() :: get | put | delete | head).
+-type(compaction_history() :: {calendar:datetime(), calendar:datetime()}).
+-type(compaction_histories() :: list(compaction_history())).
 
 
 -record(backend_info, {
@@ -100,11 +102,13 @@
          }).
 
 -record(storage_stats, {
-          file_path           :: string(),
-          total_sizes  = 0    :: integer(),
-          active_sizes = 0    :: integer(),
-          total_num    = 0    :: integer(),
-          active_num   = 0    :: integer()
+          file_path            = ""    :: string(),
+          total_sizes          = 0     :: integer(),
+          active_sizes         = 0     :: integer(),
+          total_num            = 0     :: integer(),
+          active_num           = 0     :: integer(),
+          compaction_histories = []    :: compaction_histories(),
+          has_error            = false :: boolean()
          }).
 
 
