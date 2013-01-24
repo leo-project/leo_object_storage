@@ -468,8 +468,6 @@ put_fun2(MetaDBId, StorageInfo, Needle, #metadata{key      = Key,
                                                   checksum = Checksum} = Meta) ->
     #backend_info{write_handler = WriteHandler} = StorageInfo,
 
-    io:format(user, "meta:~p key:~p addr:~p~n", [MetaDBId, Key, AddrId]),
-
     case file:pwrite(WriteHandler, Offset, Needle) of
         ok ->
             case catch leo_backend_db_api:put(MetaDBId,

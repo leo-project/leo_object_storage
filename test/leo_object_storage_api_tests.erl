@@ -48,11 +48,13 @@ all_test_() ->
 setup() ->
     Path1 = "./avs1",
     Path2 = "./avs2",
+io:format(user, "setup~n", []),
     [Path1, Path2].
 
 teardown([Path1, Path2]) ->
     os:cmd("rm -rf " ++ Path1),
     os:cmd("rm -rf " ++ Path2),
+io:format(user, "teardown~n", []),
     ok.
 
 
@@ -245,9 +247,27 @@ stats_([Path1, Path2]) ->
     ok = put_test_data(1023, <<"air/on/g/string/5">>, <<"JSB5">>),
     ok = put_test_data(2047, <<"air/on/g/string/6">>, <<"JSB6">>),
     ok = put_test_data(4095, <<"air/on/g/string/7">>, <<"JSB7">>),
+    ok = put_test_data(4095, <<"air/on/g/string/7">>, <<"JSB8">>),
 
     {ok, Res} = leo_object_storage_api:stats(),
     ?assertEqual(8, length(Res)),
+
+    ok = leo_object_storage_sup:stop(),
+    application:stop(leo_backend_db),
+    application:stop(bitcask),
+    application:stop(leo_object_storage),
+
+    %% relaunch and validate stored datas
+    ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
+    {ok, Res1} = leo_object_storage_api:stats(),
+    ?assertEqual(8, length(Res)),
+    {SumTotal0, SumActive0} = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
+                                               total_num  = Total,
+                                               active_num = Active}}, {SumTotal, SumActive}) ->
+                               {SumTotal + Total, SumActive + Active}
+                       end, {0, 0}, Res1),
+    ?assertEqual(9, SumTotal0),
+    ?assertEqual(8, SumActive0),
 
     application:stop(leo_backend_db),
     application:stop(bitcask),
@@ -297,13 +317,20 @@ compact_([Path1, Path2]) ->
 
     %% inspect for compaction
     {ok, Res1} = leo_object_storage_api:stats(),
-    {SumTotal1, SumActive1} = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
-                                               total_num  = Total,
-                                               active_num = Active}}, {SumTotal, SumActive}) ->
-                               {SumTotal + Total, SumActive + Active}
-                       end, {0, 0}, Res1),
+    {SumTotal1, SumActive1, SumTotalSize1, SumActiveSize1}
+        = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
+                                              total_sizes = TotalSize,
+                                              active_sizes = ActiveSize,
+                                              total_num  = Total,
+                                              active_num = Active}}, {SumTotal, SumActive, SumTotalSize, SumActiveSize}) ->
+                               {SumTotal + Total, 
+                                SumActive + Active,
+                                SumTotalSize + TotalSize,
+                                SumActiveSize + ActiveSize}
+                       end, {0, 0, 0, 0}, Res1),
     ?assertEqual(12, SumTotal1),
     ?assertEqual(7, SumActive1),
+    ?assertEqual(true, SumTotalSize1 > SumActiveSize1),
     timer:sleep(250),
 
     FunHasChargeOfNode = fun(_Key_) ->
@@ -313,12 +340,22 @@ compact_([Path1, Path2]) ->
     timer:sleep(250),
 
     {ok, Res2} = leo_object_storage_api:stats(),
-    Sum1 = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
-                                               total_num  = Total,
-                                               active_num = _Active}}, Sum) ->
-                               Sum + Total
-                       end, 0, Res2),
-    ?assertEqual(7, Sum1),
+    {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2}
+        = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
+                                              compaction_histories = [{Start, End}|_Rest],
+                                              total_sizes = TotalSize,
+                                              active_sizes = ActiveSize,
+                                              total_num  = Total,
+                                              active_num = Active}}, {SumTotal, SumActive, SumTotalSize, SumActiveSize}) ->
+                               ?assertEqual(true, Start =< End),
+                               {SumTotal + Total, 
+                                SumActive + Active,
+                                SumTotalSize + TotalSize,
+                                SumActiveSize + ActiveSize}
+                       end, {0, 0, 0, 0}, Res2),
+    ?assertEqual(7, SumTotal2),
+    ?assertEqual(7, SumActive2),
+    ?assertEqual(true, SumTotalSize2 =:= SumActiveSize2),
 
     %% inspect for after compaction
     TestAddrId0 = 0,

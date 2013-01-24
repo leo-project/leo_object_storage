@@ -185,7 +185,7 @@ init([Id, SeqNo, MetaDBId, RootPath]) ->
                     compaction_histories = leo_misc:get_value('compaction_histories', Props, []),
                     has_error = leo_misc:get_value('has_error', Props, false)
                 };
-            _ -> #storage_stats{}
+            _ -> #storage_stats{file_path = ObjectStoragePath}
         end,
 
     %% open object-storage.
@@ -228,7 +228,6 @@ handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
         _ ->
             {1, 0}
     end,
-    io:format(user, "key:~p diff_rec:~p, old_size:~p~n", [Object#object.key, DiffRec, Oldsize]),
     NewSize = leo_object_storage_haystack:calc_obj_size(Object),
     Reply = leo_object_storage_haystack:put(MetaDBId, StorageInfo, Object),
 
