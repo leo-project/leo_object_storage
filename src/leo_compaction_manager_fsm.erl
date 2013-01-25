@@ -19,7 +19,7 @@
 %% under the License.
 %%
 %% ---------------------------------------------------------------------
-%% Leo Object Storage - Server
+%% Leo Compaction Manager - FSM
 %% @doc
 %% @end
 %%======================================================================
@@ -35,11 +35,14 @@
 
 %% API
 -export([start_link/0]).
--export([start/1, suspend/0, resume/0, status/0, done_child/1]).
+-export([start/3, suspend/0, resume/0, status/0]).
 
 -export([init/1,
+         state_idle/2,
          state_idle/3,
+         state_running/2,
          state_running/3,
+         state_suspend/2,
          state_suspend/3,
          handle_event/3,
          handle_sync_event/4,
@@ -51,10 +54,13 @@
 -record(state, {
           %% get from leo_object_storage_api // storage_pids       :: list(),
           max_num_of_concurrent = 1  :: integer(),
-          num_of_concurrent     = 0  :: integer(),
-          rest_pids             = [] :: list(),
+          filter_fun                 :: fun(),
+          target_pids           = [] :: list(),
+          in_progress_pids      = [] :: list(),
+          child_pids            = [] :: any(), %%orddict(), {Chid :: pid(), hasJob :: boolean()}
           start_datetime        = 0  :: integer() %% greg sec
          }).
+
 -define(DEF_TIMEOUT, 5).
 
 %%====================================================================
@@ -73,24 +79,22 @@ start_link() ->
 %%--------------------------------------------------------------------
 %% @doc start compaction
 %%
--spec(start(binary()) ->
+-spec(start(list(), integer(), fun()) ->
              ok | {error, any()}).
-start(ParamBin) ->
-    case parse_param(ParamBin) of
-        {ok, {PidList, NumConcurrent}} ->
-            gen_fsm:sync_send_event({local, ?MODULE}, {start, PidList, NumConcurrent}, ?DEF_TIMEOUT);
-        Error ->
-            Error
-    end.
+start(TargetPids, MaxConNum, FilterFun) ->
+    gen_fsm:sync_send_event({local, ?MODULE}, {start, TargetPids, MaxConNum, FilterFun}, ?DEF_TIMEOUT).
 
 suspend() ->
-    void.
+    gen_fsm:sync_send_event({local, ?MODULE}, suspend, ?DEF_TIMEOUT).
+
 resume() ->
-    void.
+    gen_fsm:sync_send_event({local, ?MODULE}, resume, ?DEF_TIMEOUT).
+
 status() ->
-    void.
-done_child(_Pid) ->
-    void.
+    gen_fsm:sync_send_event({local, ?MODULE}, status, ?DEF_TIMEOUT).
+
+done_child(Pid, Id) ->
+    gen_fsm:send_event({local, ?MODULE}, {done_child, Pid, Id}).
 
 %%====================================================================
 %% GEN_SERVER CALLBACKS
@@ -99,12 +103,141 @@ done_child(_Pid) ->
 init([]) ->
     {ok, state_idle, #state{}}.
 
-state_idle(_Event, _From, State) ->
+state_idle({start, TargetPids, MaxConNum, FilterFun}, From, State) ->
+    NewState = start_jobs_as_possible(
+        State#state{target_pids           = TargetPids, 
+                    max_num_of_concurrent = MaxConNum,
+                    filter_fun            = FilterFun,
+                    start_datetime        = leo_date:now()}),
+    gen_fsm:reply(From, ok),
+    {next_state, state_running, NewState};
+state_idle(suspend, From, State) ->
+    gen_fsm:reply(From, {error, badstate}),
+    {next_state, state_idle, State};
+state_idle(resume, From, State) ->
+    gen_fsm:reply(From, {error, badstate}),
+    {next_state, state_idle, State};
+state_idle(status, From, 
+        #state{target_pids      = RestPids, 
+               in_progress_pids = InProgPids,
+               start_datetime   = LastStart} = State) ->
+    gen_fsm:reply(From, {ok, {RestPids, InProgPids, LastStart}}),
+    {next_state, state_idle, State}.
+state_idle({done_child, _DonePid, _Id}, State) ->
+    % never happen
+    {stop, "receive invalid done_child", State}.
+
+state_running({start, _, _, _}, From, State) ->
+    gen_fsm:reply(From, {error, badstate}),
+    {next_state, state_running, State};
+state_running(suspend, From, State) ->
+    gen_fsm:reply(From, ok),
+    {next_state, state_suspend, State};
+state_running(resume, From, State) ->
+    gen_fsm:reply(From, {error, badstate}),
+    {next_state, state_running, State};
+state_running(status, From, 
+        #state{target_pids      = RestPids,
+               in_progress_pids = InProgPids,
+               start_datetime   = LastStart} = State) ->
+    gen_fsm:reply(From, {ok, {RestPids, InProgPids, LastStart}}),
     {next_state, state_running, State}.
-state_running(_Event, _From, State) ->
-    {next_state, state_running, State}.
-state_suspend(_Event, _From, State) ->
-    {next_state, state_running, State}.
+
+state_running({done_child, DonePid, DoneId}, 
+        #state{target_pids      = [Id|Rest],
+               in_progress_pids = InProgPids} = State) ->
+    erlang:send(DonePid, {compact, Id}),
+    {next_state, state_running, 
+        State#state{target_pids      = Rest,
+                    in_progress_pids = lists:delete(DoneId, InProgPids)}};
+state_running({done_child, DonePid, DoneId},
+        #state{target_pids      = [], 
+               in_progress_pids = [_H,_H2|_Rest],
+               child_pids       = ChildPids} = State) ->
+    erlang:send(DonePid, stop),
+    {next_state, state_running, 
+        State#state{in_progress_pids = lists:delete(DoneId, State#state.in_progress_pids),
+                    child_pids       = orddict:erase(DonePid, ChildPids)}};
+state_running({done_child, _DonePid, _DoneId}, 
+        #state{target_pids      = [],
+               in_progress_pids = [_H|_Rest],
+               child_pids       = ChildPids} = State) ->
+    [erlang:send(Pid, stop) || Pid <- orddict:to_list(ChildPids)],
+    {next_state, state_idle, 
+        State#state{in_progress_pids = [], 
+                    child_pids       = orddict:new()}}.
+
+state_suspend({start, _, _, _}, From, State) ->
+    gen_fsm:reply(From, {error, badstate}),
+    {next_state, state_suspend, State};
+state_suspend(suspend, From, State) ->
+    gen_fsm:reply(From, {error, badstate}),
+    {next_state, state_suspend, State};
+
+state_suspend(resume, From, 
+        #state{target_pids = [_Id|_Rest],
+               child_pids  = ChildPids} = State) ->
+    TargetPids = State#state.target_pids,
+    {NewTargetPids, NewChildPids} = orddict:fold(
+        fun(_Pid, true, Acc) ->
+            Acc;
+        (Pid, false, {TargetPidsIn, ChildPidsIn}) ->
+            case length(TargetPidsIn) of
+                0 ->
+                    erlang:send(Pid, stop),
+                    {[], orddict:erase(Pid, ChildPidsIn)};
+                _ ->
+                    Id = hd(TargetPidsIn),
+                    erlang:send(Pid, {compact, Id}),
+                    {lists:delete(Id, TargetPidsIn), orddict:store(Pid, true)}
+            end
+        end, {TargetPids, ChildPids}, ChildPids),
+    gen_fsm:reply(From, ok),
+    {next_state, state_running, 
+        State#state{target_pids = NewTargetPids,
+                    child_pids  = NewChildPids}};
+state_suspend(resume, From, 
+        #state{target_pids      = [],
+               in_progress_pids = [_H|_Rest]} = State) ->
+    gen_fsm:reply(From, ok),
+    {next_state, state_running, State};
+state_suspend(resume, From, 
+        #state{target_pids      = [],
+               in_progress_pids = []} = State) ->
+    %% never hapend
+    gen_fsm:reply(From, ok),
+    {next_state, state_idle, State};
+
+state_suspend(status, From, 
+        #state{target_pids      = RestPids,
+               in_progress_pids = InProgPids,
+               start_datetime   = LastStart} = State) ->
+    gen_fsm:reply(From, {ok, {RestPids, InProgPids, LastStart}}),
+    {next_state, state_suspend, State}.
+
+state_suspend({done_child, DonePid, DoneId},
+        #state{target_pids      = [_Id|_Rest],
+               in_progress_pids = InProgPids,
+               child_pids       = ChildPids} = State) ->
+    {next_state, state_suspend, 
+        State#state{in_progress_pids = lists:delete(DoneId, InProgPids),
+                    child_pids       = orddict:store(DonePid, false, ChildPids)}};
+state_suspend({done_child, DonePid, DoneId}, 
+        #state{target_pids      = [],
+               in_progress_pids = [_H,_H2|_Rest],
+               child_pids       = ChildPids} = State) ->
+    erlang:send(DonePid, stop),
+    {next_state, state_suspend, 
+        State#state{in_progress_pids = lists:delete(DoneId, State#state.in_progress_pids),
+                    child_pids       = orddict:erase(DonePid, ChildPids)}};
+state_suspend({done_child, _DonePid, _DoneId}, 
+        #state{target_pids      = [],
+               in_progress_pids = [_H|_Rest],
+               child_pids       = ChildPids} = State) ->
+    [erlang:send(Pid, stop) || Pid <- orddict:to_list(ChildPids)],
+    {next_state, state_idle, 
+        State#state{in_progress_pids = [],
+                    child_pids = orddict:new()}}.
 
 handle_event(_Event, StateName, State) ->
     {next_state, StateName, State}.
@@ -138,9 +271,45 @@ format_status(_Opt, [_PDict, State]) ->
 %% INNER FUNCTIONS
 %%====================================================================
 %%--------------------------------------------------------------------
-%% object operations.
+%% start compaction processes as many as possible
 %%--------------------------------------------------------------------
 %% @doc
 %% @private
-parse_param(ParamBin) when is_binary(ParamBin) ->
-    void.
+-spec(start_jobs_as_possible(#state{}) ->
+             list()).
+start_jobs_as_possible(#state{target_pids = [_Id|_Rest]} = State) ->
+    start_jobs_as_possible(State#state{child_pids = orddict:new()}, 0).
+start_jobs_as_possible(
+        #state{target_pids           = [Id|Rest], 
+               max_num_of_concurrent = MaxProc,
+               filter_fun            = FunHasChargeOfNode,
+               in_progress_pids      = InProgPids,
+               child_pids            = ChildPids} = State, NumChild) when NumChild < MaxProc ->
+    Pid  = spawn(fun() ->
+                         loop_child(?MODULE, FunHasChargeOfNode)
+                 end),
+    erlang:send(Pid, {compact, Id}),
+    start_jobs_as_possible(
+        State#state{target_pids      = Rest,
+                    in_progress_pids = [Id|InProgPids],
+                    child_pids       = orddict:store(Pid, true, ChildPids)}, NumChild + 1);
+start_jobs_as_possible(State, _NumChild) ->
+    State.
+
+%% @doc Loop of job executor(child)
+%% @private
+-spec(loop_child(pid(), fun()) ->
+             ok | {error, any()}).
+loop_child(From, FunHasChargeOfNode) ->
+    receive
+        {compact, Id} ->
+            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id}, ?STATE_COMPACTING),
+            leo_object_storage_server:compact(Id, FunHasChargeOfNode),
+            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id}, ?STATE_ACTIVE),
+            done_child(self(), Id),
+            loop_child(From, FunHasChargeOfNode);
+        stop ->
+            ok;
+        _ ->
+            {error, unknown_message}
+    end.

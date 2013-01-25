@@ -37,16 +37,13 @@
          compact/2, stats/0
         ]).
 
+-export([get_object_storage_pid/1]).
 
 -define(SERVER_MODULE,         'leo_object_storage_server').
 -define(ETS_CONTAINERS_TABLE,  'leo_object_storage_containers').
 -define(ETS_INFO_TABLE,        'leo_object_storage_info').
--define(ENV_COMPACTION_STATUS, 'compaction_status').
 -define(DEVICE_ID_INTERVALS,   10000).
 
--define(STATE_COMPACTING,  'compacting').
--define(STATE_ACTIVE,      'active').
--type(storage_status() :: ?STATE_COMPACTING | ?STATE_ACTIVE).
 
 %%--------------------------------------------------------------------
 %% API
@@ -385,7 +382,7 @@ do_request(head, [Key]) ->
 
 
 %% @doc Generate Id for obj-storage or metadata
-%% @private
+%% 
 -spec(gen_id(obj_storage | metadata, integer()) ->
              atom()).
 gen_id(obj_storage, Id) ->

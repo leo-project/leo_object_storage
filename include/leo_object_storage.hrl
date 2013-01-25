@@ -31,6 +31,11 @@
 -define(DEF_METADATA_STORAGE_SUB_DIR,  "metadata/").
 -define(DEF_STATE_SUB_DIR,             "state/").
 
+%% regarding compaction
+-define(ENV_COMPACTION_STATUS, 'compaction_status').
+-define(STATE_COMPACTING,  'compacting').
+-define(STATE_ACTIVE,      'active').
+-type(storage_status() :: ?STATE_COMPACTING | ?STATE_ACTIVE).
 
 %% Error Constants
 %%
