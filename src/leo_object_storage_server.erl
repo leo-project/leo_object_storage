@@ -575,7 +575,7 @@ compact_add_history(start, Histories) when is_list(Histories) ->
         true -> Histories;
         false -> 
             Last = lists:last(Histories),
-            list:delete(Last)
+            lists:delete(Last, Histories)
     end,
     [{leo_date:now(), 0}|NewHist];
 compact_add_history(finish, [{Start, _}|Histories]) ->

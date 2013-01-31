@@ -77,6 +77,20 @@ start(ok, ObjectStorageInfo) ->
                   I + 1
           end, 0, ObjectStorageInfo),
 
+    %% Launch a Compaction manager under the leo_object_storage_sup
+    ChildSpec = {leo_compaction_manager_fsm,
+                 {leo_compaction_manager_fsm, start_link, []},
+                 permanent, 2000, worker, [leo_compaction_manager_fsm]},
+    case supervisor:start_child(leo_object_storage_sup, ChildSpec) of
+        {ok, _Pid} ->
+            void;
+        Error ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING}, {function, "start/2"},
+                                    {line, ?LINE}, {body, "Could NOT start compaction manager process"}]),
+            exit(Error)
+    end,
+
     %% Launch a supervisor.
     case whereis(leo_object_storage_sup) of
         undefined ->

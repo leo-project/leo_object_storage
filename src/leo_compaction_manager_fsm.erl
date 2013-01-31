@@ -35,7 +35,7 @@
 
 %% API
 -export([start_link/0]).
--export([start/3, suspend/0, resume/0, status/0]).
+-export([start/3, suspend/0, resume/0, status/0, stop/1]).
 
 -export([init/1,
          state_idle/2,
@@ -69,7 +69,7 @@
 %% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
 %% Description: Starts the server
 -spec(start_link() ->
-             ok | {error, any()}).
+             {ok, pid()} | ignore | {error, any()}).
 start_link() ->
     gen_fsm:start_link({local, ?MODULE}, ?MODULE,
                        [], []).
@@ -82,19 +82,22 @@ start_link() ->
 -spec(start(list(), integer(), fun()) ->
              ok | {error, any()}).
 start(TargetPids, MaxConNum, FilterFun) ->
-    gen_fsm:sync_send_event({local, ?MODULE}, {start, TargetPids, MaxConNum, FilterFun}, ?DEF_TIMEOUT).
+    gen_fsm:sync_send_event(?MODULE, {start, TargetPids, MaxConNum, FilterFun}, ?DEF_TIMEOUT).
+
+stop(_Id) ->
+    void.
 
 suspend() ->
-    gen_fsm:sync_send_event({local, ?MODULE}, suspend, ?DEF_TIMEOUT).
+    gen_fsm:sync_send_event(?MODULE, suspend, ?DEF_TIMEOUT).
 
 resume() ->
-    gen_fsm:sync_send_event({local, ?MODULE}, resume, ?DEF_TIMEOUT).
+    gen_fsm:sync_send_event(?MODULE, resume, ?DEF_TIMEOUT).
 
 status() ->
-    gen_fsm:sync_send_event({local, ?MODULE}, status, ?DEF_TIMEOUT).
+    gen_fsm:sync_send_all_state_event(?MODULE, status, ?DEF_TIMEOUT).
 
 done_child(Pid, Id) ->
-    gen_fsm:send_event({local, ?MODULE}, {done_child, Pid, Id}).
+    gen_fsm:send_event(?MODULE, {done_child, Pid, Id}).
 
 %%====================================================================
 %% GEN_SERVER CALLBACKS
@@ -116,13 +119,8 @@ state_idle(suspend, From, State) ->
     {next_state, state_idle, State};
 state_idle(resume, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
-    {next_state, state_idle, State};
-state_idle(status, From, 
-        #state{target_pids      = RestPids, 
-               in_progress_pids = InProgPids,
-               start_datetime   = LastStart} = State) ->
-    gen_fsm:reply(From, {ok, {RestPids, InProgPids, LastStart}}),
     {next_state, state_idle, State}.
+
 state_idle({done_child, _DonePid, _Id}, State) ->
     % never happen
     {stop, "receive invalid done_child", State}.
@@ -135,12 +133,6 @@ state_running(suspend, From, State) ->
     {next_state, state_suspend, State};
 state_running(resume, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
-    {next_state, state_running, State};
-state_running(status, From, 
-        #state{target_pids      = RestPids,
-               in_progress_pids = InProgPids,
-               start_datetime   = LastStart} = State) ->
-    gen_fsm:reply(From, {ok, {RestPids, InProgPids, LastStart}}),
     {next_state, state_running, State}.
 
 state_running({done_child, DonePid, DoneId}, 
@@ -149,7 +141,7 @@ state_running({done_child, DonePid, DoneId},
     erlang:send(DonePid, {compact, Id}),
     {next_state, state_running, 
         State#state{target_pids      = Rest,
-                    in_progress_pids = lists:delete(DoneId, InProgPids)}};
+                    in_progress_pids = [Id|lists:delete(DoneId, InProgPids)]}};
 state_running({done_child, DonePid, DoneId},
         #state{target_pids      = [], 
                in_progress_pids = [_H,_H2|_Rest],
@@ -162,7 +154,7 @@ state_running({done_child, _DonePid, _DoneId},
         #state{target_pids      = [],
                in_progress_pids = [_H|_Rest],
                child_pids       = ChildPids} = State) ->
-    [erlang:send(Pid, stop) || Pid <- orddict:to_list(ChildPids)],
+    [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
     {next_state, state_idle, 
         State#state{in_progress_pids = [], 
                     child_pids       = orddict:new()}}.
@@ -175,27 +167,29 @@ state_suspend(suspend, From, State) ->
     {next_state, state_suspend, State};
 
 state_suspend(resume, From, 
-        #state{target_pids = [_Id|_Rest],
-               child_pids  = ChildPids} = State) ->
+        #state{target_pids      = [_Id|_Rest],
+               in_progress_pids = InProgPids,
+               child_pids       = ChildPids} = State) ->
     TargetPids = State#state.target_pids,
-    {NewTargetPids, NewChildPids} = orddict:fold(
+    {NewTargetPids, NewInProgPids, NewChildPids} = orddict:fold(
         fun(_Pid, true, Acc) ->
             Acc;
-        (Pid, false, {TargetPidsIn, ChildPidsIn}) ->
+        (Pid, false, {TargetPidsIn, InProgPidsIn, ChildPidsIn}) ->
             case length(TargetPidsIn) of
                 0 ->
                     erlang:send(Pid, stop),
-                    {[], orddict:erase(Pid, ChildPidsIn)};
+                    {[], InProgPidsIn, orddict:erase(Pid, ChildPidsIn)};
                 _ ->
                     Id = hd(TargetPidsIn),
                     erlang:send(Pid, {compact, Id}),
-                    {lists:delete(Id, TargetPidsIn), orddict:store(Pid, true)}
+                    {lists:delete(Id, TargetPidsIn), [Id|InProgPidsIn], orddict:store(Pid, true)}
             end
-        end, {TargetPids, ChildPids}, ChildPids),
+        end, {TargetPids, InProgPids, ChildPids}, ChildPids),
     gen_fsm:reply(From, ok),
     {next_state, state_running, 
-        State#state{target_pids = NewTargetPids,
-                    child_pids  = NewChildPids}};
+        State#state{target_pids      = NewTargetPids,
+                    in_progress_pids = NewInProgPids,
+                    child_pids       = NewChildPids}};
 state_suspend(resume, From, 
         #state{target_pids      = [],
                in_progress_pids = [_H|_Rest]} = State) ->
@@ -206,14 +200,7 @@ state_suspend(resume, From,
                in_progress_pids = []} = State) ->
     %% never hapend
     gen_fsm:reply(From, ok),
-    {next_state, state_idle, State};
-
-state_suspend(status, From, 
-        #state{target_pids      = RestPids,
-               in_progress_pids = InProgPids,
-               start_datetime   = LastStart} = State) ->
-    gen_fsm:reply(From, {ok, {RestPids, InProgPids, LastStart}}),
-    {next_state, state_suspend, State}.
+    {next_state, state_idle, State}.
 
 state_suspend({done_child, DonePid, DoneId},
         #state{target_pids      = [_Id|_Rest],
@@ -234,15 +221,20 @@ state_suspend({done_child, _DonePid, _DoneId},
         #state{target_pids      = [],
                in_progress_pids = [_H|_Rest],
                child_pids       = ChildPids} = State) ->
-    [erlang:send(Pid, stop) || Pid <- orddict:to_list(ChildPids)],
+    [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
     {next_state, state_idle, 
         State#state{in_progress_pids = [],
                     child_pids = orddict:new()}}.
 
 handle_event(_Event, StateName, State) ->
     {next_state, StateName, State}.
-handle_sync_event(_Event, _From, StateName, State) ->
-    {next_state, StateName, State}.
+
+%% handle 'status' event
+handle_sync_event(status, _From, StateName,
+        #state{target_pids      = RestPids,
+               in_progress_pids = InProgPids,
+               start_datetime   = LastStart} = State) ->
+    {reply, {ok, {RestPids, InProgPids, LastStart}}, StateName, State}.
     
 %% Function: handle_info(Info, State) -> {noreply, State}          |
 %%                                       {noreply, State, Timeout} |
@@ -285,7 +277,7 @@ start_jobs_as_possible(
                filter_fun            = FunHasChargeOfNode,
                in_progress_pids      = InProgPids,
                child_pids            = ChildPids} = State, NumChild) when NumChild < MaxProc ->
-    Pid  = spawn(fun() ->
+    Pid  = spawn_link(fun() ->
                          loop_child(?MODULE, FunHasChargeOfNode)
                  end),
     erlang:send(Pid, {compact, Id}),
