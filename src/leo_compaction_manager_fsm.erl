@@ -182,7 +182,7 @@ state_suspend(resume, From,
                 _ ->
                     Id = hd(TargetPidsIn),
                     erlang:send(Pid, {compact, Id}),
-                    {lists:delete(Id, TargetPidsIn), [Id|InProgPidsIn], orddict:store(Pid, true)}
+                    {lists:delete(Id, TargetPidsIn), [Id|InProgPidsIn], orddict:store(Pid, true, ChildPidsIn)}
             end
         end, {TargetPids, InProgPids, ChildPids}, ChildPids),
     gen_fsm:reply(From, ok),
