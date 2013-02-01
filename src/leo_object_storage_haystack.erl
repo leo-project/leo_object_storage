@@ -35,7 +35,9 @@
 -export([open/1, close/2,
          put/3, get/3, get/5, delete/3, head/2, fetch/3, store/4]).
 
--export([compact_put/4,
+-export([calc_obj_size/1,
+         calc_obj_size/2,
+         compact_put/4,
          compact_get/1,
          compact_get/2
         ]).
@@ -85,6 +87,17 @@
 %%--------------------------------------------------------------------
 %% @doc Open and clreate a file.
 %%
+-spec(calc_obj_size(#metadata{}|#object{}) -> integer()).
+calc_obj_size(#metadata{ksize = KSize, dsize = DSize}) ->
+    calc_obj_size(KSize, DSize);
+calc_obj_size(#object{key = Key, dsize = DSize}) ->
+    KSize = byte_size(Key),
+    calc_obj_size(KSize, DSize).
+-spec(calc_obj_size(integer(), integer()) -> integer()).
+calc_obj_size(KSize, DSize) ->
+    %% header + footer(padding) + ksize +dsize + binary_to_term(Key, AddrId) + binary_to_term(Metadata)
+    ?BLEN_HEADER/8 + KSize*3 + DSize + ?LEN_PADDING + 58.
+
 -spec(open(FilePath::string) ->
              {ok, port(), port()} | {error, any()}).
 open(FilePath) ->

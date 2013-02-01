@@ -37,16 +37,13 @@
          compact/2, stats/0
         ]).
 
+-export([get_object_storage_pid/1]).
 
 -define(SERVER_MODULE,         'leo_object_storage_server').
 -define(ETS_CONTAINERS_TABLE,  'leo_object_storage_containers').
 -define(ETS_INFO_TABLE,        'leo_object_storage_info').
--define(ENV_COMPACTION_STATUS, 'compaction_status').
 -define(DEVICE_ID_INTERVALS,   10000).
 
--define(STATE_COMPACTING,  'compacting').
--define(STATE_ACTIVE,      'active').
--type(storage_status() :: ?STATE_COMPACTING | ?STATE_ACTIVE).
 
 %%--------------------------------------------------------------------
 %% API
@@ -79,6 +76,20 @@ start(ok, ObjectStorageInfo) ->
                                      end, lists:seq(0, Containers-1)),
                   I + 1
           end, 0, ObjectStorageInfo),
+
+    %% Launch a Compaction manager under the leo_object_storage_sup
+    ChildSpec = {leo_compaction_manager_fsm,
+                 {leo_compaction_manager_fsm, start_link, []},
+                 permanent, 2000, worker, [leo_compaction_manager_fsm]},
+    case supervisor:start_child(leo_object_storage_sup, ChildSpec) of
+        {ok, _Pid} ->
+            void;
+        Error ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING}, {function, "start/2"},
+                                    {line, ?LINE}, {body, "Could NOT start compaction manager process"}]),
+            exit(Error)
+    end,
 
     %% Launch a supervisor.
     case whereis(leo_object_storage_sup) of
@@ -385,7 +396,7 @@ do_request(head, [Key]) ->
 
 
 %% @doc Generate Id for obj-storage or metadata
-%% @private
+%% 
 -spec(gen_id(obj_storage | metadata, integer()) ->
              atom()).
 gen_id(obj_storage, Id) ->
