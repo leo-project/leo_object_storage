@@ -396,7 +396,7 @@ do_request(head, [Key]) ->
 
 
 %% @doc Generate Id for obj-storage or metadata
-%% 
+%%
 -spec(gen_id(obj_storage | metadata, integer()) ->
              atom()).
 gen_id(obj_storage, Id) ->

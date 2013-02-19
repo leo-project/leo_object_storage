@@ -54,11 +54,11 @@
 -record(state, {
           %% get from leo_object_storage_api // storage_pids       :: list(),
           max_num_of_concurrent = 1  :: integer(),
-          filter_fun                 :: fun(),
+          filter_fun                 :: function(),
           target_pids           = [] :: list(),
           in_progress_pids      = [] :: list(),
-          child_pids            = [] :: any(), %%orddict(), {Chid :: pid(), hasJob :: boolean()}
-          start_datetime        = 0  :: integer() %% greg sec
+          child_pids            = [] :: any(),    %% orddict(), {Chid :: pid(), hasJob :: boolean()}
+          start_datetime        = 0  :: integer() %% greg-sec
          }).
 
 -define(DEF_TIMEOUT, 5).
@@ -78,7 +78,6 @@ start_link() ->
 %% API - object operations.
 %%--------------------------------------------------------------------
 %% @doc start compaction
-%%
 -spec(start(list(), integer(), fun()) ->
              ok | {error, any()}).
 start(TargetPids, MaxConNum, FilterFun) ->
@@ -87,17 +86,33 @@ start(TargetPids, MaxConNum, FilterFun) ->
 stop(_Id) ->
     void.
 
+%% @doc Suspend compaction
+-spec(suspend() ->
+             term()).
 suspend() ->
     gen_fsm:sync_send_event(?MODULE, suspend, ?DEF_TIMEOUT).
 
+
+%% @doc Resume compaction
+-spec(resume() ->
+             term()).
 resume() ->
     gen_fsm:sync_send_event(?MODULE, resume, ?DEF_TIMEOUT).
 
+
+%% @doc Retrieve all compaction statuses
+-spec(status() ->
+             term()).
 status() ->
     gen_fsm:sync_send_all_state_event(?MODULE, status, ?DEF_TIMEOUT).
 
+
+%% @doc Terminate child
+-spec(done_child(pid(), atom()) ->
+             term()).
 done_child(Pid, Id) ->
     gen_fsm:send_event(?MODULE, {done_child, Pid, Id}).
+
 
 %%====================================================================
 %% GEN_SERVER CALLBACKS
@@ -106,14 +121,20 @@ done_child(Pid, Id) ->
 init([]) ->
     {ok, state_idle, #state{}}.
 
+
+%% @doc State of 'idle'
+%%
+-spec(state_idle({start, list(), pos_integer(), function()} | suspend | resume,
+                 From::pid(), State::#state{}) ->
+             {next_state, state_running | state_idle, #state{}}).
 state_idle({start, TargetPids, MaxConNum, FilterFun}, From, State) ->
-    NewState = start_jobs_as_possible(
-        State#state{target_pids           = TargetPids, 
-                    max_num_of_concurrent = MaxConNum,
-                    filter_fun            = FilterFun,
-                    start_datetime        = leo_date:now()}),
+    NewState = start_jobs_as_possible(State#state{target_pids           = TargetPids,
+                                                  max_num_of_concurrent = MaxConNum,
+                                                  filter_fun            = FilterFun,
+                                                  start_datetime        = leo_date:now()}),
     gen_fsm:reply(From, ok),
     {next_state, state_running, NewState};
+
 state_idle(suspend, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
     {next_state, state_idle, State};
@@ -121,56 +142,76 @@ state_idle(resume, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
     {next_state, state_idle, State}.
 
+
+-spec(state_idle({done_child, list(), pos_integer(), atom()}, #state{}) ->
+             {stop, string(), #state{}}).
 state_idle({done_child, _DonePid, _Id}, State) ->
     % never happen
     {stop, "receive invalid done_child", State}.
 
+
+%% @doc State of 'running'
+%%
+-spec(state_running({start, list(), pos_integer(), atom()} | suspend | resume,
+                    From::pid(), State::#state{}) ->
+             {next_state, state_running, #state{}}).
 state_running({start, _, _, _}, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
     {next_state, state_running, State};
+
 state_running(suspend, From, State) ->
     gen_fsm:reply(From, ok),
     {next_state, state_suspend, State};
+
 state_running(resume, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
     {next_state, state_running, State}.
 
-state_running({done_child, DonePid, DoneId}, 
-        #state{target_pids      = [Id|Rest],
-               in_progress_pids = InProgPids} = State) ->
-    erlang:send(DonePid, {compact, Id}),
-    {next_state, state_running, 
-        State#state{target_pids      = Rest,
-                    in_progress_pids = [Id|lists:delete(DoneId, InProgPids)]}};
-state_running({done_child, DonePid, DoneId},
-        #state{target_pids      = [], 
-               in_progress_pids = [_H,_H2|_Rest],
-               child_pids       = ChildPids} = State) ->
-    erlang:send(DonePid, stop),
-    {next_state, state_running, 
-        State#state{in_progress_pids = lists:delete(DoneId, State#state.in_progress_pids),
-                    child_pids       = orddict:erase(DonePid, ChildPids)}};
-state_running({done_child, _DonePid, _DoneId}, 
-        #state{target_pids      = [],
-               in_progress_pids = [_H|_Rest],
-               child_pids       = ChildPids} = State) ->
-    [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
-    {next_state, state_idle, 
-        State#state{in_progress_pids = [], 
-                    child_pids       = orddict:new()}}.
 
+-spec(state_running({done_child, pid(), atom()}, #state{}) ->
+             {next_state, state_running, #state{}}).
+state_running({done_child, DonePid, DoneId}, #state{target_pids      = [Id|Rest],
+                                                    in_progress_pids = InProgPids} = State) ->
+    erlang:send(DonePid, {compact, Id}),
+    {next_state, state_running,
+     State#state{target_pids      = Rest,
+                 in_progress_pids = [Id|lists:delete(DoneId, InProgPids)]}};
+
+state_running({done_child, DonePid, DoneId}, #state{target_pids      = [],
+                                                    in_progress_pids = [_H,_H2|_Rest],
+                                                    child_pids       = ChildPids} = State) ->
+    erlang:send(DonePid, stop),
+    {next_state, state_running,
+     State#state{in_progress_pids = lists:delete(DoneId, State#state.in_progress_pids),
+                 child_pids       = orddict:erase(DonePid, ChildPids)}};
+
+state_running({done_child,_DonePid,_DoneId}, #state{target_pids      = [],
+                                                    in_progress_pids = [_H|_Rest],
+                                                    child_pids       = ChildPids} = State) ->
+    [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
+    {next_state, state_idle,
+     State#state{in_progress_pids = [],
+                 child_pids       = orddict:new()}}.
+
+
+%% @doc State of 'suspend'
+%%
+-spec(state_suspend({start, list(), pos_integer(), function()} | suspend | resume,
+                    From::pid(), State::#state{}) ->
+             {next_state, state_suspend | state_running, #state{}}).
 state_suspend({start, _, _, _}, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
     {next_state, state_suspend, State};
+
 state_suspend(suspend, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
     {next_state, state_suspend, State};
 
-state_suspend(resume, From, 
-        #state{target_pids      = [_Id|_Rest],
-               in_progress_pids = InProgPids,
-               child_pids       = ChildPids} = State) ->
+state_suspend(resume, From, #state{target_pids      = [_Id|_Rest],
+                                   in_progress_pids = InProgPids,
+                                   child_pids       = ChildPids} = State) ->
     TargetPids = State#state.target_pids,
+
     {NewTargetPids, NewInProgPids, NewChildPids} = orddict:fold(
         fun(_Pid, true, Acc) ->
             Acc;
@@ -185,57 +226,67 @@ state_suspend(resume, From,
                     {lists:delete(Id, TargetPidsIn), [Id|InProgPidsIn], orddict:store(Pid, true, ChildPidsIn)}
             end
         end, {TargetPids, InProgPids, ChildPids}, ChildPids),
+
     gen_fsm:reply(From, ok),
-    {next_state, state_running, 
-        State#state{target_pids      = NewTargetPids,
-                    in_progress_pids = NewInProgPids,
-                    child_pids       = NewChildPids}};
-state_suspend(resume, From, 
+    {next_state, state_running, State#state{target_pids      = NewTargetPids,
+                                            in_progress_pids = NewInProgPids,
+                                            child_pids       = NewChildPids}};
+
+state_suspend(resume, From,
         #state{target_pids      = [],
                in_progress_pids = [_H|_Rest]} = State) ->
     gen_fsm:reply(From, ok),
     {next_state, state_running, State};
-state_suspend(resume, From, 
+
+state_suspend(resume, From,
         #state{target_pids      = [],
                in_progress_pids = []} = State) ->
     %% never hapend
     gen_fsm:reply(From, ok),
     {next_state, state_idle, State}.
 
-state_suspend({done_child, DonePid, DoneId},
-        #state{target_pids      = [_Id|_Rest],
-               in_progress_pids = InProgPids,
-               child_pids       = ChildPids} = State) ->
-    {next_state, state_suspend, 
-        State#state{in_progress_pids = lists:delete(DoneId, InProgPids),
-                    child_pids       = orddict:store(DonePid, false, ChildPids)}};
-state_suspend({done_child, DonePid, DoneId}, 
-        #state{target_pids      = [],
-               in_progress_pids = [_H,_H2|_Rest],
-               child_pids       = ChildPids} = State) ->
-    erlang:send(DonePid, stop),
-    {next_state, state_suspend, 
-        State#state{in_progress_pids = lists:delete(DoneId, State#state.in_progress_pids),
-                    child_pids       = orddict:erase(DonePid, ChildPids)}};
-state_suspend({done_child, _DonePid, _DoneId}, 
-        #state{target_pids      = [],
-               in_progress_pids = [_H|_Rest],
-               child_pids       = ChildPids} = State) ->
-    [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
-    {next_state, state_idle, 
-        State#state{in_progress_pids = [],
-                    child_pids = orddict:new()}}.
 
+-spec(state_suspend({done_child, pid(), atom()}, #state{}) ->
+             {next_state, state_suspend | state_idle, #state{}}).
+state_suspend({done_child, DonePid, DoneId}, #state{target_pids      = [_Id|_Rest],
+                                                    in_progress_pids = InProgPids,
+                                                    child_pids       = ChildPids} = State) ->
+    InProgressPids = lists:delete(DoneId, InProgPids),
+    ChildPids      = orddict:store(DonePid, false, ChildPids),
+    {next_state, state_suspend, State#state{in_progress_pids = InProgressPids,
+                                            child_pids       = ChildPids}};
+
+state_suspend({done_child, DonePid, DoneId}, #state{target_pids      = [],
+                                                    in_progress_pids = [_H,_H2|_Rest],
+                                                    child_pids       = ChildPids} = State) ->
+    erlang:send(DonePid, stop),
+
+    InProgressPids = lists:delete(DoneId, State#state.in_progress_pids),
+    ChildPids      = orddict:erase(DonePid, ChildPids),
+    {next_state, state_suspend, State#state{in_progress_pids = InProgressPids,
+                                            child_pids       = ChildPids}};
+
+state_suspend({done_child,_DonePid,_DoneId}, #state{target_pids      = [],
+                                                    in_progress_pids = [_H|_Rest],
+                                                    child_pids       = ChildPids} = State) ->
+    [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
+    {next_state, state_idle, State#state{in_progress_pids = [],
+                                         child_pids = orddict:new()}}.
+
+%% @doc Handle events
+%%
 handle_event(_Event, StateName, State) ->
     {next_state, StateName, State}.
 
-%% handle 'status' event
+
+%% @doc Handle 'status' event
 handle_sync_event(status, _From, StateName,
         #state{target_pids      = RestPids,
                in_progress_pids = InProgPids,
                start_datetime   = LastStart} = State) ->
     {reply, {ok, {RestPids, InProgPids, LastStart}}, StateName, State}.
-    
+
+
 %% Function: handle_info(Info, State) -> {noreply, State}          |
 %%                                       {noreply, State, Timeout} |
 %%                                       {stop, Reason, State}
@@ -259,20 +310,18 @@ code_change(_OldVsn, StateName, State, _Extra) ->
 format_status(_Opt, [_PDict, State]) ->
     State.
 
+
 %%====================================================================
 %% INNER FUNCTIONS
 %%====================================================================
-%%--------------------------------------------------------------------
-%% start compaction processes as many as possible
-%%--------------------------------------------------------------------
-%% @doc
+%% @doc Start compaction processes as many as possible
 %% @private
 -spec(start_jobs_as_possible(#state{}) ->
              list()).
 start_jobs_as_possible(#state{target_pids = [_Id|_Rest]} = State) ->
     start_jobs_as_possible(State#state{child_pids = orddict:new()}, 0).
 start_jobs_as_possible(
-        #state{target_pids           = [Id|Rest], 
+        #state{target_pids           = [Id|Rest],
                max_num_of_concurrent = MaxProc,
                filter_fun            = FunHasChargeOfNode,
                in_progress_pids      = InProgPids,
@@ -288,6 +337,7 @@ start_jobs_as_possible(
 start_jobs_as_possible(State, _NumChild) ->
     State.
 
+
 %% @doc Loop of job executor(child)
 %% @private
 -spec(loop_child(pid(), fun()) ->
@@ -296,9 +346,9 @@ loop_child(From, FunHasChargeOfNode) ->
     receive
         {compact, Id} ->
             ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id}, ?STATE_COMPACTING),
-            leo_object_storage_server:compact(Id, FunHasChargeOfNode),
+            _  = leo_object_storage_server:compact(Id, FunHasChargeOfNode),
             ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id}, ?STATE_ACTIVE),
-            done_child(self(), Id),
+            _  = done_child(self(), Id),
             loop_child(From, FunHasChargeOfNode);
         stop ->
             ok;
