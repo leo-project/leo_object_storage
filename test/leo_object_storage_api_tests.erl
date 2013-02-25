@@ -48,13 +48,13 @@ all_test_() ->
 setup() ->
     Path1 = "./avs1",
     Path2 = "./avs2",
-io:format(user, "setup~n", []),
+    io:format(user, "setup~n", []),
     [Path1, Path2].
 
 teardown([Path1, Path2]) ->
     os:cmd("rm -rf " ++ Path1),
     os:cmd("rm -rf " ++ Path2),
-io:format(user, "teardown~n", []),
+    io:format(user, "teardown~n", []),
     ok.
 
 
@@ -262,10 +262,10 @@ stats_([Path1, Path2]) ->
     {ok, Res1} = leo_object_storage_api:stats(),
     ?assertEqual(8, length(Res)),
     {SumTotal0, SumActive0} = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
-                                               total_num  = Total,
-                                               active_num = Active}}, {SumTotal, SumActive}) ->
-                               {SumTotal + Total, SumActive + Active}
-                       end, {0, 0}, Res1),
+                                                                  total_num  = Total,
+                                                                  active_num = Active}}, {SumTotal, SumActive}) ->
+                                                  {SumTotal + Total, SumActive + Active}
+                                          end, {0, 0}, Res1),
     ?assertEqual(9, SumTotal0),
     ?assertEqual(8, SumActive0),
 
@@ -291,13 +291,13 @@ compact_([Path1, Path2]) ->
     ok = put_test_data(4095, <<"air/on/g/string/7">>, <<"JSB7">>), %% 2nd time
     {ok, Res0} = leo_object_storage_api:stats(),
     {SumTotal0, SumActive0} = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
-                                               total_num  = Total,
-                                               active_num = Active}}, {SumTotal, SumActive}) ->
-                               {SumTotal + Total, SumActive + Active}
-                       end, {0, 0}, Res0),
+                                                                  total_num  = Total,
+                                                                  active_num = Active}}, {SumTotal, SumActive}) ->
+                                                  {SumTotal + Total, SumActive + Active}
+                                          end, {0, 0}, Res0),
     ?assertEqual(9, SumTotal0),
     ?assertEqual(8, SumActive0),
- 
+
     ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0-1">>),
     ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3-1">>),
 
@@ -326,11 +326,11 @@ compact_([Path1, Path2]) ->
                                               active_sizes = ActiveSize,
                                               total_num  = Total,
                                               active_num = Active}}, {SumTotal, SumActive, SumTotalSize, SumActiveSize}) ->
-                               {SumTotal + Total, 
-                                SumActive + Active,
-                                SumTotalSize + TotalSize,
-                                SumActiveSize + ActiveSize}
-                       end, {0, 0, 0, 0}, Res1),
+                              {SumTotal + Total,
+                               SumActive + Active,
+                               SumTotalSize + TotalSize,
+                               SumActiveSize + ActiveSize}
+                      end, {0, 0, 0, 0}, Res1),
     ?assertEqual(12, SumTotal1),
     ?assertEqual(7, SumActive1),
     ?assertEqual(true, SumTotalSize1 > SumActiveSize1),
@@ -340,12 +340,15 @@ compact_([Path1, Path2]) ->
                                  true
                          end,
     TargetPids = leo_object_storage_api:get_object_storage_pid(all),
+    io:format(user, "*** target-pids:~p~n", [TargetPids]),
+
     ok = leo_compaction_manager_fsm:start(TargetPids, 2, FunHasChargeOfNode),
     {ok, {RestPids, InProgressPids, LastStartTime}} = leo_compaction_manager_fsm:status(),
-io:format(user, "*** rest:~p inprog:~p last:~p~n", [RestPids, InProgressPids, LastStartTime]),
+    io:format(user, "*** rest:~p inprog:~p last:~p~n", [RestPids, InProgressPids, LastStartTime]),
+
     timer:sleep(250),
     {ok, {RestPids2, InProgressPids2, LastStartTime2}} = leo_compaction_manager_fsm:status(),
-io:format(user, "*** rest:~p inprog:~p last:~p~n", [RestPids2, InProgressPids2, LastStartTime2]),
+    io:format(user, "*** rest:~p inprog:~p last:~p~n", [RestPids2, InProgressPids2, LastStartTime2]),
 
     {ok, Res2} = leo_object_storage_api:stats(),
     {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2}
@@ -355,12 +358,12 @@ io:format(user, "*** rest:~p inprog:~p last:~p~n", [RestPids2, InProgressPids2, 
                                               active_sizes = ActiveSize,
                                               total_num  = Total,
                                               active_num = Active}}, {SumTotal, SumActive, SumTotalSize, SumActiveSize}) ->
-                               ?assertEqual(true, Start =< End),
-                               {SumTotal + Total, 
-                                SumActive + Active,
-                                SumTotalSize + TotalSize,
-                                SumActiveSize + ActiveSize}
-                       end, {0, 0, 0, 0}, Res2),
+                              ?assertEqual(true, Start =< End),
+                              {SumTotal + Total,
+                               SumActive + Active,
+                               SumTotalSize + TotalSize,
+                               SumActiveSize + ActiveSize}
+                      end, {0, 0, 0, 0}, Res2),
     ?assertEqual(7, SumTotal2),
     ?assertEqual(7, SumActive2),
     ?assertEqual(true, SumTotalSize2 =:= SumActiveSize2),

@@ -51,15 +51,13 @@
          code_change/4,
          format_status/2]).
 
--record(state, {
-          %% get from leo_object_storage_api // storage_pids       :: list(),
-          max_num_of_concurrent = 1  :: integer(),
-          filter_fun                 :: function(),
-          target_pids           = [] :: list(),
-          in_progress_pids      = [] :: list(),
-          child_pids            = [] :: any(),    %% orddict(), {Chid :: pid(), hasJob :: boolean()}
-          start_datetime        = 0  :: integer() %% greg-sec
-         }).
+-record(state, {max_num_of_concurrent = 1  :: integer(),
+                filter_fun                 :: function(),
+                target_pids           = [] :: list(),
+                in_progress_pids      = [] :: list(),
+                child_pids            = [] :: any(),    %% orddict(), {Chid :: pid(), hasJob :: boolean()}
+                start_datetime        = 0  :: integer() %% gregory-sec
+               }).
 
 -define(DEF_TIMEOUT, 5).
 
@@ -78,10 +76,15 @@ start_link() ->
 %% API - object operations.
 %%--------------------------------------------------------------------
 %% @doc start compaction
--spec(start(list(), integer(), fun()) ->
+-spec(start(list(string() | atom()), integer(), fun()) ->
              ok | {error, any()}).
 start(TargetPids, MaxConNum, FilterFun) ->
-    gen_fsm:sync_send_event(?MODULE, {start, TargetPids, MaxConNum, FilterFun}, ?DEF_TIMEOUT).
+    NewTargetPids = lists:map(fun(Pid) when is_list(Pid) ->
+                                      list_to_atom(Pid);
+                                 (Pid) ->
+                                      Pid
+                              end, TargetPids),
+    gen_fsm:sync_send_event(?MODULE, {start, NewTargetPids, MaxConNum, FilterFun}, ?DEF_TIMEOUT).
 
 stop(_Id) ->
     void.
