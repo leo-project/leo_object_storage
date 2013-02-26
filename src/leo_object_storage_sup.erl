@@ -127,7 +127,7 @@ start_child(ObjectStorageInfo) ->
     ChildSpec = {leo_compaction_manager_fsm,
                  {leo_compaction_manager_fsm, start_link, []},
                  permanent, 2000, worker, [leo_compaction_manager_fsm]},
-    case supervisor:start_child(leo_object_storage_sup, ChildSpec) of
+    case supervisor:start_child(?MODULE, ChildSpec) of
         {ok, _Pid} ->
             void;
         Error ->
@@ -154,7 +154,7 @@ start_child(ObjectStorageInfo) ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING}, {function, "start_child/2"},
                                             {line, ?LINE}, {body, "Could NOT start worker processes"}]),
-                    case leo_object_storage_sup:stop() of
+                    case ?MODULE:stop() of
                         ok ->
                             exit(invalid_launch);
                         not_started ->
@@ -167,6 +167,10 @@ start_child(ObjectStorageInfo) ->
 %% ---------------------------------------------------------------------
 %% Inner Function(s)
 %% ---------------------------------------------------------------------
+%% @doc Terminate children
+%% @private
+-spec(terminate_children(list()) ->
+             ok).
 terminate_children([]) ->
     ok;
 terminate_children([{Id,_Pid, worker, [Mod|_]}|T]) ->
@@ -220,7 +224,7 @@ add_container(Id0, Props) ->
                  {leo_object_storage_server, start_link, Args},
                  permanent, 2000, worker, [leo_object_storage_server]},
 
-    case supervisor:start_child(leo_object_storage_sup, ChildSpec) of
+    case supervisor:start_child(?MODULE, ChildSpec) of
         {ok, _Pid} ->
             true = ets:insert(?ETS_CONTAINERS_TABLE, {Id0, [{obj_storage, Id1},
                                                             {metadata,    Id2}]}),
