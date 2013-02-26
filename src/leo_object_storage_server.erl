@@ -202,11 +202,17 @@ init([Id, SeqNo, MetaDBId, RootPath]) ->
                                 state_filepath = StateFilePath
                                }};
                 {error, Cause} ->
-                    io:format("~w, cause:~p~n", [?LINE, Cause]),
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING}, {function, "init/4"},
+                                            {line, ?LINE},
+                                            {body, Cause}]),
                     {stop, Cause}
             end;
         {error, Cause} ->
-            io:format("~w, cause:~p~n", [?LINE, Cause]),
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING}, {function, "init/4"},
+                                    {line, ?LINE},
+                                    {body, Cause}]),
             {stop, Cause}
     end.
 

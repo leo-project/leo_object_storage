@@ -25,17 +25,23 @@
 -define(APP_NAME, 'leo_object_storage').
 
 %% Default Values
-%%
 -define(DEF_METADATA_DB,               'bitcask').
 -define(DEF_OBJECT_STORAGE_SUB_DIR,    "object/").
 -define(DEF_METADATA_STORAGE_SUB_DIR,  "metadata/").
 -define(DEF_STATE_SUB_DIR,             "state/").
+
+
+%% ETS-Table
+-define(ETS_CONTAINERS_TABLE,  'leo_object_storage_containers').
+-define(ETS_INFO_TABLE,        'leo_object_storage_info').
+
 
 %% regarding compaction
 -define(ENV_COMPACTION_STATUS, 'compaction_status').
 -define(STATE_COMPACTING,  'compacting').
 -define(STATE_ACTIVE,      'active').
 -type(storage_status() :: ?STATE_COMPACTING | ?STATE_ACTIVE).
+
 
 %% Error Constants
 %%
