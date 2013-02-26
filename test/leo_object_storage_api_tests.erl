@@ -67,8 +67,8 @@ new_([Path1, _]) ->
     ?assertEqual(true, is_pid(Ref)),
 
     [{specs,_},{active,Active0},{supervisors,_},{workers,Workers0}] = supervisor:count_children(Ref),
-    ?assertEqual(DivCount0 + 1, Active0), % +1 for compaction manager
-    ?assertEqual(DivCount0 + 1, Workers0),    % +1 for compaction manager
+    ?assertEqual(DivCount0 + 2, Active0),  % +2 for compaction manager + backend_db_sup
+    ?assertEqual(DivCount0 + 2, Workers0), % +2 for compaction manager + backend_db_sup
 
     application:stop(leo_backend_db),
     application:stop(bitcask),

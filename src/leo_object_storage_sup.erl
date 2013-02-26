@@ -102,10 +102,25 @@ start_child(ObjectStorageInfo) ->
     catch ets:new(?ETS_INFO_TABLE,
                   [named_table, set, public, {read_concurrency, true}]),
 
+    %% Launch backend-db's sup
+    %%   under the leo_object_storage_sup
+    ChildSpec0 = {leo_backend_db_sup,
+                  {leo_backend_db_sup, start_link, []},
+                  permanent, 2000, worker, [leo_backend_db_sup]},
+    BackendDBSupPid =
+        case supervisor:start_child(?MODULE, ChildSpec0) of
+            {ok, Pid} ->
+                Pid;
+            {error, Cause0} ->
+                error_logger:error_msg("~p,~p,~p,~p~n",
+                                       [{module, ?MODULE_STRING}, {function, "start_child/2"},
+                                        {line, ?LINE}, {body, "Could NOT start backend-db sup"}]),
+                exit(Cause0)
+        end,
 
-    %% insert object-storage-info into the ets
+    %% Launch backend-db's processes
+    %%   under the leo_object_storage_sup
     MetadataDB = ?env_metadata_db(),
-
     _ = lists:foldl(
           fun({Containers, Path0}, I) ->
                   Path1 = get_path(Path0),
@@ -117,24 +132,24 @@ start_child(ObjectStorageInfo) ->
                                     {list_to_atom(?MODULE_STRING ++ integer_to_list(I)), Props}),
                   ok = lists:foreach(fun(N) ->
                                              Id = (I * ?DEVICE_ID_INTERVALS) + N,
-                                             ok = add_container(Id, Props)
+                                             ok = add_container(BackendDBSupPid, Id, Props)
                                      end, lists:seq(0, Containers-1)),
                   I + 1
           end, 0, ObjectStorageInfo),
 
-
-    %% Launch a Compaction manager under the leo_object_storage_sup
-    ChildSpec = {leo_compaction_manager_fsm,
-                 {leo_compaction_manager_fsm, start_link, []},
-                 permanent, 2000, worker, [leo_compaction_manager_fsm]},
-    case supervisor:start_child(?MODULE, ChildSpec) of
+    %% Launch a Compaction manager
+    %%   under the leo_object_storage_sup
+    ChildSpec1 = {leo_compaction_manager_fsm,
+                  {leo_compaction_manager_fsm, start_link, []},
+                  permanent, 2000, worker, [leo_compaction_manager_fsm]},
+    case supervisor:start_child(?MODULE, ChildSpec1) of
         {ok, _Pid} ->
             void;
-        Error ->
+        {error, Cause1} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING}, {function, "start_child/2"},
                                     {line, ?LINE}, {body, "Could NOT start compaction manager process"}]),
-            exit(Error)
+            exit(Cause1)
     end,
 
 
@@ -174,7 +189,12 @@ start_child(ObjectStorageInfo) ->
 terminate_children([]) ->
     ok;
 terminate_children([{Id,_Pid, worker, [Mod|_]}|T]) ->
-    Mod:stop(Id),
+    case Mod of
+        leo_backend_db_sup ->
+            Mod:stop();
+        _ ->
+            Mod:stop(Id)
+    end,
     terminate_children(T);
 terminate_children([_|T]) ->
     terminate_children(T).
@@ -203,37 +223,46 @@ get_path(Path0) ->
 
 %% @doc Add an object storage container into
 %%
--spec(add_container(integer(), list()) ->
+-spec(add_container(pid(), integer(), list()) ->
              ok).
-add_container(Id0, Props) ->
+add_container(BackendDBSupPid, Id0, Props) ->
     Id1 = gen_id(obj_storage, Id0),
     Id2 = gen_id(metadata,    Id0),
 
     Path       = leo_misc:get_value('path',        Props),
     MetadataDB = leo_misc:get_value('metadata_db', Props),
 
-    %% Launch metadata-db
-    ok = leo_backend_db_api:new(Id2, 1, MetadataDB,
-                                lists:append([Path,
-                                              ?DEF_METADATA_STORAGE_SUB_DIR,
-                                              integer_to_list(Id0)])),
+    %% %% Launch metadata-db
+    case leo_backend_db_sup:start_child(
+           BackendDBSupPid, Id2, 1, MetadataDB,
+           lists:append([Path, ?DEF_METADATA_STORAGE_SUB_DIR, integer_to_list(Id0)])) of
+        ok ->
+            %% Launch object-storage
+            Args = [Id1, Id0, Id2, Path],
+            ChildSpec = {Id1,
+                         {leo_object_storage_server, start_link, Args},
+                         permanent, 2000, worker, [leo_object_storage_server]},
 
-    %% Launch object-storage
-    Args = [Id1, Id0, Id2, Path],
-    ChildSpec = {Id1,
-                 {leo_object_storage_server, start_link, Args},
-                 permanent, 2000, worker, [leo_object_storage_server]},
+            case supervisor:start_child(?MODULE, ChildSpec) of
+                {ok, _Pid} ->
+                    true = ets:insert(?ETS_CONTAINERS_TABLE, {Id0, [{obj_storage, Id1},
+                                                                    {metadata,    Id2}]}),
 
-    case supervisor:start_child(?MODULE, ChildSpec) of
-        {ok, _Pid} ->
-            true = ets:insert(?ETS_CONTAINERS_TABLE, {Id0, [{obj_storage, Id1},
-                                                            {metadata,    Id2}]}),
-
-            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id1}, ?STATE_ACTIVE),
-            ok;
-        Error ->
-            io:format("[ERROR] add_container/2, ~w, ~p~n", [?LINE, Error]),
-            Error
+                    ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id1}, ?STATE_ACTIVE),
+                    ok;
+                {error, Cause} ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING}, {function, "add_container/3"},
+                                            {line, ?LINE},
+                                            {body, Cause}]),
+                    {error, Cause}
+            end;
+        {error, Cause} ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING}, {function, "add_container/3"},
+                                    {line, ?LINE},
+                                    {body, Cause}]),
+            {error, Cause}
     end.
 
 
