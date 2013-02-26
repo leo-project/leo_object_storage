@@ -39,11 +39,7 @@
 
 -export([get_object_storage_pid/1]).
 
--define(SERVER_MODULE,         'leo_object_storage_server').
--define(ETS_CONTAINERS_TABLE,  'leo_object_storage_containers').
--define(ETS_INFO_TABLE,        'leo_object_storage_info').
--define(DEVICE_ID_INTERVALS,   10000).
-
+-define(SERVER_MODULE, 'leo_object_storage_server').
 
 %%--------------------------------------------------------------------
 %% API
@@ -56,68 +52,12 @@ start([]) ->
     {error, badarg};
 
 start(ObjectStorageInfo) ->
-    Res = start_app(),
-    start(Res, ObjectStorageInfo).
-
-start(ok, ObjectStorageInfo) ->
-    MetadataDB = ?env_metadata_db(),
-
-    _ = lists:foldl(
-          fun({Containers, Path0}, I) ->
-                  Path1 = get_path(Path0),
-                  Props = [{num_of_containers, Containers},
-                           {path,              Path1},
-                           {metadata_db,       MetadataDB}],
-
-                  true = ets:insert(?ETS_INFO_TABLE, {list_to_atom(?MODULE_STRING ++ integer_to_list(I)), Props}),
-                  ok = lists:foreach(fun(N) ->
-                                             Id = (I * ?DEVICE_ID_INTERVALS) + N,
-                                             ok = add_container(Id, Props)
-                                     end, lists:seq(0, Containers-1)),
-                  I + 1
-          end, 0, ObjectStorageInfo),
-
-    %% Launch a Compaction manager under the leo_object_storage_sup
-    ChildSpec = {leo_compaction_manager_fsm,
-                 {leo_compaction_manager_fsm, start_link, []},
-                 permanent, 2000, worker, [leo_compaction_manager_fsm]},
-    case supervisor:start_child(leo_object_storage_sup, ChildSpec) of
-        {ok, _Pid} ->
-            void;
-        Error ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "start/2"},
-                                    {line, ?LINE}, {body, "Could NOT start compaction manager process"}]),
-            exit(Error)
-    end,
-
-    %% Launch a supervisor.
-    case whereis(leo_object_storage_sup) of
-        undefined ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "start/2"},
-                                    {line, ?LINE}, {body, "NOT started supervisor"}]),
-            exit(not_initialized);
-        SupRef ->
-            case supervisor:count_children(SupRef) of
-                [{specs, _},{active, Active},
-                 {supervisors, _},{workers, Workers}] when Active == Workers  ->
-                    ok;
-                _ ->
-                    error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING}, {function, "start/2"},
-                                            {line, ?LINE}, {body, "Could NOT start worker processes"}]),
-                    case leo_object_storage_sup:stop() of
-                        ok ->
-                            exit(invalid_launch);
-                        not_started ->
-                            exit(noproc)
-                    end
-            end
-    end;
-
-start({error, Cause},_ObjectStorageInfo) ->
-    {error, Cause}.
+    case start_app() of
+        ok ->
+            leo_object_storage_sup:start_child(ObjectStorageInfo);
+        {error, Cause} ->
+            {error, Cause}
+    end.
 
 
 %% @doc Insert an object into the object-storage
@@ -241,42 +181,6 @@ stats() ->
     end.
 
 
-%% @doc Add an object storage container into
-%%
--spec(add_container(integer(), list()) ->
-             ok).
-add_container(Id0, Props) ->
-    Id1 = gen_id(obj_storage, Id0),
-    Id2 = gen_id(metadata,    Id0),
-
-    Path       = leo_misc:get_value('path',        Props),
-    MetadataDB = leo_misc:get_value('metadata_db', Props),
-
-    %% Launch metadata-db
-    ok = leo_backend_db_api:new(Id2, 1, MetadataDB,
-                                lists:append([Path,
-                                              ?DEF_METADATA_STORAGE_SUB_DIR,
-                                              integer_to_list(Id0)])),
-
-    %% Launch object-storage
-    Args = [Id1, Id0, Id2, Path],
-    ChildSpec = {Id1,
-                 {leo_object_storage_server, start_link, Args},
-                 permanent, 2000, worker, [leo_object_storage_server]},
-
-    case supervisor:start_child(leo_object_storage_sup, ChildSpec) of
-        {ok, _Pid} ->
-            true = ets:insert(?ETS_CONTAINERS_TABLE, {Id0, [{obj_storage, Id1},
-                                                            {metadata,    Id2}]}),
-
-            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id1}, ?STATE_ACTIVE),
-            ok;
-        Error ->
-            io:format("[ERROR] add_container/2, ~w, ~p~n", [?LINE, Error]),
-            Error
-    end.
-
-
 %%--------------------------------------------------------------------
 %% INNTERNAL FUNCTIONS
 %%--------------------------------------------------------------------
@@ -304,26 +208,6 @@ start_app() ->
             {exit, Cause}
     end.
 
-
-%% %% @doc Retrieve object-store directory
-%% %% @private
--spec(get_path(string()) ->
-             string()).
-get_path(Path0) ->
-    {ok, Curr} = file:get_cwd(),
-
-    Path1 = case Path0 of
-                "/"   ++ _Rest -> Path0;
-                "../" ++ _Rest -> Path0;
-                "./"  ++  Rest -> Curr ++ "/" ++ Rest;
-                _              -> Curr ++ "/" ++ Path0
-            end,
-
-    Path2 = case (string:len(Path1) == string:rstr(Path1, "/")) of
-                true  -> Path1;
-                false -> Path1 ++ "/"
-            end,
-    Path2.
 
 
 %% @doc Retrieve an object storage process-id
@@ -393,20 +277,6 @@ do_request(delete, [Key, Object]) ->
 do_request(head, [Key]) ->
     KeyBin = term_to_binary(Key),
     ?SERVER_MODULE:head(get_object_storage_pid(KeyBin), KeyBin).
-
-
-%% @doc Generate Id for obj-storage or metadata
-%%
--spec(gen_id(obj_storage | metadata, integer()) ->
-             atom()).
-gen_id(obj_storage, Id) ->
-    list_to_atom(lists:append([atom_to_list(?APP_NAME),
-                               "_",
-                               integer_to_list(Id)]));
-gen_id(metadata, Id) ->
-    list_to_atom(lists:append(["leo_metadata",
-                               "_",
-                               integer_to_list(Id)])).
 
 
 %% @doc Loop of parallel execution controller(parent)
