@@ -188,10 +188,10 @@ start_child(ObjectStorageInfo) ->
              ok).
 terminate_children([]) ->
     ok;
-terminate_children([{Id,_Pid, worker, [Mod|_]}|T]) ->
+terminate_children([{Id, Pid, worker, [Mod|_]}|T]) ->
     case Mod of
         leo_backend_db_sup ->
-            Mod:stop();
+            Mod:stop(Pid);
         _ ->
             Mod:stop(Id)
     end,
