@@ -104,18 +104,23 @@ start_child(ObjectStorageInfo) ->
 
     %% Launch backend-db's sup
     %%   under the leo_object_storage_sup
-    ChildSpec0 = {leo_backend_db_sup,
-                  {leo_backend_db_sup, start_link, []},
-                  permanent, 2000, worker, [leo_backend_db_sup]},
     BackendDBSupPid =
-        case supervisor:start_child(?MODULE, ChildSpec0) of
-            {ok, Pid} ->
-                Pid;
-            {error, Cause0} ->
-                error_logger:error_msg("~p,~p,~p,~p~n",
-                                       [{module, ?MODULE_STRING}, {function, "start_child/2"},
-                                        {line, ?LINE}, {body, "Could NOT start backend-db sup"}]),
-                exit(Cause0)
+        case whereis(leo_backend_db_sup) of
+            undefined ->
+                ChildSpec0 = {leo_backend_db_sup,
+                              {leo_backend_db_sup, start_link, []},
+                              permanent, 2000, worker, [leo_backend_db_sup]},
+                case supervisor:start_child(?MODULE, ChildSpec0) of
+                    {ok, Pid} ->
+                        Pid;
+                    {error, Cause0} ->
+                        error_logger:error_msg("~p,~p,~p,~p~n",
+                                               [{module, ?MODULE_STRING}, {function, "start_child/2"},
+                                                {line, ?LINE}, {body, "Could NOT start backend-db sup"}]),
+                        exit(Cause0)
+                end;
+            Pid ->
+                Pid
         end,
 
     %% Launch backend-db's processes
