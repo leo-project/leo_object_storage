@@ -252,22 +252,23 @@ state_suspend(resume, From,
 -spec(state_suspend({done_child, pid(), atom()}, #state{}) ->
              {next_state, state_suspend | state_idle, #state{}}).
 state_suspend({done_child, DonePid, DoneId}, #state{target_pids      = [_Id|_Rest],
-                                                    in_progress_pids = InProgPids,
-                                                    child_pids       = ChildPids} = State) ->
-    InProgressPids = lists:delete(DoneId, InProgPids),
-    ChildPids      = orddict:store(DonePid, false, ChildPids),
-    {next_state, state_suspend, State#state{in_progress_pids = InProgressPids,
-                                            child_pids       = ChildPids}};
+                                                    in_progress_pids = InProgressPids0,
+                                                    child_pids       = ChildPids0} = State) ->
+    InProgressPids1 = lists:delete(DoneId, InProgressPids0),
+    ChildPids1      = orddict:store(DonePid, false, ChildPids0),
+
+    {next_state, state_suspend, State#state{in_progress_pids = InProgressPids1,
+                                            child_pids       = ChildPids1}};
 
 state_suspend({done_child, DonePid, DoneId}, #state{target_pids      = [],
                                                     in_progress_pids = [_H,_H2|_Rest],
-                                                    child_pids       = ChildPids} = State) ->
+                                                    child_pids       = ChildPids0} = State) ->
     erlang:send(DonePid, stop),
-
     InProgressPids = lists:delete(DoneId, State#state.in_progress_pids),
-    ChildPids      = orddict:erase(DonePid, ChildPids),
+    ChildPids1     = orddict:erase(DonePid, ChildPids0),
+
     {next_state, state_suspend, State#state{in_progress_pids = InProgressPids,
-                                            child_pids       = ChildPids}};
+                                            child_pids       = ChildPids1}};
 
 state_suspend({done_child,_DonePid,_DoneId}, #state{target_pids      = [],
                                                     in_progress_pids = [_H|_Rest],
@@ -321,25 +322,29 @@ format_status(_Opt, [_PDict, State]) ->
 %% @private
 -spec(start_jobs_as_possible(#state{}) ->
              list()).
-start_jobs_as_possible(#state{target_pids = [_Id|_Rest]} = State) ->
+start_jobs_as_possible(State) ->
     start_jobs_as_possible(State#state{child_pids = orddict:new()}, 0).
-start_jobs_as_possible(
-        #state{target_pids           = [Id|Rest],
-               max_num_of_concurrent = MaxProc,
-               filter_fun            = FunHasChargeOfNode,
-               in_progress_pids      = InProgPids,
-               child_pids            = ChildPids} = State, NumChild) when NumChild < MaxProc ->
+
+start_jobs_as_possible(#state{target_pids           = [Id|Rest],
+                              max_num_of_concurrent = MaxProc,
+                              filter_fun            = FunHasChargeOfNode,
+                              in_progress_pids      = InProgPids,
+                              child_pids            = ChildPids} = State, NumChild) when NumChild < MaxProc ->
     Pid  = spawn_link(fun() ->
                          loop_child(?MODULE, FunHasChargeOfNode)
                  end),
     erlang:send(Pid, {compact, Id}),
+
     start_jobs_as_possible(
         State#state{target_pids      = Rest,
                     in_progress_pids = [Id|InProgPids],
                     child_pids       = orddict:store(Pid, true, ChildPids)}, NumChild + 1);
+
 start_jobs_as_possible(State, _NumChild) ->
     State.
 
+
+%% start_jobs_as_possible(#state{target_pids = [_Id|_Rest]} = State) ->
 
 %% @doc Loop of job executor(child)
 %% @private
