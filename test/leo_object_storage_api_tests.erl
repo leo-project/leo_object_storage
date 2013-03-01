@@ -252,7 +252,7 @@ stats_([Path1, Path2]) ->
     {ok, Res} = leo_object_storage_api:stats(),
     ?assertEqual(8, length(Res)),
 
-    ok = leo_object_storage_sup:stop(),
+    catch leo_object_storage_sup:stop(),
     application:stop(leo_backend_db),
     application:stop(bitcask),
     application:stop(leo_object_storage),
