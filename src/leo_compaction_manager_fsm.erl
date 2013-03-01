@@ -344,8 +344,6 @@ start_jobs_as_possible(State, _NumChild) ->
     State.
 
 
-%% start_jobs_as_possible(#state{target_pids = [_Id|_Rest]} = State) ->
-
 %% @doc Loop of job executor(child)
 %% @private
 -spec(loop_child(pid(), fun()) ->
