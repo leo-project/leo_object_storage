@@ -52,10 +52,11 @@
          format_status/2]).
 
 -record(state, {max_num_of_concurrent = 1  :: integer(),
-                filter_fun                 :: function(),
+                inspect_fun                :: function(),
                 target_pids           = [] :: list(),
                 in_progress_pids      = [] :: list(),
                 child_pids            = [] :: any(),    %% orddict(), {Chid :: pid(), hasJob :: boolean()}
+                reserve_pids          = [] :: list(),
                 start_datetime        = 0  :: integer() %% gregory-sec
                }).
 
@@ -78,16 +79,13 @@ start_link() ->
 %% @doc start compaction
 -spec(start(list(string() | atom()), integer(), fun()) ->
              ok | {error, any()}).
-start(TargetPids, MaxConNum, FilterFun) ->
-    NewTargetPids = lists:map(fun(Pid) when is_list(Pid) ->
-                                      list_to_atom(Pid);
-                                 (Pid) ->
-                                      Pid
-                              end, TargetPids),
-    gen_fsm:sync_send_event(?MODULE, {start, NewTargetPids, MaxConNum, FilterFun}, ?DEF_TIMEOUT).
+start(TargetPids, MaxConNum, InspectFun) ->
+    gen_fsm:sync_send_event(
+      ?MODULE, {start, TargetPids, MaxConNum, InspectFun}, ?DEF_TIMEOUT).
 
 stop(_Id) ->
     void.
+
 
 %% @doc Suspend compaction
 -spec(suspend() ->
@@ -130,17 +128,32 @@ init([]) ->
 -spec(state_idle({start, list(), pos_integer(), function()} | suspend | resume,
                  From::pid(), State::#state{}) ->
              {next_state, state_running | state_idle, #state{}}).
-state_idle({start, TargetPids, MaxConNum, FilterFun}, From, State) ->
+state_idle({start, TargetPids, MaxConNum, InspectFun}, From, State) ->
+    AllPids    = leo_object_storage_api:get_object_storage_pid('all'),
+    RemainPids = State#state.target_pids,
+
+    ReservePids = case (length(TargetPids) == length(AllPids)) of
+                      true  ->
+                          [];
+                      false when RemainPids == [] ->
+                          lists:subtract(AllPids, TargetPids);
+                      false when RemainPids /= [] ->
+                          lists:subtract(RemainPids, TargetPids)
+                  end,
+
     NewState = start_jobs_as_possible(State#state{target_pids           = TargetPids,
                                                   max_num_of_concurrent = MaxConNum,
-                                                  filter_fun            = FilterFun,
+                                                  inspect_fun           = InspectFun,
+                                                  reserve_pids          = ReservePids,
                                                   start_datetime        = leo_date:now()}),
     gen_fsm:reply(From, ok),
     {next_state, state_running, NewState};
 
+
 state_idle(suspend, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
     {next_state, state_idle, State};
+
 state_idle(resume, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
     {next_state, state_idle, State}.
@@ -181,7 +194,7 @@ state_running({done_child, DonePid, DoneId}, #state{target_pids      = [Id|Rest]
                  in_progress_pids = [Id|lists:delete(DoneId, InProgPids)]}};
 
 state_running({done_child, DonePid, DoneId}, #state{target_pids      = [],
-                                                    in_progress_pids = [_H,_H2|_Rest],
+                                                    in_progress_pids = [_,_|_],
                                                     child_pids       = ChildPids} = State) ->
     erlang:send(DonePid, stop),
     {next_state, state_running,
@@ -189,12 +202,22 @@ state_running({done_child, DonePid, DoneId}, #state{target_pids      = [],
                  child_pids       = orddict:erase(DonePid, ChildPids)}};
 
 state_running({done_child,_DonePid,_DoneId}, #state{target_pids      = [],
-                                                    in_progress_pids = [_H|_Rest],
-                                                    child_pids       = ChildPids} = State) ->
+                                                    in_progress_pids = [_|_],
+                                                    child_pids       = ChildPids,
+                                                    reserve_pids     = ReservePids} = State) ->
     [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
-    {next_state, state_idle,
-     State#state{in_progress_pids = [],
-                 child_pids       = orddict:new()}}.
+    case ReservePids of
+        [] ->
+            {next_state, state_idle,
+             State#state{in_progress_pids = [],
+                         child_pids       = orddict:new()}};
+        _ ->
+            {next_state, state_idle,
+             State#state{target_pids      = ReservePids,
+                         in_progress_pids = [],
+                         child_pids       = orddict:new(),
+                         reserve_pids     = []}}
+    end.
 
 
 %% @doc State of 'suspend'
@@ -215,35 +238,36 @@ state_suspend(resume, From, #state{target_pids      = [_Id|_Rest],
                                    child_pids       = ChildPids} = State) ->
     TargetPids = State#state.target_pids,
 
-    {NewTargetPids, NewInProgPids, NewChildPids} = orddict:fold(
-        fun(_Pid, true, Acc) ->
-            Acc;
-        (Pid, false, {TargetPidsIn, InProgPidsIn, ChildPidsIn}) ->
-            case length(TargetPidsIn) of
-                0 ->
-                    erlang:send(Pid, stop),
-                    {[], InProgPidsIn, orddict:erase(Pid, ChildPidsIn)};
-                _ ->
-                    Id = hd(TargetPidsIn),
-                    erlang:send(Pid, {compact, Id}),
-                    {lists:delete(Id, TargetPidsIn), [Id|InProgPidsIn], orddict:store(Pid, true, ChildPidsIn)}
-            end
-        end, {TargetPids, InProgPids, ChildPids}, ChildPids),
+    {NewTargetPids, NewInProgPids, NewChildPids} =
+        orddict:fold(
+          fun(_Pid, true, Acc) ->
+                  Acc;
+             (Pid, false, {TargetPidsIn, InProgPidsIn, ChildPidsIn}) ->
+                  case length(TargetPidsIn) of
+                      0 ->
+                          erlang:send(Pid, stop),
+                          {[], InProgPidsIn, orddict:erase(Pid, ChildPidsIn)};
+                      _ ->
+                          Id = hd(TargetPidsIn),
+                          erlang:send(Pid, {compact, Id}),
+
+                          {lists:delete(Id, TargetPidsIn),
+                           [Id|InProgPidsIn], orddict:store(Pid, true, ChildPidsIn)}
+                  end
+          end, {TargetPids, InProgPids, ChildPids}, ChildPids),
 
     gen_fsm:reply(From, ok),
     {next_state, state_running, State#state{target_pids      = NewTargetPids,
                                             in_progress_pids = NewInProgPids,
                                             child_pids       = NewChildPids}};
 
-state_suspend(resume, From,
-        #state{target_pids      = [],
-               in_progress_pids = [_H|_Rest]} = State) ->
+state_suspend(resume, From, #state{target_pids      = [],
+                                   in_progress_pids = [_H|_Rest]} = State) ->
     gen_fsm:reply(From, ok),
     {next_state, state_running, State};
 
-state_suspend(resume, From,
-        #state{target_pids      = [],
-               in_progress_pids = []} = State) ->
+state_suspend(resume, From, #state{target_pids      = [],
+                                   in_progress_pids = []} = State) ->
     %% never hapend
     gen_fsm:reply(From, ok),
     {next_state, state_idle, State}.
@@ -272,10 +296,14 @@ state_suspend({done_child, DonePid, DoneId}, #state{target_pids      = [],
 
 state_suspend({done_child,_DonePid,_DoneId}, #state{target_pids      = [],
                                                     in_progress_pids = [_H|_Rest],
-                                                    child_pids       = ChildPids} = State) ->
+                                                    child_pids       = ChildPids,
+                                                    reserve_pids     = ReservePids} = State) ->
     [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
-    {next_state, state_idle, State#state{in_progress_pids = [],
-                                         child_pids = orddict:new()}}.
+
+    {next_state, state_idle, State#state{target_pids      = ReservePids,
+                                         in_progress_pids = [],
+                                         child_pids       = orddict:new(),
+                                         reserve_pids     = []}}.
 
 %% @doc Handle events
 %%
@@ -284,10 +312,9 @@ handle_event(_Event, StateName, State) ->
 
 
 %% @doc Handle 'status' event
-handle_sync_event(status, _From, StateName,
-        #state{target_pids      = RestPids,
-               in_progress_pids = InProgPids,
-               start_datetime   = LastStart} = State) ->
+handle_sync_event(status, _From, StateName, #state{target_pids      = RestPids,
+                                                   in_progress_pids = InProgPids,
+                                                   start_datetime   = LastStart} = State) ->
     {reply, {ok, {RestPids, InProgPids, LastStart}}, StateName, State}.
 
 
@@ -327,7 +354,7 @@ start_jobs_as_possible(State) ->
 
 start_jobs_as_possible(#state{target_pids           = [Id|Rest],
                               max_num_of_concurrent = MaxProc,
-                              filter_fun            = FunHasChargeOfNode,
+                              inspect_fun           = FunHasChargeOfNode,
                               in_progress_pids      = InProgPids,
                               child_pids            = ChildPids} = State, NumChild) when NumChild < MaxProc ->
     Pid  = spawn_link(fun() ->
