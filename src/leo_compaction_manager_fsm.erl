@@ -56,7 +56,7 @@
                 target_pids           = [] :: list(),
                 in_progress_pids      = [] :: list(),
                 child_pids            = [] :: any(),    %% orddict(), {Chid :: pid(), hasJob :: boolean()}
-                reserve_pids          = [] :: list(),
+                reserved_pids         = [] :: list(),
                 start_datetime        = 0  :: integer() %% gregory-sec
                }).
 
@@ -132,19 +132,19 @@ state_idle({start, TargetPids, MaxConNum, InspectFun}, From, State) ->
     AllPids    = leo_object_storage_api:get_object_storage_pid('all'),
     RemainPids = State#state.target_pids,
 
-    ReservePids = case (length(TargetPids) == length(AllPids)) of
-                      true  ->
-                          [];
-                      false when RemainPids == [] ->
-                          lists:subtract(AllPids, TargetPids);
-                      false when RemainPids /= [] ->
-                          lists:subtract(RemainPids, TargetPids)
-                  end,
+    ReservedPids = case (length(TargetPids) == length(AllPids)) of
+                       true  ->
+                           [];
+                       false when RemainPids == [] ->
+                           lists:subtract(AllPids, TargetPids);
+                       false when RemainPids /= [] ->
+                           lists:subtract(RemainPids, TargetPids)
+                   end,
 
     NewState = start_jobs_as_possible(State#state{target_pids           = TargetPids,
                                                   max_num_of_concurrent = MaxConNum,
                                                   inspect_fun           = InspectFun,
-                                                  reserve_pids          = ReservePids,
+                                                  reserved_pids         = ReservedPids,
                                                   start_datetime        = leo_date:now()}),
     gen_fsm:reply(From, ok),
     {next_state, state_running, NewState};
@@ -204,19 +204,19 @@ state_running({done_child, DonePid, DoneId}, #state{target_pids      = [],
 state_running({done_child,_DonePid,_DoneId}, #state{target_pids      = [],
                                                     in_progress_pids = [_|_],
                                                     child_pids       = ChildPids,
-                                                    reserve_pids     = ReservePids} = State) ->
+                                                    reserved_pids    = ReservedPids} = State) ->
     [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
-    case ReservePids of
+    case ReservedPids of
         [] ->
             {next_state, state_idle,
              State#state{in_progress_pids = [],
-                         child_pids       = orddict:new()}};
+                         child_pids       = []}};
         _ ->
             {next_state, state_idle,
-             State#state{target_pids      = ReservePids,
+             State#state{target_pids      = ReservedPids,
                          in_progress_pids = [],
-                         child_pids       = orddict:new(),
-                         reserve_pids     = []}}
+                         child_pids       = [],
+                         reserved_pids    = []}}
     end.
 
 
@@ -297,13 +297,13 @@ state_suspend({done_child, DonePid, DoneId}, #state{target_pids      = [],
 state_suspend({done_child,_DonePid,_DoneId}, #state{target_pids      = [],
                                                     in_progress_pids = [_H|_Rest],
                                                     child_pids       = ChildPids,
-                                                    reserve_pids     = ReservePids} = State) ->
+                                                    reserved_pids    = ReservedPids} = State) ->
     [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
 
-    {next_state, state_idle, State#state{target_pids      = ReservePids,
+    {next_state, state_idle, State#state{target_pids      = ReservedPids,
                                          in_progress_pids = [],
-                                         child_pids       = orddict:new(),
-                                         reserve_pids     = []}}.
+                                         child_pids       = [],
+                                         reserved_pids    = []}}.
 
 %% @doc Handle events
 %%
@@ -315,7 +315,8 @@ handle_event(_Event, StateName, State) ->
 handle_sync_event(status, _From, StateName, #state{target_pids      = RestPids,
                                                    in_progress_pids = InProgPids,
                                                    start_datetime   = LastStart} = State) ->
-    {reply, {ok, {RestPids, InProgPids, LastStart}}, StateName, State}.
+    TotalPids = length(leo_object_storage_api:get_object_storage_pid('all')),
+    {reply, {ok, {TotalPids, RestPids, InProgPids, LastStart}}, StateName, State}.
 
 
 %% Function: handle_info(Info, State) -> {noreply, State}          |
@@ -350,7 +351,7 @@ format_status(_Opt, [_PDict, State]) ->
 -spec(start_jobs_as_possible(#state{}) ->
              list()).
 start_jobs_as_possible(State) ->
-    start_jobs_as_possible(State#state{child_pids = orddict:new()}, 0).
+    start_jobs_as_possible(State#state{child_pids = []}, 0).
 
 start_jobs_as_possible(#state{target_pids           = [Id|Rest],
                               max_num_of_concurrent = MaxProc,

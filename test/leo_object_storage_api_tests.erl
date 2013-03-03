@@ -303,7 +303,7 @@ compact_([Path1, Path2]) ->
 
     ?assertEqual({error,badstate}, leo_compaction_manager_fsm:suspend()),
     ?assertEqual({error,badstate}, leo_compaction_manager_fsm:resume()),
-    ?assertEqual({ok, {[], [], 0}}, leo_compaction_manager_fsm:status()),
+    ?assertEqual({ok, {8, [], [], 0}}, leo_compaction_manager_fsm:status()),
     AddrId = 4095,
     Key    = <<"air/on/g/string/7">>,
     Object = #object{method    = delete,
@@ -343,11 +343,11 @@ compact_([Path1, Path2]) ->
     io:format(user, "*** target-pids:~p~n", [TargetPids]),
 
     ok = leo_compaction_manager_fsm:start(TargetPids, 2, FunHasChargeOfNode),
-    {ok, {RestPids, InProgressPids, LastStartTime}} = leo_compaction_manager_fsm:status(),
+    {ok, {8, RestPids, InProgressPids, LastStartTime}} = leo_compaction_manager_fsm:status(),
     io:format(user, "*** rest:~p inprog:~p last:~p~n", [RestPids, InProgressPids, LastStartTime]),
 
     timer:sleep(250),
-    {ok, {RestPids2, InProgressPids2, LastStartTime2}} = leo_compaction_manager_fsm:status(),
+    {ok, {8, RestPids2, InProgressPids2, LastStartTime2}} = leo_compaction_manager_fsm:status(),
     io:format(user, "*** rest:~p inprog:~p last:~p~n", [RestPids2, InProgressPids2, LastStartTime2]),
 
     {ok, Res2} = leo_object_storage_api:stats(),
