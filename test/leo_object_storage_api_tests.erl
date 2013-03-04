@@ -303,7 +303,17 @@ compact_([Path1, Path2]) ->
 
     ?assertEqual({error,badstate}, leo_compaction_manager_fsm:suspend()),
     ?assertEqual({error,badstate}, leo_compaction_manager_fsm:resume()),
-    ?assertEqual({ok, {8, [], [], 0}}, leo_compaction_manager_fsm:status()),
+
+    ?assertEqual({ok, #compaction_stats{status = 'idle',
+                                        total_num_of_targets    = 8,
+                                        num_of_reserved_targets = 0,
+                                        num_of_pending_targets  = 0,
+                                        num_of_ongoing_targets  = 0,
+                                        reserved_targets = [],
+                                        pending_targets  = [],
+                                        ongoing_targets  = [],
+                                        latest_exec_datetime = 0
+                                       }}, leo_compaction_manager_fsm:status()),
     AddrId = 4095,
     Key    = <<"air/on/g/string/7">>,
     Object = #object{method    = delete,
@@ -343,12 +353,13 @@ compact_([Path1, Path2]) ->
     io:format(user, "*** target-pids:~p~n", [TargetPids]),
 
     ok = leo_compaction_manager_fsm:start(TargetPids, 2, FunHasChargeOfNode),
-    {ok, {8, RestPids, InProgressPids, LastStartTime}} = leo_compaction_manager_fsm:status(),
-    io:format(user, "*** rest:~p inprog:~p last:~p~n", [RestPids, InProgressPids, LastStartTime]),
+    timer:sleep(100),
 
-    timer:sleep(250),
-    {ok, {8, RestPids2, InProgressPids2, LastStartTime2}} = leo_compaction_manager_fsm:status(),
-    io:format(user, "*** rest:~p inprog:~p last:~p~n", [RestPids2, InProgressPids2, LastStartTime2]),
+    {ok, CopactionStats} = leo_compaction_manager_fsm:status(),
+    ?assertEqual('running', CopactionStats#compaction_stats.status),
+    ?assertEqual(8, CopactionStats#compaction_stats.total_num_of_targets),
+    ?assertEqual(true, 0 < CopactionStats#compaction_stats.num_of_pending_targets),
+    ?assertEqual(true, 0 < CopactionStats#compaction_stats.num_of_ongoing_targets),
 
     {ok, Res2} = leo_object_storage_api:stats(),
     {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2}

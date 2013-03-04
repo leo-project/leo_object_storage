@@ -30,16 +30,14 @@
 -define(DEF_METADATA_STORAGE_SUB_DIR,  "metadata/").
 -define(DEF_STATE_SUB_DIR,             "state/").
 
-
 %% ETS-Table
 -define(ETS_CONTAINERS_TABLE,  'leo_object_storage_containers').
 -define(ETS_INFO_TABLE,        'leo_object_storage_info').
 
-
 %% regarding compaction
 -define(ENV_COMPACTION_STATUS, 'compaction_status').
--define(STATE_COMPACTING,  'compacting').
--define(STATE_ACTIVE,      'active').
+-define(STATE_COMPACTING,      'compacting').
+-define(STATE_ACTIVE,          'active').
 -type(storage_status() :: ?STATE_COMPACTING | ?STATE_ACTIVE).
 
 
@@ -55,9 +53,6 @@
 
 -type(del_flag() :: ?DEL_TRUE | ?DEL_FALSE).
 -type(type_of_method() :: get | put | delete | head).
--type(compaction_history() :: {calendar:datetime(), calendar:datetime()}).
--type(compaction_histories() :: list(compaction_history())).
-
 
 -record(backend_info, {
           backend             :: atom(),
@@ -72,20 +67,20 @@
 
 -record(metadata, {
           key = <<>>          :: binary(),  %% filename
-          addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
-          ksize      = 0      :: integer(), %% file-path size
-          dsize      = 0      :: integer(), %% data size
-          msize      = 0      :: integer(), %% custom-metadata size
+          addr_id    = 0      :: pos_integer(), %% ring-address id (MD5 > hex-to-integer)
+          ksize      = 0      :: pos_integer(), %% file-path size
+          dsize      = 0      :: pos_integer(), %% data size
+          msize      = 0      :: pos_integer(), %% custom-metadata size
 
-          csize      = 0      :: integer(), %% * chunked data size    (for large-object)
-          cnumber    = 0      :: integer(), %% * # of chunked objects (for large-object)
-          cindex     = 0      :: integer(), %% * chunked object index (for large-object)
+          csize      = 0      :: pos_integer(), %% * chunked data size    (for large-object)
+          cnumber    = 0      :: pos_integer(), %% * # of chunked objects (for large-object)
+          cindex     = 0      :: pos_integer(), %% * chunked object index (for large-object)
 
-          offset     = 0      :: integer(), %% object-container's offset
-          clock      = 0      :: integer(), %% clock
-          timestamp  = 0      :: integer(), %% timestamp
-          checksum   = 0      :: integer(), %% checksum (MD5 > hex-to-integer)
-          ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
+          offset     = 0      :: pos_integer(), %% object-container's offset
+          clock      = 0      :: pos_integer(), %% clock
+          timestamp  = 0      :: pos_integer(), %% timestamp
+          checksum   = 0      :: pos_integer(), %% checksum (MD5 > hex-to-integer)
+          ring_hash  = 0      :: pos_integer(), %% RING's Hash(CRC32) when write an object.
           del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
          }).
 
@@ -95,34 +90,58 @@
           addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
           data       = <<>>   :: binary(),  %% file
           meta       = <<>>   :: binary(),  %% custom-metadata
-          ksize      = 0      :: integer(), %% filename size
-          dsize      = 0      :: integer(), %% data size
-          msize      = 0      :: integer(), %% custom-metadata size
+          ksize      = 0      :: pos_integer(), %% filename size
+          dsize      = 0      :: pos_integer(), %% data size
+          msize      = 0      :: pos_integer(), %% custom-metadata size
 
-          csize      = 0      :: integer(), %% * chunked data size    (for large-object)
-          cnumber    = 0      :: integer(), %% * # of chunked objects (for large-object)
-          cindex     = 0      :: integer(), %% * chunked object index (for large-object)
+          csize      = 0      :: pos_integer(), %% * chunked data size    (for large-object)
+          cnumber    = 0      :: pos_integer(), %% * # of chunked objects (for large-object)
+          cindex     = 0      :: pos_integer(), %% * chunked object index (for large-object)
 
-          offset     = 0      :: integer(), %% object-container's offset
-          clock      = 0      :: integer(), %% clock
-          timestamp  = 0      :: integer(), %% timestamp
-          checksum   = 0      :: integer(), %% checksum (MD5 > hex-to-integer)
-          ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
-          req_id     = 0      :: integer(), %% request id
+          offset     = 0      :: pos_integer(), %% object-container's offset
+          clock      = 0      :: pos_integer(), %% clock
+          timestamp  = 0      :: pos_integer(), %% timestamp
+          checksum   = 0      :: pos_integer(), %% checksum (MD5 > hex-to-integer)
+          ring_hash  = 0      :: pos_integer(), %% RING's Hash(CRC32) when write an object.
+          req_id     = 0      :: pos_integer(), %% request id
           del = ?DEL_FALSE    :: del_flag() %% delete flag
          }).
 
 -record(storage_stats, {
-          file_path            = ""    :: string(),
-          total_sizes          = 0     :: integer(),
-          active_sizes         = 0     :: integer(),
-          total_num            = 0     :: integer(),
-          active_num           = 0     :: integer(),
+          file_path            = []    :: string(),
+          total_sizes          = 0     :: pos_integer(),
+          active_sizes         = 0     :: pos_integer(),
+          total_num            = 0     :: pos_integer(),
+          active_num           = 0     :: pos_integer(),
           compaction_histories = []    :: compaction_histories(),
           has_error            = false :: boolean()
          }).
 
+%% @doc Compaction related definitions
+-type(compaction_history() :: {calendar:datetime(), calendar:datetime()}).
+-type(compaction_histories() :: list(compaction_history())).
 
+-define(COMPACTION_STATUS_IDLE,    'idle').
+-define(COMPACTION_STATUS_RUNNING, 'running').
+-define(COMPACTION_STATUS_SUSPEND, 'suspend').
+-type(compaction_status() :: ?COMPACTION_STATUS_IDLE |
+                             ?COMPACTION_STATUS_RUNNING |
+                             ?COMPACTION_STATUS_SUSPEND).
+
+-record(compaction_stats, {
+          status = ?COMPACTION_STATUS_IDLE :: compaction_status(),
+          total_num_of_targets    = 0  :: pos_integer(),
+          num_of_reserved_targets = 0  :: pos_integer(),
+          num_of_pending_targets  = 0  :: pos_integer(),
+          num_of_ongoing_targets  = 0  :: pos_integer(),
+          reserved_targets = []        :: list(),
+          pending_targets  = []        :: list(),
+          ongoing_targets  = []        :: list(),
+          latest_exec_datetime = 0     :: pos_integer()
+         }).
+
+
+%% apllication-env
 -define(env_metadata_db(),
         case application:get_env(?APP_NAME, metadata_storage) of
             {ok, EnvMetadataDB} -> EnvMetadataDB;
