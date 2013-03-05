@@ -56,7 +56,7 @@
                 inspect_fun                :: function(),
                 total_num_of_targets = 0   :: pos_integer(),
                 reserved_targets = []      :: list(),
-                pending_targets   = []      :: list(),
+                pending_targets  = []      :: list(),
                 ongoing_targets  = []      :: list(),
                 child_pids       = []      :: list(), %% orddict(), {Chid :: pid(), hasJob :: boolean()}
                 start_datetime   = 0       :: pos_integer(), %% gregory-sec
@@ -83,7 +83,6 @@ start_link() ->
 -spec(start(list(string() | atom()), integer(), fun()) ->
              ok | {error, any()}).
 start(TargetPids, MaxConNum, InspectFun) ->
-    io:format(user, "start: ~p,~p~n", [TargetPids, MaxConNum]),
     gen_fsm:sync_send_event(
       ?MODULE, {start, TargetPids, MaxConNum, InspectFun}, ?DEF_TIMEOUT).
 
@@ -124,10 +123,12 @@ done_child(Pid, Id) ->
 %%====================================================================
 % Description: Initiates the server
 init([]) ->
-    TotalNumOfTargets = length(leo_object_storage_api:get_object_storage_pid('all')),
-    io:format(user, "start: ~p~n", [TotalNumOfTargets]),
+    AllTargets = leo_object_storage_api:get_object_storage_pid('all'),
+    TotalNumOfTargets = length(AllTargets),
+
     {ok, idle, #state{status = ?COMPACTION_STATUS_IDLE,
-                      total_num_of_targets = TotalNumOfTargets}}.
+                      total_num_of_targets = TotalNumOfTargets,
+                      pending_targets      = AllTargets}}.
 
 
 %% @doc State of 'idle'
@@ -147,7 +148,6 @@ idle({start, TargetPids, MaxConNum, InspectFun}, From, State) ->
                        false when PendingTargets /= [] ->
                            lists:subtract(PendingTargets, TargetPids)
                    end,
-    io:format(user, "idle: ~p~n", [ReservedTargets]),
 
     NextState = ?COMPACTION_STATUS_RUNNING,
     NewState  = start_jobs_as_possible(State#state{status = NextState,
@@ -157,7 +157,6 @@ idle({start, TargetPids, MaxConNum, InspectFun}, From, State) ->
                                                    inspect_fun           = InspectFun,
                                                    start_datetime        = leo_date:now()}),
     gen_fsm:reply(From, ok),
-    io:format(user, "idle: ~p~n", [ok]),
     {next_state, NextState, NewState};
 
 
@@ -225,19 +224,13 @@ running({done_child,_DonePid,_DoneId}, #state{pending_targets  = [],
                                               reserved_targets = ReservedTargets} = State) ->
     [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
     NextState = ?COMPACTION_STATUS_IDLE,
+    PendingTargets = pending_targets(ReservedTargets),
+    {next_state, NextState, State#state{status = NextState,
+                                        pending_targets  = PendingTargets,
+                                        ongoing_targets  = [],
+                                        child_pids       = [],
+                                        reserved_targets = []}}.
 
-    case ReservedTargets of
-        [] ->
-            {next_state, NextState, State#state{status = NextState,
-                                                ongoing_targets = [],
-                                                child_pids      = []}};
-        _ ->
-            {next_state, NextState, State#state{status = NextState,
-                                                pending_targets  = ReservedTargets,
-                                                ongoing_targets  = [],
-                                                child_pids       = [],
-                                                reserved_targets = []}}
-    end.
 
 
 %% @doc State of 'suspend'
@@ -330,11 +323,14 @@ suspend({done_child,_DonePid,_DoneId}, #state{pending_targets  = [],
                                               reserved_targets = ReservedTargets} = State) ->
     [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
     NextState = ?COMPACTION_STATUS_IDLE,
+    PendingTargets = pending_targets(ReservedTargets),
     {next_state, NextState, State#state{status = NextState,
-                                        pending_targets  = ReservedTargets,
+                                        pending_targets  = PendingTargets,
                                         ongoing_targets  = [],
                                         child_pids       = [],
                                         reserved_targets = []}}.
+
+
 
 %% @doc Handle events
 %%
@@ -349,7 +345,6 @@ handle_sync_event(status, _From, StateName, #state{status = Status,
                                                    pending_targets      = PendingTargets,
                                                    ongoing_targets      = OngoingTargets,
                                                    start_datetime       = LastestExecDate} = State) ->
-    io:format(user, "handle_sync_event: ~p~n", [State]),
     {reply, {ok, #compaction_stats{status = Status,
                                    total_num_of_targets    = TotalNumOfTargets,
                                    num_of_reserved_targets = length(ReservedTargets),
@@ -431,3 +426,11 @@ loop_child(From, FunHasChargeOfNode) ->
         _ ->
             {error, unknown_message}
     end.
+
+
+%% @doc Retrieve pending targets
+%% @private
+pending_targets([]) ->
+    leo_object_storage_api:get_object_storage_pid('all');
+pending_targets(ReservedTargets) ->
+    ReservedTargets.

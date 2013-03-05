@@ -304,13 +304,14 @@ compact_([Path1, Path2]) ->
     ?assertEqual({error,badstate}, leo_compaction_manager_fsm:suspend()),
     ?assertEqual({error,badstate}, leo_compaction_manager_fsm:resume()),
 
+    AllTargets = leo_object_storage_api:get_object_storage_pid('all'),
     ?assertEqual({ok, #compaction_stats{status = 'idle',
                                         total_num_of_targets    = 8,
                                         num_of_reserved_targets = 0,
-                                        num_of_pending_targets  = 0,
+                                        num_of_pending_targets  = 8,
                                         num_of_ongoing_targets  = 0,
                                         reserved_targets = [],
-                                        pending_targets  = [],
+                                        pending_targets  = AllTargets,
                                         ongoing_targets  = [],
                                         latest_exec_datetime = 0
                                        }}, leo_compaction_manager_fsm:status()),
