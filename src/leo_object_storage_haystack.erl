@@ -185,7 +185,7 @@ fetch(MetaDBId, Key, Fun) ->
              ok | {error, any()}).
 store(MetaDBId, StorageInfo, Metadata, Bin) ->
     Key = Metadata#metadata.key,
-    Checksum = leo_hex:binary_to_integer(erlang:md5(Bin)),
+    Checksum = leo_hex:raw_binary_to_integer(erlang:md5(Bin)),
 
     Object = #object{addr_id    = Metadata#metadata.addr_id,
                      key        = Key,
@@ -441,7 +441,7 @@ put_fun1(MetaDBId, StorageInfo, #object{addr_id    = AddrId,
     KSize    = byte_size(Key),
     Checksum = case Bin of
                    <<>> -> 281949768489412648962353822266799178366;
-                   _    -> leo_hex:binary_to_integer(erlang:md5(Bin))
+                   _    -> leo_hex:raw_binary_to_integer(erlang:md5(Bin))
                end,
 
     Needle = create_needle(Object#object{ksize    = KSize,
@@ -618,7 +618,7 @@ compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
                 RemainSize ->
                     <<KeyValue:KSize/binary, BodyValue:DSize4Read/binary, _Footer/binary>> = RemainBin,
 
-                    case leo_hex:binary_to_integer(erlang:md5(BodyValue)) of
+                    case leo_hex:raw_binary_to_integer(erlang:md5(BodyValue)) of
                         Checksum ->
                             Timestamp = calendar:datetime_to_gregorian_seconds(
                                           {{Year, Month, Day}, {Hour, Min, Second}}),
