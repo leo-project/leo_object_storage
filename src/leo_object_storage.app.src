@@ -22,10 +22,10 @@
 {application, leo_object_storage,
   [
     {description, "Leo Object Storage"},
-    {vsn, "0.12.28"},
+    {vsn, "0.12.29"},
     {id, "leo_object_storage"},
     {registered,   []},
-    {applications, [kernel, stdlib]},
+    {applications, [kernel, stdlib, crypto]},
     {mod, {leo_object_storage_app, []}},
     {env, [{profile,          false},
            {metadata_storage, 'bitcask'},

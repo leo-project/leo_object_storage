@@ -46,6 +46,7 @@ all_test_() ->
                           ]]}.
 
 setup() ->
+    application:start(crypto),
     Path1 = "./avs1",
     Path2 = "./avs2",
     io:format(user, "setup~n", []),
@@ -55,6 +56,7 @@ teardown([Path1, Path2]) ->
     os:cmd("rm -rf " ++ Path1),
     os:cmd("rm -rf " ++ Path2),
     io:format(user, "teardown~n", []),
+    application:stop(crypto),
     ok.
 
 
@@ -94,7 +96,7 @@ operate_([Path1, Path2]) ->
                      ksize     = byte_size(Key),
                      data      = Bin,
                      dsize     = byte_size(Bin),
-                     checksum  = leo_hex:binary_to_integer(erlang:md5(Bin)),
+                     checksum  = leo_hex:raw_binary_to_integer(crypto:md5(Bin)),
                      timestamp = leo_date:now(),
                      clock     = leo_date:clock()},
     {ok,_ETag} = leo_object_storage_api:put({AddrId, Key}, Object),
@@ -151,7 +153,7 @@ operate_([Path1, Path2]) ->
                       addr_id   = AddrId,
                       data      = <<>>,
                       dsize     = 0,
-                      checksum  = leo_hex:binary_to_integer(erlang:md5(<<>>)),
+                      checksum  = leo_hex:raw_binary_to_integer(crypto:md5(<<>>)),
                       timestamp = leo_date:now(),
                       clock     = leo_date:clock(),
                       del       = 1},
@@ -323,7 +325,7 @@ compact_([Path1, Path2]) ->
                      addr_id   = AddrId,
                      data      = <<>>,
                      dsize     = 0,
-                     checksum  = leo_hex:binary_to_integer(erlang:md5(<<>>)),
+                     checksum  = leo_hex:raw_binary_to_integer(crypto:md5(<<>>)),
                      timestamp = leo_date:now(),
                      clock     = leo_date:clock(),
                      del       = 1},
@@ -432,7 +434,7 @@ put_test_data(AddrId, Key, Bin) ->
                      ksize     = byte_size(Key),
                      data      = Bin,
                      dsize     = byte_size(Bin),
-                     checksum  = leo_hex:binary_to_integer(erlang:md5(Bin)),
+                     checksum  = leo_hex:raw_binary_to_integer(crypto:md5(Bin)),
                      timestamp = leo_date:now(),
                      clock     = leo_date:clock()
                     },
