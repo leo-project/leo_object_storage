@@ -28,6 +28,7 @@
 -author('yosuke hara').
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("leo_logger/include/leo_logger.hrl").
 -include("leo_object_storage.hrl").
 
 %%--------------------------------------------------------------------
@@ -41,8 +42,7 @@ all_test_() ->
                            fun operate_/1,
                            fun fetch_by_addr_id_/1,
                            fun fetch_by_key_/1,
-                           fun stats_/1,
-                           fun compact_/1
+                           fun stats_/1
                           ]]}.
 
 setup() ->
@@ -53,9 +53,9 @@ setup() ->
     [Path1, Path2].
 
 teardown([Path1, Path2]) ->
+    io:format(user, "teardown~n", []),
     os:cmd("rm -rf " ++ Path1),
     os:cmd("rm -rf " ++ Path2),
-    io:format(user, "teardown~n", []),
     application:stop(crypto),
     ok.
 
@@ -276,9 +276,16 @@ stats_([Path1, Path2]) ->
     application:stop(leo_object_storage),
     ok.
 
-compact_([Path1, Path2]) ->
+compact_test_() ->
+    {timeout, 15, [?_test(begin
+    Path1 = "./avs1",
+    Path2 = "./avs2",
+    application:start(crypto),
     application:start(sasl),
     application:start(os_mon),
+
+    ok = leo_logger_client_message:new("./", ?LOG_LEVEL_WARN),
+
 
     ok = leo_object_storage_api:start([{4, Path1}, {4, Path2}]),
 
@@ -364,6 +371,26 @@ compact_([Path1, Path2]) ->
     ?assertEqual(true, 0 < CopactionStats#compaction_stats.num_of_pending_targets),
     ?assertEqual(true, 0 < CopactionStats#compaction_stats.num_of_ongoing_targets),
 
+    ?assertEqual(ok, leo_compaction_manager_fsm:suspend()),
+    {ok, CopactionStats2} = leo_compaction_manager_fsm:status(),
+    ?assertEqual('suspend', CopactionStats2#compaction_stats.status),
+    %% keep # of ongoing/pending fixed during suspend
+    Pending = CopactionStats2#compaction_stats.num_of_pending_targets,
+    Ongoing = CopactionStats2#compaction_stats.num_of_ongoing_targets,
+    timer:sleep(1000),
+    ?assertEqual(Pending, CopactionStats2#compaction_stats.num_of_pending_targets),
+    ?assertEqual(Ongoing, CopactionStats2#compaction_stats.num_of_ongoing_targets),
+    %% operation during suspend
+    TestAddrId0 = 0,
+    TestKey0    = <<"air/on/g/string/0">>,
+    TestAddrId1 = 511,
+    TestKey1    = <<"air/on/g/string/3">>,
+    {ok, _, _} = get_test_data(TestAddrId0, TestKey0),
+    {ok, _, _} = get_test_data(TestAddrId1, TestKey1),
+
+    ?assertEqual(ok, leo_compaction_manager_fsm:resume()),
+
+    timer:sleep(2000),
     {ok, Res2} = leo_object_storage_api:stats(),
     {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2}
         = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
@@ -411,13 +438,17 @@ compact_([Path1, Path2]) ->
     ?assertEqual(<<"JSB3-1">>, Obj1#object.data),
     ?assertEqual(0,            Obj1#object.del),
 
+
     ok = leo_object_storage_sup:stop(),
     application:stop(leo_backend_db),
     application:stop(bitcask),
     application:stop(leo_object_storage),
     application:stop(os_mon),
     application:stop(sasl),
-    ok.
+    application:stop(crypto),
+    os:cmd("rm -rf " ++ Path1),
+    os:cmd("rm -rf " ++ Path2),
+    true end)]}.
 
 
 %% proper_test_() ->
