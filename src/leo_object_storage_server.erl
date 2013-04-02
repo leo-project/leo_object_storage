@@ -346,10 +346,11 @@ handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
     NewSize = leo_object_storage_haystack:calc_obj_size(Metadata),
     Reply   = leo_object_storage_haystack:store(MetaDBId, StorageInfo, Metadata, Bin),
     NewStorageStats =
-        StorageStats#storage_stats{total_sizes = StorageStats#storage_stats.total_sizes   + NewSize,
-                                   active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - Oldsize),
-                                   total_num = StorageStats#storage_stats.total_num       + 1,
-                                   active_num = StorageStats#storage_stats.active_num     + DiffRec},
+        StorageStats#storage_stats{
+          total_sizes  = StorageStats#storage_stats.total_sizes  + NewSize,
+          active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - Oldsize),
+          total_num    = StorageStats#storage_stats.total_num    + 1,
+          active_num   = StorageStats#storage_stats.active_num   + DiffRec},
     {reply, Reply, State#state{storage_stats = NewStorageStats}};
 
 
@@ -368,14 +369,14 @@ handle_call(compact_resume,  _From, #state{meta_db_id          = MetaDBId,
     erlang:send(Pid, compact_resume),
     {reply, ok, State};
 
-handle_call({compact, FunHasChargeOfNode}, {FromPid, _FromRef}, 
+handle_call({compact, FunHasChargeOfNode}, {FromPid, _FromRef},
             #state{object_storage = StorageInfo} = State0) ->
     State1 = State0#state{compaction_from_pid = FromPid},
-    Pid = spawn_link(?MODULE, compact_fun, 
+    Pid = spawn_link(?MODULE, compact_fun,
                      [State1#state{object_storage = StorageInfo#backend_info{
-                                       write_handler = undefined,
-                                       read_handler  = undefined
-                                    }}, FunHasChargeOfNode]),
+                                                      write_handler = undefined,
+                                                      read_handler  = undefined
+                                                     }}, FunHasChargeOfNode]),
     {reply, ok, State1#state{compaction_exec_pid = Pid}}.
 
 %% Function: handle_cast(Msg, State) -> {noreply, State}          |
@@ -389,14 +390,14 @@ handle_cast({compact_done, NewState},  #state{object_storage      = StorageInfo,
     WriteHandler = StorageInfo#backend_info.write_handler,
     ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
     NewState2 = case leo_object_storage_haystack:open(FilePath) of
-        {ok, [NewWriteHandler, NewReadHandler]} ->
-            BackendInfo = NewState#state.object_storage,
-            NewState#state{object_storage = BackendInfo#backend_info{
-                        write_handler = NewWriteHandler,
-                        read_handler  = NewReadHandler}};
-        {error, _} ->
-            State
-    end,
+                    {ok, [NewWriteHandler, NewReadHandler]} ->
+                        BackendInfo = NewState#state.object_storage,
+                        NewState#state{object_storage = BackendInfo#backend_info{
+                                                          write_handler = NewWriteHandler,
+                                                          read_handler  = NewReadHandler}};
+                    {error, _} ->
+                        State
+                end,
     erlang:send(From, done),
     {noreply, NewState2#state{compaction_from_pid = undefined, compaction_exec_pid = undefined}};
 handle_cast(_Msg, State) ->
@@ -425,14 +426,15 @@ terminate(_Reason, #state{id = Id,
                            {line, ?LINE}, {body, Id}]),
 
     _ = filelib:ensure_dir(StateFilePath),
-    _ = leo_file:file_unconsult(StateFilePath,
-                                [{id, Id},
-                                 {total_sizes,  StorageStats#storage_stats.total_sizes},
-                                 {active_sizes, StorageStats#storage_stats.active_sizes},
-                                 {total_num,    StorageStats#storage_stats.total_num},
-                                 {active_num,   StorageStats#storage_stats.active_num},
-                                 {compaction_histories, StorageStats#storage_stats.compaction_histories},
-                                 {has_error,            StorageStats#storage_stats.has_error}]),
+    _ = leo_file:file_unconsult(
+          StateFilePath,
+          [{id, Id},
+           {total_sizes,  StorageStats#storage_stats.total_sizes},
+           {active_sizes, StorageStats#storage_stats.active_sizes},
+           {total_num,    StorageStats#storage_stats.total_num},
+           {active_num,   StorageStats#storage_stats.active_num},
+           {compaction_histories, StorageStats#storage_stats.compaction_histories},
+           {has_error,            StorageStats#storage_stats.has_error}]),
     ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
     ok.
 
@@ -521,12 +523,13 @@ compact_fun(#state{meta_db_id       = MetaDBId,
                               {ok, [TmpWriteHandler, TmpReadHandler]} ->
                                   case leo_object_storage_haystack:open(OrigFilePath) of
                                       {ok, [WriteHandler, ReadHandler]} ->
-                                          {ok, State#state{object_storage = StorageInfo#backend_info{
-                                                           tmp_file_path_raw = TmpPath,
-                                                           write_handler     = WriteHandler,
-                                                           read_handler      = ReadHandler,
-                                                           tmp_write_handler = TmpWriteHandler,
-                                                           tmp_read_handler  = TmpReadHandler}}};
+                                          {ok, State#state{
+                                                 object_storage = StorageInfo#backend_info{
+                                                                    tmp_file_path_raw = TmpPath,
+                                                                    write_handler     = WriteHandler,
+                                                                    read_handler      = ReadHandler,
+                                                                    tmp_write_handler = TmpWriteHandler,
+                                                                    tmp_read_handler  = TmpReadHandler}}};
                                       Error ->
                                           {Error, State}
                                   end;
@@ -540,17 +543,17 @@ compact_fun(#state{meta_db_id       = MetaDBId,
                   {Error, State}
           end,
     {_Ret, NewState} = try compact_fun1(Res, FunHasChargeOfNode) of
-        {R, S} ->
-            {R, S};
-        Other ->
-            {Other, State}
-        catch _:Reason ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "compact_fun/2"},
-                                    {line, ?LINE},
-                                    {body, Reason}]),
-            {Reason, State}
-    end,
+                           {R, S} ->
+                               {R, S};
+                           Other ->
+                               {Other, State}
+                       catch _:Reason ->
+                               error_logger:error_msg("~p,~p,~p,~p~n",
+                                                      [{module, ?MODULE_STRING}, {function, "compact_fun/2"},
+                                                       {line, ?LINE},
+                                                       {body, Reason}]),
+                               {Reason, State}
+                       end,
     compact_done(NewState).
 
 
@@ -589,11 +592,11 @@ compact_fun1({ok, #state{meta_db_id     = MetaDBId,
     NewHist2 = compact_add_history(finish, NewHist),
     NewState = State#state{storage_stats = StorageStats#storage_stats{compaction_histories = NewHist2},
                            object_storage = StorageInfo#backend_info{
-                               read_handler      = undefined,
-                               write_handler     = undefined,
-                               tmp_read_handler  = undefined,
-                               tmp_write_handler = undefined
-                           }},
+                                              read_handler      = undefined,
+                                              write_handler     = undefined,
+                                              tmp_read_handler  = undefined,
+                                              tmp_write_handler = undefined
+                                             }},
     compact_fun2({Res, NewState});
 
 compact_fun1({Error,_State}, _) ->
@@ -618,15 +621,15 @@ compact_fun2({{ok, NumActive, SizeActive},
             _ = leo_backend_db_api:compact_end(MetaDBId, true),
             BackendInfo = State#state.object_storage,
             NewState    = State#state{storage_stats =
-                                      StorageStats#storage_stats{
-                                          total_num    = NumActive,
-                                          active_num   = NumActive,
-                                          total_sizes  = SizeActive,
-                                          active_sizes = SizeActive},
-                                          object_storage =
-                                                  BackendInfo#backend_info{
-                                                    file_path_raw = TmpFilePathRaw
-                                                    }},
+                                          StorageStats#storage_stats{
+                                            total_num    = NumActive,
+                                            active_num   = NumActive,
+                                            total_sizes  = SizeActive,
+                                            active_sizes = SizeActive},
+                                      object_storage =
+                                          BackendInfo#backend_info{
+                                            file_path_raw = TmpFilePathRaw
+                                           }},
             {ok, NewState};
         {error, Cause} ->
             leo_backend_db_api:compact_end(MetaDBId, false),
@@ -773,9 +776,10 @@ do_compact1(ok,_Metadata, CompactParams, #state{object_storage = StorageInfo} = 
 
     case leo_object_storage_haystack:compact_get(ReadHandler, CompactParams#compact_params.next_offset) of
         {ok, NewMetadata, [_HeaderValue, NewKeyValue, NewBodyValue, NewNextOffset]} ->
-            do_compact(NewMetadata, CompactParams#compact_params{key_bin     = NewKeyValue,
-                                                                 body_bin    = NewBodyValue,
-                                                                 next_offset = NewNextOffset},
+            do_compact(NewMetadata,
+                       CompactParams#compact_params{key_bin     = NewKeyValue,
+                                                    body_bin    = NewBodyValue,
+                                                    next_offset = NewNextOffset},
                        State);
         {error, eof} ->
             NumOfAcriveObjs  = CompactParams#compact_params.num_of_active_object,
