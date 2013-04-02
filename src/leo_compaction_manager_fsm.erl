@@ -58,7 +58,7 @@
                 reserved_targets = []      :: list(),
                 pending_targets  = []      :: list(),
                 ongoing_targets  = []      :: list(),
-                child_pids       = []      :: list(), %% orddict(), {Chid :: pid(), hasJob :: boolean()}
+                child_pids       = []      :: orddict:orddict(), %% {Chid :: pid(), hasJob :: boolean()}
                 start_datetime   = 0       :: pos_integer(), %% gregory-sec
                 status = ?COMPACTION_STATUS_IDLE :: compaction_status()
                }).
@@ -188,7 +188,8 @@ running({start, _, _, _}, From, State) ->
     NextState = ?COMPACTION_STATUS_RUNNING,
     {next_state, NextState, State#state{status = NextState}};
 
-running(suspend, From, State) ->
+running(suspend, From, #state{child_pids = ChildPids} = State) ->
+    [erlang:send(Pid, suspend) || {Pid, _} <- orddict:to_list(ChildPids)],
     gen_fsm:reply(From, ok),
     NextState = ?COMPACTION_STATUS_SUSPEND,
     {next_state, NextState, State#state{status = NextState}};
@@ -255,7 +256,8 @@ suspend(resume, From, #state{pending_targets = [_|_],
 
     {NewTargetPids, NewInProgPids, NewChildPids} =
         orddict:fold(
-          fun(_Pid, true, Acc) ->
+          fun(Pid, true, Acc) ->
+                  erlang:send(Pid, resume),
                   Acc;
              (Pid, false, {TargetPidsIn, InProgPidsIn, ChildPidsIn}) ->
                   case length(TargetPidsIn) of
@@ -414,13 +416,25 @@ start_jobs_as_possible(State, _NumChild) ->
 -spec(loop_child(pid(), fun()) ->
              ok | {error, any()}).
 loop_child(From, FunHasChargeOfNode) ->
+    loop_child(From, FunHasChargeOfNode, undefined).
+loop_child(From, FunHasChargeOfNode, TargetId) ->
     receive
         {compact, Id} ->
             ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id}, ?STATE_COMPACTING),
             _  = leo_object_storage_server:compact(Id, FunHasChargeOfNode),
-            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id}, ?STATE_ACTIVE),
-            _  = done_child(self(), Id),
-            loop_child(From, FunHasChargeOfNode);
+            loop_child(From, FunHasChargeOfNode, Id);
+        suspend ->
+            _  = leo_object_storage_server:compact_suspend(TargetId),
+            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, TargetId}, ?STATE_ACTIVE),
+            loop_child(From, FunHasChargeOfNode, TargetId);
+        resume ->
+            _  = leo_object_storage_server:compact_resume(TargetId),
+            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, TargetId}, ?STATE_COMPACTING),
+            loop_child(From, FunHasChargeOfNode, TargetId);
+        done ->
+            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, TargetId}, ?STATE_ACTIVE),
+            _  = done_child(self(), TargetId),
+            loop_child(From, FunHasChargeOfNode, undefined);
         stop ->
             ok;
         _ ->

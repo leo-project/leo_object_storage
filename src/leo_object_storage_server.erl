@@ -36,8 +36,12 @@
 %% API
 -export([start_link/4, stop/1]).
 -export([put/2, get/4, delete/2, head/2, fetch/3, store/3]).
--export([compact/2, stats/1]).
+-export([compact/2, compact_suspend/1, compact_resume/1, stats/1]).
 
+%% To be passed to spawn_link
+-export([compact_fun/2]).
+
+%% gen_server callbacks
 -export([init/1,
          handle_call/3,
          handle_cast/2,
@@ -46,12 +50,14 @@
          code_change/3]).
 
 -record(state, {
-          id                 :: atom(),
-          meta_db_id         :: atom(),
-          vnode_id           :: integer(),
-          object_storage     :: #backend_info{},
-          storage_stats      :: #storage_stats{},
-          state_filepath     :: string()
+          id                  :: atom(),
+          meta_db_id          :: atom(),
+          vnode_id            :: integer(),
+          compaction_from_pid :: pid(),
+          compaction_exec_pid :: pid(),
+          object_storage      :: #backend_info{},
+          storage_stats       :: #storage_stats{},
+          state_filepath      :: string()
          }).
 
 -record(compact_params, {
@@ -149,6 +155,29 @@ compact(Id, FunHasChargeOfNode) ->
     gen_server:call(Id, {compact, FunHasChargeOfNode}, infinity).
 
 %%--------------------------------------------------------------------
+%% API - suspend data-compaction.
+%%--------------------------------------------------------------------
+%% @doc compaction/suspend
+%%
+-spec(compact_suspend(atom()) ->
+             ok | {error, any()}).
+compact_suspend(Id) ->
+    gen_server:call(Id, compact_suspend, infinity).
+
+compact_done(#state{id = Id} = NewState) ->
+    gen_server:cast(Id, {compact_done, NewState}).
+
+%%--------------------------------------------------------------------
+%% API - resume data-compaction.
+%%--------------------------------------------------------------------
+%% @doc compaction/resume
+%%
+-spec(compact_resume(atom()) ->
+             ok | {error, any()}).
+compact_resume(Id) ->
+    gen_server:call(Id, compact_resume, infinity).
+
+%%--------------------------------------------------------------------
 %% API - get the storage stats
 %%--------------------------------------------------------------------
 %% @doc get the storage stats specfied by Id which contains number of (active)object and so on.
@@ -196,10 +225,12 @@ init([Id, SeqNo, MetaDBId, RootPath]) ->
                                                 write_handler = ObjectWriteHandler,
                                                 read_handler  = ObjectReadHandler},
                     {ok, #state{id = Id,
-                                meta_db_id     = MetaDBId,
-                                object_storage = StorageInfo,
-                                storage_stats  = StorageStats,
-                                state_filepath = StateFilePath
+                                meta_db_id          = MetaDBId,
+                                object_storage      = StorageInfo,
+                                storage_stats       = StorageStats,
+                                compaction_from_pid = undefined,
+                                compaction_exec_pid = undefined,
+                                state_filepath      = StateFilePath
                                }};
                 {error, Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
@@ -315,25 +346,60 @@ handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
     NewSize = leo_object_storage_haystack:calc_obj_size(Metadata),
     Reply   = leo_object_storage_haystack:store(MetaDBId, StorageInfo, Metadata, Bin),
     NewStorageStats =
-        StorageStats#storage_stats{total_sizes = StorageStats#storage_stats.total_sizes   + NewSize,
-                                   active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - Oldsize),
-                                   total_num = StorageStats#storage_stats.total_num       + 1,
-                                   active_num = StorageStats#storage_stats.active_num     + DiffRec},
+        StorageStats#storage_stats{
+          total_sizes  = StorageStats#storage_stats.total_sizes  + NewSize,
+          active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - Oldsize),
+          total_num    = StorageStats#storage_stats.total_num    + 1,
+          active_num   = StorageStats#storage_stats.active_num   + DiffRec},
     {reply, Reply, State#state{storage_stats = NewStorageStats}};
 
 
 handle_call(stats, _From, #state{storage_stats = StorageStats} = State) ->
     {reply, {ok, StorageStats}, State};
 
+handle_call(compact_suspend,  _From, #state{meta_db_id          = MetaDBId,
+                                            compaction_exec_pid = Pid} = State) ->
+    leo_backend_db_api:compact_suspend(MetaDBId),
+    erlang:send(Pid, compact_suspend),
+    {reply, ok, State};
 
-handle_call({compact, FunHasChargeOfNode},  _From, State) ->
-    {Reply, State1} = compact_fun(State, FunHasChargeOfNode),
-    {reply, Reply, State1}.
+handle_call(compact_resume,  _From, #state{meta_db_id          = MetaDBId,
+                                           compaction_exec_pid = Pid} = State) ->
+    leo_backend_db_api:compact_resume(MetaDBId),
+    erlang:send(Pid, compact_resume),
+    {reply, ok, State};
+
+handle_call({compact, FunHasChargeOfNode}, {FromPid, _FromRef},
+            #state{object_storage = StorageInfo} = State0) ->
+    State1 = State0#state{compaction_from_pid = FromPid},
+    Pid = spawn_link(?MODULE, compact_fun,
+                     [State1#state{object_storage = StorageInfo#backend_info{
+                                                      write_handler = undefined,
+                                                      read_handler  = undefined
+                                                     }}, FunHasChargeOfNode]),
+    {reply, ok, State1#state{compaction_exec_pid = Pid}}.
 
 %% Function: handle_cast(Msg, State) -> {noreply, State}          |
 %%                                      {noreply, State, Timeout} |
 %%                                      {stop, Reason, State}
 %% Description: Handling cast message
+handle_cast({compact_done, NewState},  #state{object_storage      = StorageInfo,
+                                              compaction_from_pid = From} = State) ->
+    FilePath     = StorageInfo#backend_info.file_path,
+    ReadHandler  = StorageInfo#backend_info.read_handler,
+    WriteHandler = StorageInfo#backend_info.write_handler,
+    ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
+    NewState2 = case leo_object_storage_haystack:open(FilePath) of
+                    {ok, [NewWriteHandler, NewReadHandler]} ->
+                        BackendInfo = NewState#state.object_storage,
+                        NewState#state{object_storage = BackendInfo#backend_info{
+                                                          write_handler = NewWriteHandler,
+                                                          read_handler  = NewReadHandler}};
+                    {error, _} ->
+                        State
+                end,
+    erlang:send(From, done),
+    {noreply, NewState2#state{compaction_from_pid = undefined, compaction_exec_pid = undefined}};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -360,14 +426,15 @@ terminate(_Reason, #state{id = Id,
                            {line, ?LINE}, {body, Id}]),
 
     _ = filelib:ensure_dir(StateFilePath),
-    _ = leo_file:file_unconsult(StateFilePath,
-                                [{id, Id},
-                                 {total_sizes,  StorageStats#storage_stats.total_sizes},
-                                 {active_sizes, StorageStats#storage_stats.active_sizes},
-                                 {total_num,    StorageStats#storage_stats.total_num},
-                                 {active_num,   StorageStats#storage_stats.active_num},
-                                 {compaction_histories, StorageStats#storage_stats.compaction_histories},
-                                 {has_error,            StorageStats#storage_stats.has_error}]),
+    _ = leo_file:file_unconsult(
+          StateFilePath,
+          [{id, Id},
+           {total_sizes,  StorageStats#storage_stats.total_sizes},
+           {active_sizes, StorageStats#storage_stats.active_sizes},
+           {total_num,    StorageStats#storage_stats.total_num},
+           {active_num,   StorageStats#storage_stats.active_num},
+           {compaction_histories, StorageStats#storage_stats.compaction_histories},
+           {has_error,            StorageStats#storage_stats.has_error}]),
     ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
     ok.
 
@@ -437,26 +504,35 @@ get_raw_path(object, ObjectStorageRootDir, SymLinkPath) ->
     end.
 
 
-%% @doc Reduce objects from the object-container.
+%% @doc compact objects from the object-container on a independent process.
 %% @private
 -spec(compact_fun(#state{}, function()) ->
-             {ok, #state{}} | {error, any(), #state{}}).
+             ok).
 compact_fun(#state{meta_db_id       = MetaDBId,
                    object_storage   = StorageInfo} = State, FunHasChargeOfNode) ->
     FilePath = StorageInfo#backend_info.file_path,
+    OrigFilePath = StorageInfo#backend_info.file_path_raw,
 
     Res = case calc_remain_disksize(MetaDBId, FilePath) of
               {ok, RemainSize} ->
                   case (RemainSize > 0) of
                       true ->
                           TmpPath = gen_raw_file_path(FilePath),
-
+                          %% must reopen the original file when handling at another process
                           case leo_object_storage_haystack:open(TmpPath) of
                               {ok, [TmpWriteHandler, TmpReadHandler]} ->
-                                  {ok, State#state{object_storage = StorageInfo#backend_info{
-                                                                      tmp_file_path_raw = TmpPath,
-                                                                      tmp_write_handler = TmpWriteHandler,
-                                                                      tmp_read_handler  = TmpReadHandler}}};
+                                  case leo_object_storage_haystack:open(OrigFilePath) of
+                                      {ok, [WriteHandler, ReadHandler]} ->
+                                          {ok, State#state{
+                                                 object_storage = StorageInfo#backend_info{
+                                                                    tmp_file_path_raw = TmpPath,
+                                                                    write_handler     = WriteHandler,
+                                                                    read_handler      = ReadHandler,
+                                                                    tmp_write_handler = TmpWriteHandler,
+                                                                    tmp_read_handler  = TmpReadHandler}}};
+                                      Error ->
+                                          {Error, State}
+                                  end;
                               Error ->
                                   {Error, State}
                           end;
@@ -466,7 +542,19 @@ compact_fun(#state{meta_db_id       = MetaDBId,
               Error ->
                   {Error, State}
           end,
-    compact_fun1(Res, FunHasChargeOfNode).
+    {_Ret, NewState} = try compact_fun1(Res, FunHasChargeOfNode) of
+                           {R, S} ->
+                               {R, S};
+                           Other ->
+                               {Other, State}
+                       catch _:Reason ->
+                               error_logger:error_msg("~p,~p,~p,~p~n",
+                                                      [{module, ?MODULE_STRING}, {function, "compact_fun/2"},
+                                                       {line, ?LINE},
+                                                       {body, Reason}]),
+                               {Reason, State}
+                       end,
+    compact_done(NewState).
 
 
 %% @doc Reduce objects from the object-container.
@@ -480,7 +568,7 @@ compact_fun1({ok, #state{meta_db_id     = MetaDBId,
     TmpWriteHandler = StorageInfo#backend_info.tmp_write_handler,
 
     NewHist = compact_add_history(start, StorageStats#storage_stats.compaction_histories),
-    Res = case leo_object_storage_haystack:compact_get(ReadHandler) of
+    Res = case catch leo_object_storage_haystack:compact_get(ReadHandler) of
               {ok, Metadata, [_HeaderValue, KeyValue, BodyValue, NextOffset]} ->
                   case leo_backend_db_api:compact_start(MetaDBId) of
                       ok ->
@@ -491,8 +579,6 @@ compact_fun1({ok, #state{meta_db_id     = MetaDBId,
                                                           size_of_active_object  = 0,
                                                           fun_has_charge_of_node = FunHasChargeOfNode},
                           Ret = do_compact(Metadata, CompactParams, State),
-                          _ = leo_object_storage_haystack:close(WriteHandler,    ReadHandler),
-                          _ = leo_object_storage_haystack:close(TmpWriteHandler, TmpReadHandler),
                           Ret;
                       Error0 ->
                           Error0
@@ -500,9 +586,17 @@ compact_fun1({ok, #state{meta_db_id     = MetaDBId,
               Error1 ->
                   Error1
           end,
+    _ = leo_object_storage_haystack:close(WriteHandler,    ReadHandler),
+    _ = leo_object_storage_haystack:close(TmpWriteHandler, TmpReadHandler),
     %% @TODO add history(end datetime)
     NewHist2 = compact_add_history(finish, NewHist),
-    NewState = State#state{storage_stats = StorageStats#storage_stats{compaction_histories = NewHist2}},
+    NewState = State#state{storage_stats = StorageStats#storage_stats{compaction_histories = NewHist2},
+                           object_storage = StorageInfo#backend_info{
+                                              read_handler      = undefined,
+                                              write_handler     = undefined,
+                                              tmp_read_handler  = undefined,
+                                              tmp_write_handler = undefined
+                                             }},
     compact_fun2({Res, NewState});
 
 compact_fun1({Error,_State}, _) ->
@@ -521,31 +615,24 @@ compact_fun2({{ok, NumActive, SizeActive},
     catch file:delete(RootPath),
     case file:make_symlink(TmpFilePathRaw, RootPath) of
         ok ->
-            catch file:delete(StorageInfo#backend_info.file_path_raw),
-
-            case leo_object_storage_haystack:open(RootPath) of
-                {ok, [NewWriteHandler, NewReadHandler]} ->
-                    _ = leo_backend_db_api:compact_end(MetaDBId, true),
-
-                    BackendInfo = State#state.object_storage,
-                    NewState    = State#state{storage_stats =
-                                                  StorageStats#storage_stats{
-                                                    total_num    = NumActive,
-                                                    active_num   = NumActive,
-                                                    total_sizes  = SizeActive,
-                                                    active_sizes = SizeActive},
-                                              object_storage =
-                                                  BackendInfo#backend_info{
-                                                    file_path_raw = TmpFilePathRaw,
-                                                    read_handler  = NewReadHandler,
-                                                    write_handler = NewWriteHandler}},
-                    {ok, NewState};
-                {error, Cause} ->
-                    NewState = State#state{storage_stats = StorageStats#storage_stats{
-                                                             has_error = true}},
-                    {{error, Cause}, NewState}
-            end;
+            ok = file:delete(StorageInfo#backend_info.file_path_raw),
+            %% must reopen the original file when handling at another process
+            %% so we don't open here
+            _ = leo_backend_db_api:compact_end(MetaDBId, true),
+            BackendInfo = State#state.object_storage,
+            NewState    = State#state{storage_stats =
+                                          StorageStats#storage_stats{
+                                            total_num    = NumActive,
+                                            active_num   = NumActive,
+                                            total_sizes  = SizeActive,
+                                            active_sizes = SizeActive},
+                                      object_storage =
+                                          BackendInfo#backend_info{
+                                            file_path_raw = TmpFilePathRaw
+                                           }},
+            {ok, NewState};
         {error, Cause} ->
+            leo_backend_db_api:compact_end(MetaDBId, false),
             NewState = State#state{storage_stats = StorageStats#storage_stats{
                                                      has_error = true}},
             {{error, Cause}, NewState}
@@ -558,19 +645,11 @@ compact_fun2({_Error, #state{meta_db_id     = MetaDBId,
     %%
     NewState = State#state{storage_stats = StorageStats#storage_stats{
                                              has_error = true}},
-    RootPath = StorageInfo#backend_info.file_path,
-    NewState2 = case leo_object_storage_haystack:open(RootPath) of
-                    {ok, [NewWriteHandler, NewReadHandler]} ->
-                        BackendInfo = NewState#state.object_storage,
-                        NewState#state{object_storage = BackendInfo#backend_info{
-                                                          read_handler  = NewReadHandler,
-                                                          write_handler = NewWriteHandler}};
-                    _Error ->
-                        NewState
-                end,
+    %% must reopen the original file when handling at another process
+    %% so we don't open here
     catch file:delete(StorageInfo#backend_info.tmp_file_path_raw),
     leo_backend_db_api:compact_end(MetaDBId, false),
-    {ok, NewState2}.
+    {ok, NewState}.
 
 
 %% @doc add compaction history
@@ -648,6 +727,17 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
     NumActive          = CompactParams#compact_params.num_of_active_object,
     SizeActive         = CompactParams#compact_params.size_of_active_object,
 
+    %% check mailbox regularly
+    receive
+        compact_suspend ->
+            receive
+                compact_resume ->
+                    void
+            end
+    after
+        0 ->
+            void
+    end,
     case (is_deleted_rec(MetaDBId, Metadata) orelse HasChargeOfNode == false) of
         true ->
             do_compact1(ok, Metadata, CompactParams, State);
@@ -686,9 +776,10 @@ do_compact1(ok,_Metadata, CompactParams, #state{object_storage = StorageInfo} = 
 
     case leo_object_storage_haystack:compact_get(ReadHandler, CompactParams#compact_params.next_offset) of
         {ok, NewMetadata, [_HeaderValue, NewKeyValue, NewBodyValue, NewNextOffset]} ->
-            do_compact(NewMetadata, CompactParams#compact_params{key_bin     = NewKeyValue,
-                                                                 body_bin    = NewBodyValue,
-                                                                 next_offset = NewNextOffset},
+            do_compact(NewMetadata,
+                       CompactParams#compact_params{key_bin     = NewKeyValue,
+                                                    body_bin    = NewBodyValue,
+                                                    next_offset = NewNextOffset},
                        State);
         {error, eof} ->
             NumOfAcriveObjs  = CompactParams#compact_params.num_of_active_object,

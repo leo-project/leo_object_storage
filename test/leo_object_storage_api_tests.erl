@@ -28,6 +28,7 @@
 -author('yosuke hara').
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("leo_logger/include/leo_logger.hrl").
 -include("leo_object_storage.hrl").
 
 %%--------------------------------------------------------------------
@@ -41,8 +42,7 @@ all_test_() ->
                            fun operate_/1,
                            fun fetch_by_addr_id_/1,
                            fun fetch_by_key_/1,
-                           fun stats_/1,
-                           fun compact_/1
+                           fun stats_/1
                           ]]}.
 
 setup() ->
@@ -53,9 +53,9 @@ setup() ->
     [Path1, Path2].
 
 teardown([Path1, Path2]) ->
+    io:format(user, "teardown~n", []),
     os:cmd("rm -rf " ++ Path1),
     os:cmd("rm -rf " ++ Path2),
-    io:format(user, "teardown~n", []),
     application:stop(crypto),
     ok.
 
@@ -276,148 +276,186 @@ stats_([Path1, Path2]) ->
     application:stop(leo_object_storage),
     ok.
 
-compact_([Path1, Path2]) ->
-    application:start(sasl),
-    application:start(os_mon),
+compact_test_() ->
+    {timeout, 15,
+     [?_test(
+         begin
+             Path1 = "./avs1",
+             Path2 = "./avs2",
+             application:start(crypto),
+             application:start(sasl),
+             application:start(os_mon),
 
-    ok = leo_object_storage_api:start([{4, Path1}, {4, Path2}]),
+             ok = leo_logger_client_message:new("./", ?LOG_LEVEL_WARN),
 
-    ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0">>),
-    ok = put_test_data(127,  <<"air/on/g/string/1">>, <<"JSB1">>),
-    ok = put_test_data(255,  <<"air/on/g/string/2">>, <<"JSB2">>),
-    ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3">>),
-    ok = put_test_data(767,  <<"air/on/g/string/4">>, <<"JSB4">>),
-    ok = put_test_data(1023, <<"air/on/g/string/5">>, <<"JSB5">>),
-    ok = put_test_data(2047, <<"air/on/g/string/6">>, <<"JSB6">>),
-    ok = put_test_data(4095, <<"air/on/g/string/7">>, <<"JSB7">>), %% 1st time
-    ok = put_test_data(4095, <<"air/on/g/string/7">>, <<"JSB7">>), %% 2nd time
-    {ok, Res0} = leo_object_storage_api:stats(),
-    {SumTotal0, SumActive0} = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
-                                                                  total_num  = Total,
-                                                                  active_num = Active}}, {SumTotal, SumActive}) ->
-                                                  {SumTotal + Total, SumActive + Active}
-                                          end, {0, 0}, Res0),
-    ?assertEqual(9, SumTotal0),
-    ?assertEqual(8, SumActive0),
 
-    ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0-1">>),
-    ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3-1">>),
+             ok = leo_object_storage_api:start([{4, Path1}, {4, Path2}]),
 
-    ?assertEqual({error,badstate}, leo_compaction_manager_fsm:suspend()),
-    ?assertEqual({error,badstate}, leo_compaction_manager_fsm:resume()),
+             ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0">>),
+             ok = put_test_data(127,  <<"air/on/g/string/1">>, <<"JSB1">>),
+             ok = put_test_data(255,  <<"air/on/g/string/2">>, <<"JSB2">>),
+             ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3">>),
+             ok = put_test_data(767,  <<"air/on/g/string/4">>, <<"JSB4">>),
+             ok = put_test_data(1023, <<"air/on/g/string/5">>, <<"JSB5">>),
+             ok = put_test_data(2047, <<"air/on/g/string/6">>, <<"JSB6">>),
+             ok = put_test_data(4095, <<"air/on/g/string/7">>, <<"JSB7">>), %% 1st time
+             ok = put_test_data(4095, <<"air/on/g/string/7">>, <<"JSB7">>), %% 2nd time
+             {ok, Res0} = leo_object_storage_api:stats(),
+             {SumTotal0, SumActive0} =
+                 lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
+                                                     total_num  = Total,
+                                                     active_num = Active}}, {SumTotal, SumActive}) ->
+                                     {SumTotal + Total, SumActive + Active}
+                             end, {0, 0}, Res0),
+             ?assertEqual(9, SumTotal0),
+             ?assertEqual(8, SumActive0),
 
-    AllTargets = leo_object_storage_api:get_object_storage_pid('all'),
-    ?assertEqual({ok, #compaction_stats{status = 'idle',
-                                        total_num_of_targets    = 8,
-                                        num_of_reserved_targets = 0,
-                                        num_of_pending_targets  = 8,
-                                        num_of_ongoing_targets  = 0,
-                                        reserved_targets = [],
-                                        pending_targets  = AllTargets,
-                                        ongoing_targets  = [],
-                                        latest_exec_datetime = 0
-                                       }}, leo_compaction_manager_fsm:status()),
-    AddrId = 4095,
-    Key    = <<"air/on/g/string/7">>,
-    Object = #object{method    = delete,
-                     key       = Key,
-                     ksize     = byte_size(Key),
-                     addr_id   = AddrId,
-                     data      = <<>>,
-                     dsize     = 0,
-                     checksum  = leo_hex:raw_binary_to_integer(crypto:md5(<<>>)),
-                     timestamp = leo_date:now(),
-                     clock     = leo_date:clock(),
-                     del       = 1},
-    ok = leo_object_storage_api:delete({AddrId, Key}, Object),
+             ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0-1">>),
+             ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3-1">>),
 
-    %% inspect for compaction
-    {ok, Res1} = leo_object_storage_api:stats(),
-    {SumTotal1, SumActive1, SumTotalSize1, SumActiveSize1}
-        = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
-                                              total_sizes = TotalSize,
-                                              active_sizes = ActiveSize,
-                                              total_num  = Total,
-                                              active_num = Active}}, {SumTotal, SumActive, SumTotalSize, SumActiveSize}) ->
-                              {SumTotal + Total,
-                               SumActive + Active,
-                               SumTotalSize + TotalSize,
-                               SumActiveSize + ActiveSize}
-                      end, {0, 0, 0, 0}, Res1),
-    ?assertEqual(12, SumTotal1),
-    ?assertEqual(7, SumActive1),
-    ?assertEqual(true, SumTotalSize1 > SumActiveSize1),
-    timer:sleep(250),
+             ?assertEqual({error,badstate}, leo_compaction_manager_fsm:suspend()),
+             ?assertEqual({error,badstate}, leo_compaction_manager_fsm:resume()),
 
-    FunHasChargeOfNode = fun(_Key_) ->
-                                 true
-                         end,
-    TargetPids = leo_object_storage_api:get_object_storage_pid(all),
-    io:format(user, "*** target-pids:~p~n", [TargetPids]),
+             AllTargets = leo_object_storage_api:get_object_storage_pid('all'),
+             ?assertEqual({ok, #compaction_stats{status = 'idle',
+                                                 total_num_of_targets    = 8,
+                                                 num_of_reserved_targets = 0,
+                                                 num_of_pending_targets  = 8,
+                                                 num_of_ongoing_targets  = 0,
+                                                 reserved_targets = [],
+                                                 pending_targets  = AllTargets,
+                                                 ongoing_targets  = [],
+                                                 latest_exec_datetime = 0
+                                                }}, leo_compaction_manager_fsm:status()),
+             AddrId = 4095,
+             Key    = <<"air/on/g/string/7">>,
+             Object = #object{method    = delete,
+                              key       = Key,
+                              ksize     = byte_size(Key),
+                              addr_id   = AddrId,
+                              data      = <<>>,
+                              dsize     = 0,
+                              checksum  = leo_hex:raw_binary_to_integer(crypto:md5(<<>>)),
+                              timestamp = leo_date:now(),
+                              clock     = leo_date:clock(),
+                              del       = 1},
+             ok = leo_object_storage_api:delete({AddrId, Key}, Object),
 
-    ok = leo_compaction_manager_fsm:start(TargetPids, 2, FunHasChargeOfNode),
-    timer:sleep(100),
+             %% inspect for compaction
+             {ok, Res1} = leo_object_storage_api:stats(),
+             {SumTotal1, SumActive1, SumTotalSize1, SumActiveSize1}
+                 = lists:foldl(
+                     fun({ok, #storage_stats{file_path  = _ObjPath,
+                                             total_sizes = TotalSize,
+                                             active_sizes = ActiveSize,
+                                             total_num  = Total,
+                                             active_num = Active}},
+                         {SumTotal, SumActive, SumTotalSize, SumActiveSize}) ->
+                             {SumTotal + Total,
+                              SumActive + Active,
+                              SumTotalSize + TotalSize,
+                              SumActiveSize + ActiveSize}
+                     end, {0, 0, 0, 0}, Res1),
+             ?assertEqual(12, SumTotal1),
+             ?assertEqual(7, SumActive1),
+             ?assertEqual(true, SumTotalSize1 > SumActiveSize1),
+             timer:sleep(250),
 
-    {ok, CopactionStats} = leo_compaction_manager_fsm:status(),
-    ?assertEqual('running', CopactionStats#compaction_stats.status),
-    ?assertEqual(8, CopactionStats#compaction_stats.total_num_of_targets),
-    ?assertEqual(true, 0 < CopactionStats#compaction_stats.num_of_pending_targets),
-    ?assertEqual(true, 0 < CopactionStats#compaction_stats.num_of_ongoing_targets),
+             FunHasChargeOfNode = fun(_Key_) ->
+                                          true
+                                  end,
+             TargetPids = leo_object_storage_api:get_object_storage_pid(all),
+             io:format(user, "*** target-pids:~p~n", [TargetPids]),
 
-    {ok, Res2} = leo_object_storage_api:stats(),
-    {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2}
-        = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
-                                              compaction_histories = [{Start, End}|_Rest],
-                                              total_sizes = TotalSize,
-                                              active_sizes = ActiveSize,
-                                              total_num  = Total,
-                                              active_num = Active}}, {SumTotal, SumActive, SumTotalSize, SumActiveSize}) ->
-                              ?assertEqual(true, Start =< End),
-                              {SumTotal + Total,
-                               SumActive + Active,
-                               SumTotalSize + TotalSize,
-                               SumActiveSize + ActiveSize}
-                      end, {0, 0, 0, 0}, Res2),
-    ?assertEqual(7, SumTotal2),
-    ?assertEqual(7, SumActive2),
-    ?assertEqual(true, SumTotalSize2 =:= SumActiveSize2),
+             ok = leo_compaction_manager_fsm:start(TargetPids, 2, FunHasChargeOfNode),
+             timer:sleep(100),
 
-    %% inspect for after compaction
-    TestAddrId0 = 0,
-    TestKey0    = <<"air/on/g/string/0">>,
-    TestAddrId1 = 511,
-    TestKey1    = <<"air/on/g/string/3">>,
+             {ok, CopactionStats} = leo_compaction_manager_fsm:status(),
+             ?assertEqual('running', CopactionStats#compaction_stats.status),
+             ?assertEqual(8, CopactionStats#compaction_stats.total_num_of_targets),
+             ?assertEqual(true, 0 < CopactionStats#compaction_stats.num_of_pending_targets),
+             ?assertEqual(true, 0 < CopactionStats#compaction_stats.num_of_ongoing_targets),
 
-    {ok, Meta0, Obj0} = get_test_data(TestAddrId0, TestKey0),
-    {ok, Meta1, Obj1} = get_test_data(TestAddrId1, TestKey1),
+             ?assertEqual(ok, leo_compaction_manager_fsm:suspend()),
+             {ok, CopactionStats2} = leo_compaction_manager_fsm:status(),
+             ?assertEqual('suspend', CopactionStats2#compaction_stats.status),
+             %% keep # of ongoing/pending fixed during suspend
+             Pending = CopactionStats2#compaction_stats.num_of_pending_targets,
+             Ongoing = CopactionStats2#compaction_stats.num_of_ongoing_targets,
+             timer:sleep(1000),
+             ?assertEqual(Pending, CopactionStats2#compaction_stats.num_of_pending_targets),
+             ?assertEqual(Ongoing, CopactionStats2#compaction_stats.num_of_ongoing_targets),
+             %% operation during suspend
+             TestAddrId0 = 0,
+             TestKey0    = <<"air/on/g/string/0">>,
+             TestAddrId1 = 511,
+             TestKey1    = <<"air/on/g/string/3">>,
+             {ok, _, _} = get_test_data(TestAddrId0, TestKey0),
+             {ok, _, _} = get_test_data(TestAddrId1, TestKey1),
 
-    ?assertEqual(TestAddrId0,  Meta0#metadata.addr_id),
-    ?assertEqual(TestKey0,     Meta0#metadata.key),
-    ?assertEqual(6,            Meta0#metadata.dsize),
-    ?assertEqual(0,            Meta0#metadata.del),
-    ?assertEqual(TestAddrId0,  Obj0#object.addr_id),
-    ?assertEqual(TestKey0,     Obj0#object.key),
-    ?assertEqual(6,            Obj0#object.dsize),
-    ?assertEqual(<<"JSB0-1">>, Obj0#object.data),
-    ?assertEqual(0,            Obj0#object.del),
+             ?assertEqual(ok, leo_compaction_manager_fsm:resume()),
 
-    ?assertEqual(TestAddrId1,  Meta1#metadata.addr_id),
-    ?assertEqual(TestKey1,     Meta1#metadata.key),
-    ?assertEqual(6,            Meta1#metadata.dsize),
-    ?assertEqual(0,            Meta1#metadata.del),
-    ?assertEqual(TestAddrId1,  Obj1#object.addr_id),
-    ?assertEqual(TestKey1,     Obj1#object.key),
-    ?assertEqual(6,            Obj1#object.dsize),
-    ?assertEqual(<<"JSB3-1">>, Obj1#object.data),
-    ?assertEqual(0,            Obj1#object.del),
+             timer:sleep(2000),
+             {ok, Res2} = leo_object_storage_api:stats(),
+             {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2}
+                 = lists:foldl(
+                     fun({ok, #storage_stats{file_path  = _ObjPath,
+                                             compaction_histories = [{Start, End}|_Rest],
+                                             total_sizes = TotalSize,
+                                             active_sizes = ActiveSize,
+                                             total_num  = Total,
+                                             active_num = Active}},
+                         {SumTotal, SumActive, SumTotalSize, SumActiveSize}) ->
+                                       ?assertEqual(true, Start =< End),
+                                       {SumTotal + Total,
+                                        SumActive + Active,
+                                        SumTotalSize + TotalSize,
+                                        SumActiveSize + ActiveSize}
+                               end, {0, 0, 0, 0}, Res2),
+             ?assertEqual(7, SumTotal2),
+             ?assertEqual(7, SumActive2),
+             ?assertEqual(true, SumTotalSize2 =:= SumActiveSize2),
 
-    ok = leo_object_storage_sup:stop(),
-    application:stop(leo_backend_db),
-    application:stop(bitcask),
-    application:stop(leo_object_storage),
-    application:stop(os_mon),
-    application:stop(sasl),
-    ok.
+             %% inspect for after compaction
+             TestAddrId0 = 0,
+             TestKey0    = <<"air/on/g/string/0">>,
+             TestAddrId1 = 511,
+             TestKey1    = <<"air/on/g/string/3">>,
+
+             {ok, Meta0, Obj0} = get_test_data(TestAddrId0, TestKey0),
+             {ok, Meta1, Obj1} = get_test_data(TestAddrId1, TestKey1),
+
+             ?assertEqual(TestAddrId0,  Meta0#metadata.addr_id),
+             ?assertEqual(TestKey0,     Meta0#metadata.key),
+             ?assertEqual(6,            Meta0#metadata.dsize),
+             ?assertEqual(0,            Meta0#metadata.del),
+             ?assertEqual(TestAddrId0,  Obj0#object.addr_id),
+             ?assertEqual(TestKey0,     Obj0#object.key),
+             ?assertEqual(6,            Obj0#object.dsize),
+             ?assertEqual(<<"JSB0-1">>, Obj0#object.data),
+             ?assertEqual(0,            Obj0#object.del),
+
+             ?assertEqual(TestAddrId1,  Meta1#metadata.addr_id),
+             ?assertEqual(TestKey1,     Meta1#metadata.key),
+             ?assertEqual(6,            Meta1#metadata.dsize),
+             ?assertEqual(0,            Meta1#metadata.del),
+             ?assertEqual(TestAddrId1,  Obj1#object.addr_id),
+             ?assertEqual(TestKey1,     Obj1#object.key),
+             ?assertEqual(6,            Obj1#object.dsize),
+             ?assertEqual(<<"JSB3-1">>, Obj1#object.data),
+             ?assertEqual(0,            Obj1#object.del),
+
+
+             ok = leo_object_storage_sup:stop(),
+             application:stop(leo_backend_db),
+             application:stop(bitcask),
+             application:stop(leo_object_storage),
+             application:stop(os_mon),
+             application:stop(sasl),
+             application:stop(crypto),
+             os:cmd("rm -rf " ++ Path1),
+             os:cmd("rm -rf " ++ Path2),
+             true end)]}.
 
 
 %% proper_test_() ->

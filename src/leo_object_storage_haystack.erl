@@ -293,9 +293,10 @@ get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos) ->
     end.
 
 
-get_fun1(_MetaDBId,_StorageInfo, #metadata{key      = Key,
-                                           dsize    = ObjectSize,
-                                           addr_id  = AddrId} = Metadata, StartPos, _) when StartPos >= ObjectSize ->
+get_fun1(_MetaDBId,_StorageInfo,
+         #metadata{key      = Key,
+                   dsize    = ObjectSize,
+                   addr_id  = AddrId} = Metadata, StartPos, _) when StartPos >= ObjectSize ->
     {ok, Metadata, #object{key     = Key,
                            addr_id = AddrId,
                            data    = <<>>,
