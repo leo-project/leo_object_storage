@@ -357,11 +357,18 @@ handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
 handle_call(stats, _From, #state{storage_stats = StorageStats} = State) ->
     {reply, {ok, StorageStats}, State};
 
+
+handle_call(compact_suspend,  _From, #state{compaction_exec_pid = undefined} = State) ->
+    {reply, {error, ?ERROR_COMPACT_SUSPEND_FAILURE}, State};
+
 handle_call(compact_suspend,  _From, #state{meta_db_id          = MetaDBId,
                                             compaction_exec_pid = Pid} = State) ->
     leo_backend_db_api:compact_suspend(MetaDBId),
     erlang:send(Pid, compact_suspend),
     {reply, ok, State};
+
+handle_call(compact_resume,  _From, #state{compaction_exec_pid = undefined} = State) ->
+    {reply, {error, ?ERROR_COMPACT_RESUME_FAILURE}, State};
 
 handle_call(compact_resume,  _From, #state{meta_db_id          = MetaDBId,
                                            compaction_exec_pid = Pid} = State) ->

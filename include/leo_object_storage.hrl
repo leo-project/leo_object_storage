@@ -47,6 +47,9 @@
 -define(ERROR_FILE_OPEN,               "file open error").
 -define(ERROR_INVALID_DATA,            "invalid data").
 -define(ERROR_DATA_SIZE_DID_NOT_MATCH, "data-size did not match").
+-define(ERROR_COMPACT_SUSPEND_FAILURE, "comaction-suspend filure").
+-define(ERROR_COMPACT_RESUME_FAILURE,  "comaction-resume filure").
+
 
 -define(DEL_TRUE,  1).
 -define(DEL_FALSE, 0).
@@ -66,7 +69,7 @@
          }).
 
 -record(metadata, {
-          key = <<>>          :: binary(),  %% filename
+          key = <<>>          :: binary(),      %% filename
           addr_id    = 0      :: pos_integer(), %% ring-address id (MD5 > hex-to-integer)
           ksize      = 0      :: pos_integer(), %% file-path size
           dsize      = 0      :: pos_integer(), %% data size
