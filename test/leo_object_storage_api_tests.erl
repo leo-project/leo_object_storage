@@ -120,24 +120,29 @@ operate_([Path1, Path2]) ->
     ?assertEqual(0,      Meta1_1#metadata.del),
 
 
-    %% 4. Get - Various cases
+    %% 4. Get - for range query via HTTP
     %% >> Case of regular.
-    {ok, _Meta1_1, Obj0_1} = leo_object_storage_api:get({AddrId, Key}, 4, 8),
+    {ok, _Meta1_1, Obj0_1} = leo_object_storage_api:get({AddrId, Key}, 4, 7),
     ?assertEqual(4, byte_size(Obj0_1#object.data)),
     ?assertEqual(<<"Bach">>, Obj0_1#object.data),
 
     %% >> Case of "end-position over data-size".
     {ok, _Meta1_2, Obj0_2} = leo_object_storage_api:get({AddrId, Key}, 5, 9),
-    ?assertEqual(<<"ach">>, Obj0_2#object.data),
+    ?assertEqual(<<>>, Obj0_2#object.data),
+    ?assertEqual(-2, Obj0_2#object.dsize),
 
-    %% >> Case of "end-position is zero". It's means "end-position is data-size".
+    %% >> Case of "end-position is zero". This means "end-position is data-size".
     {ok, _Meta1_3, Obj0_3} = leo_object_storage_api:get({AddrId, Key}, 2, 0),
     ?assertEqual(<<"S.Bach">>, Obj0_3#object.data),
 
     %% >> Case of "start-position over data-size"
     {ok, _Meta1_4, Obj0_4} = leo_object_storage_api:get({AddrId, Key}, 8, 0),
     ?assertEqual(<<>>, Obj0_4#object.data),
+    ?assertEqual(-2, Obj0_4#object.dsize),
 
+    %% >> Case of "end-position is negative". This means retrieving from end
+    {ok, _Meta1_5, Obj0_5} = leo_object_storage_api:get({AddrId, Key}, 0, -2),
+    ?assertEqual(<<"ch">>, Obj0_5#object.data),
 
     %% 5. Head
     {ok, Res2} = leo_object_storage_api:head({AddrId, Key}),

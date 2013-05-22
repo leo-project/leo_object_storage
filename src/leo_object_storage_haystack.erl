@@ -292,38 +292,38 @@ get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos) ->
             end
     end.
 
+calc_pos(_StartPos, EndPos, ObjectSize) when EndPos < 0 ->
+    NewStartPos = ObjectSize + EndPos,
+    NewEndPos   = ObjectSize - 1,
+    {NewStartPos, NewEndPos};
+calc_pos(StartPos, 0, ObjectSize) ->
+    {StartPos, ObjectSize - 1};
+calc_pos(StartPos, EndPos, _ObjectSize) ->
+    {StartPos, EndPos}.
 
+% when getting invalid positions, should return an identified status to reply 416 on HTTP
+% for now dsize = -2 indicate invalid pos
 get_fun1(_MetaDBId,_StorageInfo,
          #metadata{key      = Key,
                    dsize    = ObjectSize,
-                   addr_id  = AddrId} = Metadata, StartPos, _) when StartPos >= ObjectSize ->
+                   addr_id  = AddrId} = Metadata, StartPos, EndPos) 
+                       when StartPos >= ObjectSize orelse
+                            StartPos <  0 orelse
+                            EndPos   >= ObjectSize ->
     {ok, Metadata, #object{key     = Key,
                            addr_id = AddrId,
                            data    = <<>>,
-                           dsize   = 0}};
+                           dsize   = -2}};
 get_fun1(_MetaDBId, StorageInfo, #metadata{key      = Key,
                                            ksize    = KeySize,
                                            dsize    = ObjectSize,
                                            addr_id  = AddrId,
                                            offset   = Offset,
                                            cnumber  = 0} = Metadata, StartPos, EndPos) ->
-    %% If end-position equal 0,
-    %% Then actual end-position is object-size.
-    NewEndPos = case (EndPos == 0) of
-                    true ->
-                        ObjectSize;
-                    false ->
-                        case (EndPos > ObjectSize) of
-                            true ->
-                                ObjectSize;
-                            false ->
-                                EndPos
-                        end
-                end,
-
+    {NewStartPos, NewEndPos} = calc_pos(StartPos, EndPos, ObjectSize),
     %% Calculate actual start-point and end-point
-    NewOffset     = Offset + erlang:round(?BLEN_HEADER/8) + KeySize + StartPos,
-    NewObjectSize = NewEndPos - StartPos,
+    NewOffset     = Offset + erlang:round(?BLEN_HEADER/8) + KeySize + NewStartPos,
+    NewObjectSize = NewEndPos - NewStartPos + 1,
 
     #backend_info{read_handler = ReadHandler} = StorageInfo,
 
