@@ -530,6 +530,9 @@ compact_fun(#state{meta_db_id       = MetaDBId,
                               {ok, [TmpWriteHandler, TmpReadHandler]} ->
                                   case leo_object_storage_haystack:open(OrigFilePath) of
                                       {ok, [WriteHandler, ReadHandler]} ->
+                                          FileSize = filelib:file_size(OrigFilePath),
+                                          ok = file:advise(TmpWriteHandler, 0, FileSize, dont_need),
+                                          ok = file:advise(ReadHandler, 0, FileSize, sequential),
                                           {ok, State#state{
                                                  object_storage = StorageInfo#backend_info{
                                                                     tmp_file_path_raw = TmpPath,
