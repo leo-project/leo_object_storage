@@ -28,7 +28,6 @@
 -author('yosuke hara').
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("leo_logger/include/leo_logger.hrl").
 -include("leo_object_storage.hrl").
 
 %%--------------------------------------------------------------------
@@ -291,11 +290,7 @@ compact_test_() ->
              application:start(sasl),
              application:start(os_mon),
 
-             ok = leo_logger_client_message:new("./", ?LOG_LEVEL_WARN),
-
-
              ok = leo_object_storage_api:start([{4, Path1}, {4, Path2}]),
-
              ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0">>),
              ok = put_test_data(127,  <<"air/on/g/string/1">>, <<"JSB1">>),
              ok = put_test_data(255,  <<"air/on/g/string/2">>, <<"JSB2">>),
