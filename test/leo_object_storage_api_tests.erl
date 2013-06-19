@@ -316,6 +316,9 @@ compact_test_() ->
              ?assertEqual({error,badstate}, leo_compaction_manager_fsm:suspend()),
              ?assertEqual({error,badstate}, leo_compaction_manager_fsm:resume()),
 
+             %% append incorrect data
+             _ = leo_object_storage_api:add_incorrect_data(crypto:rand_bytes(256)),
+
              AllTargets = leo_object_storage_api:get_object_storage_pid('all'),
              ?assertEqual({ok, #compaction_stats{status = 'idle',
                                                  total_num_of_targets    = 8,

@@ -39,6 +39,9 @@
 
 -export([get_object_storage_pid/1]).
 
+%% for debug
+-export([add_incorrect_data/1]).
+
 -define(SERVER_MODULE, 'leo_object_storage_server').
 
 %%--------------------------------------------------------------------
@@ -148,6 +151,13 @@ fetch_by_key(Key, Fun) ->
              ok | {error, any()}).
 store(Metadata, Bin) ->
     do_request(store, [Metadata, Bin]).
+
+%% @doc Add incorrect datas on debug purpose
+%%
+-spec(add_incorrect_data(binary()) ->
+             ok | {error, any()}).
+add_incorrect_data(Bin) ->
+    do_request(add_incorrect_data, [Bin]).
 
 %% @doc Retrieve the storage stats
 %%
@@ -269,6 +279,8 @@ do_request(delete, [Key, Object]) ->
     end;
 do_request(head, [Key]) ->
     KeyBin = term_to_binary(Key),
-    ?SERVER_MODULE:head(get_object_storage_pid(KeyBin), KeyBin).
+    ?SERVER_MODULE:head(get_object_storage_pid(KeyBin), KeyBin);
 
+do_request(add_incorrect_data, [Bin]) ->
+    ?SERVER_MODULE:add_incorrect_data(get_object_storage_pid(Bin), Bin).
 

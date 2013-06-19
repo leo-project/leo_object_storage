@@ -42,6 +42,9 @@
          compact_get/2
         ]).
 
+%% for debug 
+-export([add_incorrect_data/2]).
+
 -define(ERR_TYPE_TIMEOUT, timeout).
 
 
@@ -207,7 +210,36 @@ store(MetaDBId, StorageInfo, Metadata, Bin) ->
         {error, Cause} ->
             {error, Cause}
     end.
-
+%%--------------------------------------------------------------------
+%% for debug
+%%--------------------------------------------------------------------
+%% @doc add a incorrect data to the AVS for making the AVS corrupted
+%% @private
+-spec(add_incorrect_data(#backend_info{}, binary()) ->
+             ok | {error, any()}).
+add_incorrect_data(StorageInfo, Data) ->
+    #backend_info{write_handler = WriteHandler} = StorageInfo,
+    case file:position(WriteHandler, eof) of
+        {ok, Offset} ->
+            add_incorrect_data(WriteHandler, Offset, Data);
+        {error, Cause} ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING}, {function, "add_incorrect_data/2"},
+                                    {line, ?LINE}, {body, Cause}]),
+            {error, Cause}
+    end.
+-spec(add_incorrect_data(file:io_device(), integer(), binary()) ->
+             ok | {error, any()}).
+add_incorrect_data(WriteHandler, Offset, Data) ->
+    case file:pwrite(WriteHandler, Offset, Data) of
+        ok ->
+            ok;
+        {error, Cause} ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING}, {function, "add_incorrect_data/2"},
+                                    {line, ?LINE}, {body, Cause}]),
+            {error, Cause}
+    end.
 
 %%--------------------------------------------------------------------
 %% INNER FUNCTIONS

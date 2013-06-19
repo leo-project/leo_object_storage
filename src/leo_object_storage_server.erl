@@ -38,6 +38,9 @@
 -export([put/2, get/4, delete/2, head/2, fetch/3, store/3]).
 -export([compact/2, compact_suspend/1, compact_resume/1, stats/1]).
 
+%% for debug
+-export([add_incorrect_data/2]).
+
 %% To be passed to spawn_link
 -export([compact_fun/2]).
 
@@ -143,6 +146,12 @@ fetch(Id, Key, Fun) ->
 store(Id, Metadata, Bin) ->
     gen_server:call(Id, {store, Metadata, Bin}, ?DEF_TIMEOUT).
 
+%% @doc Store metadata and data
+%%
+-spec(add_incorrect_data(atom(), binary()) ->
+             ok | {error, any()}).
+add_incorrect_data(Id, Bin) ->
+    gen_server:call(Id, {add_incorrect_data, Bin}, ?DEF_TIMEOUT).
 
 %%--------------------------------------------------------------------
 %% API - data-compaction.
@@ -353,9 +362,12 @@ handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
           active_num   = StorageStats#storage_stats.active_num   + DiffRec},
     {reply, Reply, State#state{storage_stats = NewStorageStats}};
 
-
 handle_call(stats, _From, #state{storage_stats = StorageStats} = State) ->
     {reply, {ok, StorageStats}, State};
+
+handle_call({add_incorrect_data, Bin}, _From, #state{object_storage = StorageInfo} = State) ->
+    _ = leo_object_storage_haystack:add_incorrect_data(StorageInfo, Bin),
+    {reply, ok, State};
 
 
 handle_call(compact_suspend,  _From, #state{compaction_exec_pid = undefined} = State) ->
@@ -781,7 +793,7 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
 
 %% @doc Reduce unnecessary objects from object-container.
 %% @private
-do_compact1(ok,_Metadata, CompactParams, #state{object_storage = StorageInfo} = State) ->
+do_compact1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} = State) ->
     ReadHandler = StorageInfo#backend_info.read_handler,
 
     case leo_object_storage_haystack:compact_get(ReadHandler, CompactParams#compact_params.next_offset) of
@@ -795,6 +807,13 @@ do_compact1(ok,_Metadata, CompactParams, #state{object_storage = StorageInfo} = 
             NumOfAcriveObjs  = CompactParams#compact_params.num_of_active_object,
             SizeOfActiveObjs = CompactParams#compact_params.size_of_active_object,
             {ok, NumOfAcriveObjs, SizeOfActiveObjs};
+        {error, Cause} when Cause =:= ?ERROR_INVALID_DATA orelse 
+                            Cause =:= ?ERROR_DATA_SIZE_DID_NOT_MATCH ->
+            %% retry until eof
+            OldOffset = CompactParams#compact_params.next_offset,
+            do_compact1(ok, Metadata, 
+                        CompactParams#compact_params{next_offset = OldOffset + 1},
+                        State);
         Error ->
             Error
     end;
