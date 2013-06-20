@@ -39,8 +39,9 @@
 
 -export([get_object_storage_pid/1]).
 
-%% for debug
+-ifdef(TEST).
 -export([add_incorrect_data/1]).
+-endif.
 
 -define(SERVER_MODULE, 'leo_object_storage_server').
 
@@ -152,12 +153,6 @@ fetch_by_key(Key, Fun) ->
 store(Metadata, Bin) ->
     do_request(store, [Metadata, Bin]).
 
-%% @doc Add incorrect datas on debug purpose
-%%
--spec(add_incorrect_data(binary()) ->
-             ok | {error, any()}).
-add_incorrect_data(Bin) ->
-    do_request(add_incorrect_data, [Bin]).
 
 %% @doc Retrieve the storage stats
 %%
@@ -173,6 +168,15 @@ stats() ->
                                        [?SERVER_MODULE:stats(Id)|Acc]
                                end, [], List))}
     end.
+
+-ifdef(TEST).
+%% @doc Add incorrect datas on debug purpose
+%%
+-spec(add_incorrect_data(binary()) ->
+             ok | {error, any()}).
+add_incorrect_data(Bin) ->
+    ?SERVER_MODULE:add_incorrect_data(get_object_storage_pid(Bin), Bin).
+-endif.
 
 
 %%--------------------------------------------------------------------
@@ -279,8 +283,5 @@ do_request(delete, [Key, Object]) ->
     end;
 do_request(head, [Key]) ->
     KeyBin = term_to_binary(Key),
-    ?SERVER_MODULE:head(get_object_storage_pid(KeyBin), KeyBin);
-
-do_request(add_incorrect_data, [Bin]) ->
-    ?SERVER_MODULE:add_incorrect_data(get_object_storage_pid(Bin), Bin).
+    ?SERVER_MODULE:head(get_object_storage_pid(KeyBin), KeyBin).
 

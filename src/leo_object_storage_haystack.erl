@@ -42,8 +42,9 @@
          compact_get/2
         ]).
 
-%% for debug 
+-ifdef(TEST).
 -export([add_incorrect_data/2]).
+-endif.
 
 -define(ERR_TYPE_TIMEOUT, timeout).
 
@@ -210,9 +211,12 @@ store(MetaDBId, StorageInfo, Metadata, Bin) ->
         {error, Cause} ->
             {error, Cause}
     end.
+
+
 %%--------------------------------------------------------------------
-%% for debug
+%% for TEST
 %%--------------------------------------------------------------------
+-ifdef(TEST).
 %% @doc add a incorrect data to the AVS for making the AVS corrupted
 %% @private
 -spec(add_incorrect_data(#backend_info{}, binary()) ->
@@ -240,6 +244,8 @@ add_incorrect_data(WriteHandler, Offset, Data) ->
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
+-endif.
+
 
 %%--------------------------------------------------------------------
 %% INNER FUNCTIONS
@@ -338,7 +344,7 @@ calc_pos(StartPos, EndPos, _ObjectSize) ->
 get_fun1(_MetaDBId,_StorageInfo,
          #metadata{key      = Key,
                    dsize    = ObjectSize,
-                   addr_id  = AddrId} = Metadata, StartPos, EndPos) 
+                   addr_id  = AddrId} = Metadata, StartPos, EndPos)
                        when StartPos >= ObjectSize orelse
                             StartPos <  0 orelse
                             EndPos   >= ObjectSize ->
