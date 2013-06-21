@@ -30,7 +30,9 @@
   {mod, {leo_object_storage_app, []}},
   {env, [{profile,          false},
          {metadata_storage, 'bitcask'},
-         {object_storage,   'haystack'}]}
+         {object_storage,   'haystack'},
+         {is_strict_check,  false}
+        ]}
  ]
 }.
 
