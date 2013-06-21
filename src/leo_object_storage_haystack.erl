@@ -33,7 +33,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([open/1, close/2,
-         put/3, get/3, get/5, delete/3, head/2, fetch/3, store/4]).
+         put/3, get/3, get/6, delete/3, head/2, fetch/3, store/4]).
 
 -export([calc_obj_size/1,
          calc_obj_size/2,
@@ -141,10 +141,10 @@ put(MetaDBId, StorageInfo, Object) ->
 -spec(get(atom(), #backend_info{}, binary()) ->
              {ok, #metadata{}, #object{}} | {error, any()}).
 get(MetaDBId, StorageInfo, Key) ->
-    get(MetaDBId, StorageInfo, Key, 0, 0).
+    get(MetaDBId, StorageInfo, Key, 0, 0, false).
 
-get(MetaDBId, StorageInfo, Key, StartPos, EndPos) ->
-    get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos).
+get(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck) ->
+    get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck).
 
 
 %% @doc Remove an object and a metadata from the object-storage
@@ -313,13 +313,16 @@ open_fun(FilePath, RetryTimes) ->
 %%--------------------------------------------------------------------
 %% @doc Retrieve an object from object-storage
 %% @private
-get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos) ->
+get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck) ->
     case catch leo_backend_db_api:get(MetaDBId, Key) of
         {ok, MetadataBin} ->
             Metadata = binary_to_term(MetadataBin),
             case (Metadata#metadata.del == ?DEL_FALSE) of
-                true  -> get_fun1(MetaDBId, StorageInfo, Metadata, StartPos, EndPos);
-                false -> not_found
+                true ->
+                    get_fun_1(MetaDBId, StorageInfo, Metadata,
+                              StartPos, EndPos, IsStrictCheck);
+                false ->
+                    not_found
             end;
         Error ->
             case Error of
@@ -330,43 +333,50 @@ get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos) ->
             end
     end.
 
-calc_pos(_StartPos, EndPos, ObjectSize) when EndPos < 0 ->
-    NewStartPos = ObjectSize + EndPos,
-    NewEndPos   = ObjectSize - 1,
-    {NewStartPos, NewEndPos};
-calc_pos(StartPos, 0, ObjectSize) ->
-    {StartPos, ObjectSize - 1};
-calc_pos(StartPos, EndPos, _ObjectSize) ->
-    {StartPos, EndPos}.
 
-% when getting invalid positions, should return an identified status to reply 416 on HTTP
-% for now dsize = -2 indicate invalid pos
-get_fun1(_MetaDBId,_StorageInfo,
-         #metadata{key      = Key,
-                   dsize    = ObjectSize,
-                   addr_id  = AddrId} = Metadata, StartPos, EndPos)
-                       when StartPos >= ObjectSize orelse
-                            StartPos <  0 orelse
-                            EndPos   >= ObjectSize ->
+%% @doc When getting invalid positions, should return an identified status to reply 416 on HTTP
+%%      for now dsize = -2 indicate invalid pos
+%% @private
+get_fun_1(_MetaDBId,_StorageInfo,
+          #metadata{key      = Key,
+                    dsize    = ObjectSize,
+                    addr_id  = AddrId} = Metadata, StartPos, EndPos,_IsStrictCheck)
+  when StartPos >= ObjectSize orelse
+       StartPos <  0 orelse
+       EndPos   >= ObjectSize ->
     {ok, Metadata, #object{key     = Key,
                            addr_id = AddrId,
                            data    = <<>>,
                            dsize   = -2}};
-get_fun1(_MetaDBId, StorageInfo, #metadata{key      = Key,
-                                           ksize    = KeySize,
-                                           dsize    = ObjectSize,
-                                           addr_id  = AddrId,
-                                           offset   = Offset,
-                                           cnumber  = 0} = Metadata, StartPos, EndPos) ->
-    {NewStartPos, NewEndPos} = calc_pos(StartPos, EndPos, ObjectSize),
+get_fun_1(_MetaDBId, StorageInfo,
+          #metadata{key      = Key,
+                    ksize    = KeySize,
+                    dsize    = ObjectSize,
+                    addr_id  = AddrId,
+                    offset   = Offset,
+                    cnumber  = 0,
+                    checksum = Checksum} = Metadata, StartPos, EndPos, IsStrictCheck) ->
     %% Calculate actual start-point and end-point
+    {NewStartPos, NewEndPos} = calc_pos(StartPos, EndPos, ObjectSize),
     NewOffset     = Offset + erlang:round(?BLEN_HEADER/8) + KeySize + NewStartPos,
     NewObjectSize = NewEndPos - NewStartPos + 1,
 
+    %% Retrieve the object
     #backend_info{read_handler = ReadHandler} = StorageInfo,
 
-    %% Retrieve the object
     case file:pread(ReadHandler, NewOffset, NewObjectSize) of
+        {ok, Bin} when IsStrictCheck == true,
+                       StartPos == 0,
+                       EndPos   == 0 ->
+            case leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)) of
+                Checksum ->
+                    {ok, Metadata, #object{key     = Key,
+                                           addr_id = AddrId,
+                                           data    = Bin,
+                                           dsize   = NewObjectSize}};
+                _ ->
+                    {error, invalid_object}
+            end;
         {ok, Bin} ->
             {ok, Metadata, #object{key     = Key,
                                    addr_id = AddrId,
@@ -382,12 +392,23 @@ get_fun1(_MetaDBId, StorageInfo, #metadata{key      = Key,
     end;
 
 %% For parent of chunked object
-get_fun1(_MetaDBId,_StorageInfo, #metadata{key     = Key,
-                                           addr_id = AddrId} = Metadata, _, _) ->
+get_fun_1(_MetaDBId,_StorageInfo, #metadata{key     = Key,
+                                            addr_id = AddrId} = Metadata, _,_,_) ->
     {ok, Metadata, #object{key     = Key,
                            addr_id = AddrId,
                            data    = <<>>,
                            dsize   = 0}}.
+
+
+%% @private
+calc_pos(_StartPos, EndPos, ObjectSize) when EndPos < 0 ->
+    NewStartPos = ObjectSize + EndPos,
+    NewEndPos   = ObjectSize - 1,
+    {NewStartPos, NewEndPos};
+calc_pos(StartPos, 0, ObjectSize) ->
+    {StartPos, ObjectSize - 1};
+calc_pos(StartPos, EndPos, _ObjectSize) ->
+    {StartPos, EndPos}.
 
 
 %% @doc Insert a super-block into an object container (*.avs)
