@@ -196,13 +196,22 @@ terminate_children([]) ->
 terminate_children([{Id, Pid, worker, [Mod|_]}|T]) ->
     case Mod of
         leo_backend_db_sup ->
-            Mod:stop(Pid);
+            Mod:stop(Pid),
+            wait_process(Pid);
         _ ->
             Mod:stop(Id)
     end,
     terminate_children(T);
 terminate_children([_|T]) ->
     terminate_children(T).
+
+wait_process(Pid) ->
+    case erlang:is_process_alive(Pid) of
+        false -> void;
+        true ->
+            timer:sleep(100),
+            wait_process(Pid)
+    end.
 
 
 %% %% @doc Retrieve object-store directory
