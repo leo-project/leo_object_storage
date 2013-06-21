@@ -151,3 +151,13 @@
             _ -> ?DEF_METADATA_DB
         end).
 
+-ifdef(TEST).
+-define(env_strict_check(), true).
+-else.
+-define(env_strict_check(),
+        case application:get_env(?APP_NAME, strict_check) of
+            {ok, EnvStrictCheck} -> EnvStrictCheck;
+            _ -> false
+        end).
+-endif.
+

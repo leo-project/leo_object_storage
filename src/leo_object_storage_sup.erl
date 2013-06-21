@@ -126,13 +126,16 @@ start_child(ObjectStorageInfo) ->
     %% Launch backend-db's processes
     %%   under the leo_object_storage_sup
     MetadataDB = ?env_metadata_db(),
+    IsStrictCheck = ?env_strict_check(),
+
     _ = lists:foldl(
           fun({Containers, Path0}, I) ->
                   Path1 = get_path(Path0),
                   Props = [{num_of_containers, Containers},
                            {path,              Path1},
-                           {metadata_db,       MetadataDB}],
-
+                           {metadata_db,       MetadataDB},
+                           {is_strict_check,   IsStrictCheck}
+                          ],
                   true = ets:insert(?ETS_INFO_TABLE,
                                     {list_to_atom(?MODULE_STRING ++ integer_to_list(I)), Props}),
                   ok = lists:foreach(fun(N) ->
@@ -196,13 +199,22 @@ terminate_children([]) ->
 terminate_children([{Id, Pid, worker, [Mod|_]}|T]) ->
     case Mod of
         leo_backend_db_sup ->
-            Mod:stop(Pid);
+            Mod:stop(Pid),
+            wait_process(Pid);
         _ ->
             Mod:stop(Id)
     end,
     terminate_children(T);
 terminate_children([_|T]) ->
     terminate_children(T).
+
+wait_process(Pid) ->
+    case erlang:is_process_alive(Pid) of
+        false -> void;
+        true ->
+            timer:sleep(100),
+            wait_process(Pid)
+    end.
 
 
 %% %% @doc Retrieve object-store directory
@@ -234,8 +246,9 @@ add_container(BackendDBSupPid, Id0, Props) ->
     Id1 = gen_id(obj_storage, Id0),
     Id2 = gen_id(metadata,    Id0),
 
-    Path       = leo_misc:get_value('path',        Props),
-    MetadataDB = leo_misc:get_value('metadata_db', Props),
+    Path          = leo_misc:get_value('path',            Props),
+    MetadataDB    = leo_misc:get_value('metadata_db',     Props),
+    IsStrictCheck = leo_misc:get_value('is_strict_check', Props),
 
     %% %% Launch metadata-db
     case leo_backend_db_sup:start_child(
@@ -243,7 +256,7 @@ add_container(BackendDBSupPid, Id0, Props) ->
            lists:append([Path, ?DEF_METADATA_STORAGE_SUB_DIR, integer_to_list(Id0)])) of
         ok ->
             %% Launch object-storage
-            Args = [Id1, Id0, Id2, Path],
+            Args = [Id1, Id0, Id2, Path, IsStrictCheck],
             ChildSpec = {Id1,
                          {leo_object_storage_server, start_link, Args},
                          permanent, 2000, worker, [leo_object_storage_server]},

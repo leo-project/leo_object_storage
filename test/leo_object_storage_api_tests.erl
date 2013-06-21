@@ -40,8 +40,7 @@ all_test_() ->
      [{with, [T]} || T <- [fun new_/1,
                            fun operate_/1,
                            fun fetch_by_addr_id_/1,
-                           fun fetch_by_key_/1,
-                           fun stats_/1
+                           fun fetch_by_key_/1
                           ]]}.
 
 setup() ->
@@ -56,6 +55,7 @@ teardown([Path1, Path2]) ->
     os:cmd("rm -rf " ++ Path1),
     os:cmd("rm -rf " ++ Path2),
     application:stop(crypto),
+    timer:sleep(200),
     ok.
 
 
@@ -242,43 +242,56 @@ fetch_by_key_([Path1, Path2]) ->
     application:stop(leo_object_storage),
     ok.
 
-stats_([Path1, Path2]) ->
-    ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
+stats_test_() ->
+    {timeout, 15,
+     [?_test(
+         begin
+             application:start(crypto),
+             Path1 = "./avs1",
+             Path2 = "./avs2",
+             ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
 
-    ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0">>),
-    ok = put_test_data(127,  <<"air/on/g/string/1">>, <<"JSB1">>),
-    ok = put_test_data(255,  <<"air/on/g/string/2">>, <<"JSB2">>),
-    ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3">>),
-    ok = put_test_data(767,  <<"air/on/g/string/4">>, <<"JSB4">>),
-    ok = put_test_data(1023, <<"air/on/g/string/5">>, <<"JSB5">>),
-    ok = put_test_data(2047, <<"air/on/g/string/6">>, <<"JSB6">>),
-    ok = put_test_data(4095, <<"air/on/g/string/7">>, <<"JSB7">>),
-    ok = put_test_data(4095, <<"air/on/g/string/7">>, <<"JSB8">>),
-
-    {ok, Res} = leo_object_storage_api:stats(),
-    ?assertEqual(8, length(Res)),
-
-    catch leo_object_storage_sup:stop(),
-    application:stop(leo_backend_db),
-    application:stop(bitcask),
-    application:stop(leo_object_storage),
-
-    %% relaunch and validate stored datas
-    ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
-    {ok, Res1} = leo_object_storage_api:stats(),
-    ?assertEqual(8, length(Res)),
-    {SumTotal0, SumActive0} = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
-                                                                  total_num  = Total,
-                                                                  active_num = Active}}, {SumTotal, SumActive}) ->
-                                                  {SumTotal + Total, SumActive + Active}
-                                          end, {0, 0}, Res1),
-    ?assertEqual(9, SumTotal0),
-    ?assertEqual(8, SumActive0),
-
-    application:stop(leo_backend_db),
-    application:stop(bitcask),
-    application:stop(leo_object_storage),
-    ok.
+             ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0">>),
+             ok = put_test_data(127,  <<"air/on/g/string/1">>, <<"JSB1">>),
+             ok = put_test_data(255,  <<"air/on/g/string/2">>, <<"JSB2">>),
+             ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3">>),
+             ok = put_test_data(767,  <<"air/on/g/string/4">>, <<"JSB4">>),
+             ok = put_test_data(1023, <<"air/on/g/string/5">>, <<"JSB5">>),
+             ok = put_test_data(2047, <<"air/on/g/string/6">>, <<"JSB6">>),
+             ok = put_test_data(4095, <<"air/on/g/string/7">>, <<"JSB7">>),
+             ok = put_test_data(4095, <<"air/on/g/string/7">>, <<"JSB8">>),
+         
+             {ok, Res} = leo_object_storage_api:stats(),
+             ?assertEqual(8, length(Res)),
+         
+             catch leo_object_storage_sup:stop(),
+             application:stop(leo_backend_db),
+             application:stop(bitcask),
+             application:stop(leo_object_storage),
+             io:format(user, "*** [test]stopped ~n", []),
+         
+             %% relaunch and validate stored datas
+             ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
+             io:format(user, "*** [test]restarted ~n", []),
+             {ok, Res1} = leo_object_storage_api:stats(),
+             ?assertEqual(8, length(Res)),
+             {SumTotal0, SumActive0} = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
+                                                                           total_num  = Total,
+                                                                           active_num = Active}}, {SumTotal, SumActive}) ->
+                                                           {SumTotal + Total, SumActive + Active}
+                                                   end, {0, 0}, Res1),
+             ?assertEqual(9, SumTotal0),
+             ?assertEqual(8, SumActive0),
+         
+             catch leo_object_storage_sup:stop(),
+             io:format(user, "*** [test]stopped2 ~n", []),
+             application:stop(leo_backend_db),
+             application:stop(bitcask),
+             application:stop(leo_object_storage),
+             application:stop(crypto),
+             os:cmd("rm -rf " ++ Path1),
+             os:cmd("rm -rf " ++ Path2),
+             true end)]}.
 
 compact_test_() ->
     {timeout, 15,
@@ -315,6 +328,9 @@ compact_test_() ->
 
              ?assertEqual({error,badstate}, leo_compaction_manager_fsm:suspend()),
              ?assertEqual({error,badstate}, leo_compaction_manager_fsm:resume()),
+
+             %% append incorrect data
+             _ = leo_object_storage_api:add_incorrect_data(crypto:rand_bytes(256)),
 
              AllTargets = leo_object_storage_api:get_object_storage_pid('all'),
              ?assertEqual({ok, #compaction_stats{status = 'idle',
@@ -406,12 +422,12 @@ compact_test_() ->
                                              total_num  = Total,
                                              active_num = Active}},
                          {SumTotal, SumActive, SumTotalSize, SumActiveSize}) ->
-                                       ?assertEqual(true, Start =< End),
-                                       {SumTotal + Total,
-                                        SumActive + Active,
-                                        SumTotalSize + TotalSize,
-                                        SumActiveSize + ActiveSize}
-                               end, {0, 0, 0, 0}, Res2),
+                             ?assertEqual(true, Start =< End),
+                             {SumTotal + Total,
+                              SumActive + Active,
+                              SumTotalSize + TotalSize,
+                              SumActiveSize + ActiveSize}
+                     end, {0, 0, 0, 0}, Res2),
              ?assertEqual(7, SumTotal2),
              ?assertEqual(7, SumActive2),
              ?assertEqual(true, SumTotalSize2 =:= SumActiveSize2),

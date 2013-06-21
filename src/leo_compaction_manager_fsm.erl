@@ -87,8 +87,7 @@ start(TargetPids, MaxConNum, InspectFun) ->
       ?MODULE, {start, TargetPids, MaxConNum, InspectFun}, ?DEF_TIMEOUT).
 
 stop(_Id) ->
-    void.
-
+    gen_fsm:sync_send_all_state_event(?MODULE, stop, ?DEF_TIMEOUT).
 
 %% @doc Suspend compaction
 -spec(suspend() ->
@@ -355,8 +354,11 @@ handle_sync_event(status, _From, StateName, #state{status = Status,
                                    reserved_targets        = ReservedTargets,
                                    pending_targets         = PendingTargets,
                                    ongoing_targets         = OngoingTargets,
-                                   latest_exec_datetime    = LastestExecDate}}, StateName, State}.
+                                   latest_exec_datetime    = LastestExecDate}}, StateName, State};
 
+%% @doc Handle 'stop' event
+handle_sync_event(stop, _From, _StateName, Status) ->
+    {stop, shutdown, ok, Status}.
 
 %% Function: handle_info(Info, State) -> {noreply, State}          |
 %%                                       {noreply, State, Timeout} |
@@ -370,7 +372,10 @@ handle_info(_Info, StateName, State) ->
 %% terminate. It should be the opposite of Module:init/1 and do any necessary
 %% cleaning up. When it returns, the gen_server terminates with Reason.
 %% The return value is ignored.
-terminate(_Reason, _StateName, _State) ->
+terminate(Reason, _StateName, _State) ->
+    error_logger:info_msg("~p,~p,~p,~p~n",
+                          [{module, ?MODULE_STRING}, {function, "terminate/2"},
+                           {line, ?LINE}, {body, Reason}]),
     ok.
 
 %% Func: code_change(OldVsn, State, Extra) -> {ok, NewState}

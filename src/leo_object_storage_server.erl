@@ -34,9 +34,13 @@
 -include_lib("eunit/include/eunit.hrl").
 
 %% API
--export([start_link/4, stop/1]).
+-export([start_link/4, start_link/5, stop/1]).
 -export([put/2, get/4, delete/2, head/2, fetch/3, store/3]).
 -export([compact/2, compact_suspend/1, compact_resume/1, stats/1]).
+
+-ifdef(TEST).
+-export([add_incorrect_data/2]).
+-endif.
 
 %% To be passed to spawn_link
 -export([compact_fun/2]).
@@ -57,7 +61,8 @@
           compaction_exec_pid :: pid(),
           object_storage      :: #backend_info{},
           storage_stats       :: #storage_stats{},
-          state_filepath      :: string()
+          state_filepath      :: string(),
+          is_strict_check     :: boolean()
          }).
 
 -record(compact_params, {
@@ -73,6 +78,15 @@
 -define(AVS_FILE_EXT, ".avs").
 -define(DEF_TIMEOUT, 30000).
 
+
+-ifdef(TEST).
+-define(add_incorrect_data(_StorageInfo,_Bin),
+        leo_object_storage_haystack:add_incorrect_data(_StorageInfo,_Bin)).
+-else.
+-define(add_incorrect_data(_StorageInfo,_Bin), ok).
+-endif.
+
+
 %%====================================================================
 %% API
 %%====================================================================
@@ -81,8 +95,13 @@
 -spec(start_link(atom(), integer(), atom(), string()) ->
              ok | {error, any()}).
 start_link(Id, SeqNo, MetaDBId, RootPath) ->
+    start_link(Id, SeqNo, MetaDBId, RootPath, false).
+
+-spec(start_link(atom(), integer(), atom(), string(), boolean()) ->
+             ok | {error, any()}).
+start_link(Id, SeqNo, MetaDBId, RootPath, IsStrictCheck) ->
     gen_server:start_link({local, Id}, ?MODULE,
-                          [Id, SeqNo, MetaDBId, RootPath], []).
+                          [Id, SeqNo, MetaDBId, RootPath, IsStrictCheck], []).
 
 %% @doc Stop this server
 %%
@@ -144,6 +163,16 @@ store(Id, Metadata, Bin) ->
     gen_server:call(Id, {store, Metadata, Bin}, ?DEF_TIMEOUT).
 
 
+-ifdef(TEST).
+%% @doc Store metadata and data
+%%
+-spec(add_incorrect_data(atom(), binary()) ->
+             ok | {error, any()}).
+add_incorrect_data(Id, Bin) ->
+    gen_server:call(Id, {add_incorrect_data, Bin}, ?DEF_TIMEOUT).
+-endif.
+
+
 %%--------------------------------------------------------------------
 %% API - data-compaction.
 %%--------------------------------------------------------------------
@@ -197,7 +226,7 @@ stats(Id) ->
 %%                         ignore               |
 %%                         {stop, Reason}
 %% Description: Initiates the server
-init([Id, SeqNo, MetaDBId, RootPath]) ->
+init([Id, SeqNo, MetaDBId, RootPath, IsStrictCheck]) ->
     ObjectStorageDir  = lists:append([RootPath, ?DEF_OBJECT_STORAGE_SUB_DIR]),
     ObjectStoragePath = lists:append([ObjectStorageDir, integer_to_list(SeqNo), ?AVS_FILE_EXT]),
     StateFilePath     = lists:append([RootPath, ?DEF_STATE_SUB_DIR, atom_to_list(Id)]),
@@ -230,7 +259,8 @@ init([Id, SeqNo, MetaDBId, RootPath]) ->
                                 storage_stats       = StorageStats,
                                 compaction_from_pid = undefined,
                                 compaction_exec_pid = undefined,
-                                state_filepath      = StateFilePath
+                                state_filepath      = StateFilePath,
+                                is_strict_check     = IsStrictCheck
                                }};
                 {error, Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
@@ -281,9 +311,11 @@ handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
     {reply, Reply, NewState#state{storage_stats = NewStorageStats}};
 
 
-handle_call({get, Key, StartPos, EndPos}, _From, #state{meta_db_id     = MetaDBId,
-                                                        object_storage = StorageInfo} = State) ->
-    Reply = leo_object_storage_haystack:get(MetaDBId, StorageInfo, Key, StartPos, EndPos),
+handle_call({get, Key, StartPos, EndPos}, _From, #state{meta_db_id      = MetaDBId,
+                                                        object_storage  = StorageInfo,
+                                                        is_strict_check = IsStrictCheck} = State) ->
+    Reply = leo_object_storage_haystack:get(
+              MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck),
 
     NewState = after_proc(Reply, State),
     erlang:garbage_collect(self()),
@@ -353,10 +385,8 @@ handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
           active_num   = StorageStats#storage_stats.active_num   + DiffRec},
     {reply, Reply, State#state{storage_stats = NewStorageStats}};
 
-
 handle_call(stats, _From, #state{storage_stats = StorageStats} = State) ->
     {reply, {ok, StorageStats}, State};
-
 
 handle_call(compact_suspend,  _From, #state{compaction_exec_pid = undefined} = State) ->
     {reply, {error, ?ERROR_COMPACT_SUSPEND_FAILURE}, State};
@@ -384,7 +414,13 @@ handle_call({compact, FunHasChargeOfNode}, {FromPid, _FromRef},
                                                       write_handler = undefined,
                                                       read_handler  = undefined
                                                      }}, FunHasChargeOfNode]),
-    {reply, ok, State1#state{compaction_exec_pid = Pid}}.
+    {reply, ok, State1#state{compaction_exec_pid = Pid}};
+
+
+handle_call({add_incorrect_data,_Bin}, _From, #state{object_storage =_StorageInfo} = State) ->
+    ?add_incorrect_data(_StorageInfo,_Bin),
+    {reply, ok, State}.
+
 
 %% Function: handle_cast(Msg, State) -> {noreply, State}          |
 %%                                      {noreply, State, Timeout} |
@@ -781,7 +817,7 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
 
 %% @doc Reduce unnecessary objects from object-container.
 %% @private
-do_compact1(ok,_Metadata, CompactParams, #state{object_storage = StorageInfo} = State) ->
+do_compact1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} = State) ->
     ReadHandler = StorageInfo#backend_info.read_handler,
 
     case leo_object_storage_haystack:compact_get(ReadHandler, CompactParams#compact_params.next_offset) of
@@ -795,6 +831,13 @@ do_compact1(ok,_Metadata, CompactParams, #state{object_storage = StorageInfo} = 
             NumOfAcriveObjs  = CompactParams#compact_params.num_of_active_object,
             SizeOfActiveObjs = CompactParams#compact_params.size_of_active_object,
             {ok, NumOfAcriveObjs, SizeOfActiveObjs};
+        {error, Cause} when Cause =:= ?ERROR_INVALID_DATA orelse
+                            Cause =:= ?ERROR_DATA_SIZE_DID_NOT_MATCH ->
+            %% retry until eof
+            OldOffset = CompactParams#compact_params.next_offset,
+            do_compact1(ok, Metadata,
+                        CompactParams#compact_params{next_offset = OldOffset + 1},
+                        State);
         Error ->
             Error
     end;

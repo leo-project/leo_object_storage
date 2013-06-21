@@ -23,14 +23,16 @@
 {application, leo_object_storage,
  [
   {description, "Leo Object Storage"},
-  {vsn, "0.14.3"},
+  {vsn, "0.14.4"},
   {id, "leo_object_storage"},
   {registered,   []},
   {applications, [kernel, stdlib, crypto]},
   {mod, {leo_object_storage_app, []}},
   {env, [{profile,          false},
          {metadata_storage, 'bitcask'},
-         {object_storage,   'haystack'}]}
+         {object_storage,   'haystack'},
+         {is_strict_check,  false}
+        ]}
  ]
 }.
 
