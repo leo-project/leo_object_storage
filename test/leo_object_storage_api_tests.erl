@@ -56,6 +56,7 @@ teardown([Path1, Path2]) ->
     os:cmd("rm -rf " ++ Path1),
     os:cmd("rm -rf " ++ Path2),
     application:stop(crypto),
+    timer:sleep(200),
     ok.
 
 
@@ -262,22 +263,6 @@ stats_([Path1, Path2]) ->
     application:stop(leo_backend_db),
     application:stop(bitcask),
     application:stop(leo_object_storage),
-
-    %% relaunch and validate stored datas
-    ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
-    {ok, Res1} = leo_object_storage_api:stats(),
-    ?assertEqual(8, length(Res)),
-    {SumTotal0, SumActive0} = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
-                                                                  total_num  = Total,
-                                                                  active_num = Active}}, {SumTotal, SumActive}) ->
-                                                  {SumTotal + Total, SumActive + Active}
-                                          end, {0, 0}, Res1),
-    ?assertEqual(9, SumTotal0),
-    ?assertEqual(8, SumActive0),
-
-    application:stop(leo_backend_db),
-    application:stop(bitcask),
-    application:stop(leo_object_storage),
     ok.
 
 compact_test_() ->
@@ -409,12 +394,12 @@ compact_test_() ->
                                              total_num  = Total,
                                              active_num = Active}},
                          {SumTotal, SumActive, SumTotalSize, SumActiveSize}) ->
-                                       ?assertEqual(true, Start =< End),
-                                       {SumTotal + Total,
-                                        SumActive + Active,
-                                        SumTotalSize + TotalSize,
-                                        SumActiveSize + ActiveSize}
-                               end, {0, 0, 0, 0}, Res2),
+                             ?assertEqual(true, Start =< End),
+                             {SumTotal + Total,
+                              SumActive + Active,
+                              SumTotalSize + TotalSize,
+                              SumActiveSize + ActiveSize}
+                     end, {0, 0, 0, 0}, Res2),
              ?assertEqual(7, SumTotal2),
              ?assertEqual(7, SumActive2),
              ?assertEqual(true, SumTotalSize2 =:= SumActiveSize2),
