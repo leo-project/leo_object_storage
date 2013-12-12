@@ -597,7 +597,7 @@ compact_fun(#state{meta_db_id       = MetaDBId,
                                error_logger:error_msg("~p,~p,~p,~p~n",
                                                       [{module, ?MODULE_STRING}, {function, "compact_fun/2"},
                                                        {line, ?LINE},
-                                                       {body, Reason}]),
+                                                       {body, {MetaDBId, Reason}}]),
                                {Reason, State}
                        end,
     compact_done(NewState).
@@ -631,7 +631,7 @@ compact_fun1({ok, #state{meta_db_id     = MetaDBId,
                               error_logger:error_msg("~p,~p,~p,~p~n",
                                                       [{module, ?MODULE_STRING}, {function, "compact_fun/2"},
                                                        {line, ?LINE},
-                                                       {body, Reason}]),
+                                                       {body, {MetaDBId, Reason}}]),
                               {error, Reason}
                           end;
                       Error0 ->
