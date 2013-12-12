@@ -303,6 +303,9 @@ compact_test_() ->
              application:start(sasl),
              application:start(os_mon),
 
+             os:cmd("rm -rf " ++ Path1),
+             os:cmd("rm -rf " ++ Path2),
+
              ok = leo_object_storage_api:start([{4, Path1}, {4, Path2}]),
              ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0">>),
              ok = put_test_data(127,  <<"air/on/g/string/1">>, <<"JSB1">>),
@@ -411,7 +414,7 @@ compact_test_() ->
 
              ?assertEqual(ok, leo_compaction_manager_fsm:resume()),
 
-             timer:sleep(2000),
+             timer:sleep(3000),
              {ok, Res2} = leo_object_storage_api:stats(),
              {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2}
                  = lists:foldl(
@@ -469,8 +472,6 @@ compact_test_() ->
              application:stop(os_mon),
              application:stop(sasl),
              application:stop(crypto),
-             os:cmd("rm -rf " ++ Path1),
-             os:cmd("rm -rf " ++ Path2),
              true end)]}.
 
 
