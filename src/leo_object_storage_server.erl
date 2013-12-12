@@ -624,8 +624,16 @@ compact_fun1({ok, #state{meta_db_id     = MetaDBId,
                                                           num_of_active_object   = 0,
                                                           size_of_active_object  = 0,
                                                           fun_has_charge_of_node = FunHasChargeOfNode},
-                          Ret = do_compact(Metadata, CompactParams, State),
-                          Ret;
+                          try do_compact(Metadata, CompactParams, State) of
+                              Ret ->
+                                  Ret
+                          catch _:Reason ->
+                              error_logger:error_msg("~p,~p,~p,~p~n",
+                                                      [{module, ?MODULE_STRING}, {function, "compact_fun/2"},
+                                                       {line, ?LINE},
+                                                       {body, Reason}]),
+                              {error, Reason}
+                          end;
                       Error0 ->
                           Error0
                   end;
