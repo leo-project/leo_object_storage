@@ -38,6 +38,7 @@
         ]).
 
 -export([get_object_storage_pid/1]).
+-export([get_object_storage_pid_first/0]).
 
 -ifdef(TEST).
 -export([add_incorrect_data/1]).
@@ -113,7 +114,7 @@ fetch_by_addr_id(AddrId, Fun) ->
         List ->
             Res = lists:foldl(
                     fun(Id, Acc) ->
-                            case ?SERVER_MODULE:fetch(Id, term_to_binary({AddrId, []}), Fun) of
+                            case ?SERVER_MODULE:fetch(Id, {AddrId, <<>>}, Fun) of
                                 {ok, Values} ->
                                     [Values|Acc];
                                 _ ->
@@ -135,7 +136,7 @@ fetch_by_key(Key, Fun) ->
         List ->
             Res = lists:foldl(
                     fun(Id, Acc) ->
-                            case ?SERVER_MODULE:fetch(Id, term_to_binary({0, Key}), Fun) of
+                            case ?SERVER_MODULE:fetch(Id, {0, Key}, Fun) of
                                 {ok, Values} ->
                                     [Values|Acc];
                                 _ ->
@@ -231,6 +232,12 @@ get_object_storage_pid(List, Arg) ->
     Id = leo_misc:get_value(obj_storage, Value),
     Id.
 
+%% @doc for debug purpose
+get_object_storage_pid_first() ->
+    Key = ets:first(?ETS_CONTAINERS_TABLE),
+    [{Key, First}|_] = ets:lookup(?ETS_CONTAINERS_TABLE, Key),
+    Id = leo_misc:get_value(obj_storage, First),
+    Id.
 
 %% @doc Retrieve the status of object of pid
 %% @private
@@ -248,9 +255,9 @@ get_status_by_id(Pid) ->
 %% @private
 -spec(do_request(type_of_method(), list()) ->
              ok | {ok, list()} | {error, any()}).
-do_request(get, [Key, StartPos, EndPos]) ->
-    KeyBin = term_to_binary(Key),
-    ?SERVER_MODULE:get(get_object_storage_pid(KeyBin), KeyBin, StartPos, EndPos);
+do_request(get, [{AddrId, Key}, StartPos, EndPos]) ->
+    KeyBin = term_to_binary({AddrId, Key}),
+    ?SERVER_MODULE:get(get_object_storage_pid(KeyBin), {AddrId, Key}, StartPos, EndPos);
 do_request(store, [Metadata, Bin]) ->
     #metadata{addr_id = AddrId,
               key     = Key} = Metadata,
@@ -281,7 +288,7 @@ do_request(delete, [Key, Object]) ->
         ?STATE_COMPACTING ->
             {error, doing_compaction}
     end;
-do_request(head, [Key]) ->
-    KeyBin = term_to_binary(Key),
-    ?SERVER_MODULE:head(get_object_storage_pid(KeyBin), KeyBin).
+do_request(head, [{AddrId, Key}]) ->
+    KeyBin = term_to_binary({AddrId, Key}),
+    ?SERVER_MODULE:head(get_object_storage_pid(KeyBin), {AddrId, Key}).
 

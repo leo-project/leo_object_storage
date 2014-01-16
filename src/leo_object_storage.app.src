@@ -29,7 +29,7 @@
   {applications, [kernel, stdlib, crypto]},
   {mod, {leo_object_storage_app, []}},
   {env, [{profile,          false},
-         {metadata_storage, 'bitcask'},
+         {metadata_storage, 'leveldb'},
          {object_storage,   'haystack'},
          {is_strict_check,  false}
         ]}

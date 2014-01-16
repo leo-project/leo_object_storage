@@ -37,6 +37,7 @@
 -export([start_link/4, start_link/5, stop/1]).
 -export([put/2, get/4, delete/2, head/2, fetch/3, store/3]).
 -export([compact/2, compact_suspend/1, compact_resume/1, stats/1]).
+-export([get_avs_version_bin/1]).
 
 -ifdef(TEST).
 -export([add_incorrect_data/2]).
@@ -56,7 +57,6 @@
 -record(state, {
           id                  :: atom(),
           meta_db_id          :: atom(),
-          vnode_id            :: integer(),
           compaction_from_pid :: pid(),
           compaction_exec_pid :: pid(),
           object_storage      :: #backend_info{},
@@ -112,6 +112,11 @@ stop(Id) ->
                            {line, ?LINE}, {body, Id}]),
     gen_server:call(Id, stop, ?DEF_TIMEOUT).
 
+%% @doc Get AVS format version binary like <<"LeoFS AVS-2.2">>
+-spec(get_avs_version_bin(atom()) -> ok).
+get_avs_version_bin(Id) ->
+    gen_server:call(Id, get_avs_version_bin, ?DEF_TIMEOUT).
+
 %%--------------------------------------------------------------------
 %% API - object operations.
 %%--------------------------------------------------------------------
@@ -125,7 +130,7 @@ put(Id, Object) ->
 
 %% @doc Retrieve an object from the object-storage
 %%
--spec(get(atom(), binary(), integer(), integer()) ->
+-spec(get(atom(), tuple(), integer(), integer()) ->
              {ok, #metadata{}, #object{}} | not_found | {error, any()}).
 get(Id, Key, StartPos, EndPos) ->
     gen_server:call(Id, {get, Key, StartPos, EndPos}, ?DEF_TIMEOUT).
@@ -141,7 +146,7 @@ delete(Id, Object) ->
 
 %% @doc Retrieve an object's metadata from the object-storage
 %%
--spec(head(atom(), binary()) ->
+-spec(head(atom(), tuple()) ->
              {ok, #metadata{}} | {error, any()}).
 head(Id, Key) ->
     gen_server:call(Id, {head, Key}, ?DEF_TIMEOUT).
@@ -248,11 +253,12 @@ init([Id, SeqNo, MetaDBId, RootPath, IsStrictCheck]) ->
     case get_raw_path(object, ObjectStorageDir, ObjectStoragePath) of
         {ok, ObjectStorageRawPath} ->
             case leo_object_storage_haystack:open(ObjectStorageRawPath) of
-                {ok, [ObjectWriteHandler, ObjectReadHandler]} ->
-                    StorageInfo = #backend_info{file_path     = ObjectStoragePath,
-                                                file_path_raw = ObjectStorageRawPath,
-                                                write_handler = ObjectWriteHandler,
-                                                read_handler  = ObjectReadHandler},
+                {ok, [ObjectWriteHandler, ObjectReadHandler, AVSVsnBin]} ->
+                    StorageInfo = #backend_info{file_path           = ObjectStoragePath,
+                                                file_path_raw       = ObjectStorageRawPath,
+                                                write_handler       = ObjectWriteHandler,
+                                                read_handler        = ObjectReadHandler,
+                                                avs_version_bin_cur = AVSVsnBin},
                     {ok, #state{id = Id,
                                 meta_db_id          = MetaDBId,
                                 object_storage      = StorageInfo,
@@ -281,13 +287,17 @@ init([Id, SeqNo, MetaDBId, RootPath, IsStrictCheck]) ->
 handle_call(stop, _From, State) ->
     {stop, shutdown, ok, State};
 
+handle_call(get_avs_version_bin, _From, #state{object_storage = StorageInfo} = State) ->
+    Reply = {ok, StorageInfo#backend_info.avs_version_bin_cur},
+    {reply, Reply, State};
 
 handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
                                          object_storage = StorageInfo,
                                          storage_stats  = StorageStats} = State) ->
+    Key = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur, Object#object.addr_id, Object#object.key),
     {DiffRec, Oldsize} =
         case leo_object_storage_haystack:head(
-               MetaDBId, term_to_binary({Object#object.addr_id, Object#object.key})) of
+               MetaDBId, Key) of
             not_found ->
                 {1, 0};
             {ok, MetaBin} ->
@@ -311,11 +321,12 @@ handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
     {reply, Reply, NewState#state{storage_stats = NewStorageStats}};
 
 
-handle_call({get, Key, StartPos, EndPos}, _From, #state{meta_db_id      = MetaDBId,
+handle_call({get, {AddrId, Key}, StartPos, EndPos}, _From, #state{meta_db_id      = MetaDBId,
                                                         object_storage  = StorageInfo,
                                                         is_strict_check = IsStrictCheck} = State) ->
+    BackendKey = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur, AddrId, Key),
     Reply = leo_object_storage_haystack:get(
-              MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck),
+              MetaDBId, StorageInfo, BackendKey, StartPos, EndPos, IsStrictCheck),
 
     NewState = after_proc(Reply, State),
     erlang:garbage_collect(self()),
@@ -326,9 +337,10 @@ handle_call({get, Key, StartPos, EndPos}, _From, #state{meta_db_id      = MetaDB
 handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
                                             object_storage = StorageInfo,
                                             storage_stats  = StorageStats} = State) ->
+    Key = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur, Object#object.addr_id, Object#object.key),
     {DiffRec, Oldsize} =
         case leo_object_storage_haystack:head(
-               MetaDBId, term_to_binary({Object#object.addr_id, Object#object.key})) of
+               MetaDBId, Key) of
             not_found ->
                 {0, 0};
             {ok, MetaBin} ->
@@ -350,22 +362,26 @@ handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
     {reply, Reply, NewState#state{storage_stats = NewStorageStats}};
 
 
-handle_call({head, Key}, _From, #state{meta_db_id = MetaDBId} = State) ->
-    Reply = leo_object_storage_haystack:head(MetaDBId, Key),
+handle_call({head, {AddrId, Key}}, _From, #state{meta_db_id = MetaDBId, object_storage = StorageInfo} = State) ->
+    BackendKey = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur, AddrId, Key),
+    Reply = leo_object_storage_haystack:head(MetaDBId, BackendKey),
     {reply, Reply, State};
 
 
-handle_call({fetch, Key, Fun}, _From, #state{meta_db_id = MetaDBId} = State) ->
-    Reply = leo_object_storage_haystack:fetch(MetaDBId, Key, Fun),
+handle_call({fetch, {AddrId, Key}, Fun}, _From, #state{meta_db_id     = MetaDBId,
+                                             object_storage = StorageInfo} = State) ->
+    BackendKey = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur, AddrId, Key),
+    Reply = leo_object_storage_haystack:fetch(MetaDBId, BackendKey, Fun),
     {reply, Reply, State};
 
 
 handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
                                                   object_storage = StorageInfo,
                                                   storage_stats  = StorageStats} = State) ->
+    BackendKey = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur, Metadata#metadata.addr_id, Metadata#metadata.key),
     {DiffRec, Oldsize} =
         case leo_object_storage_haystack:head(
-               MetaDBId, term_to_binary({Metadata#metadata.addr_id, Metadata#metadata.key})) of
+               MetaDBId, BackendKey) of
             not_found ->
                 {1, 0};
             {ok, MetaBin} ->
@@ -433,11 +449,12 @@ handle_cast({compact_done, NewState},  #state{object_storage      = StorageInfo,
     WriteHandler = StorageInfo#backend_info.write_handler,
     ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
     NewState2 = case leo_object_storage_haystack:open(FilePath) of
-                    {ok, [NewWriteHandler, NewReadHandler]} ->
+                    {ok, [NewWriteHandler, NewReadHandler, AVSVsnBin]} ->
                         BackendInfo = NewState#state.object_storage,
                         NewState#state{object_storage = BackendInfo#backend_info{
-                                                          write_handler = NewWriteHandler,
-                                                          read_handler  = NewReadHandler}};
+                                                          avs_version_bin_cur = AVSVsnBin,
+                                                          write_handler       = NewWriteHandler,
+                                                          read_handler        = NewReadHandler}};
                     {error, _} ->
                         State
                 end,
@@ -499,11 +516,12 @@ after_proc(Ret, #state{object_storage = #backend_info{file_path = FilePath}} = S
     case Ret of
         {error, ?ERROR_FD_CLOSED} ->
             case leo_object_storage_haystack:open(FilePath) of
-                {ok, [NewWriteHandler, NewReadHandler]} ->
+                {ok, [NewWriteHandler, NewReadHandler, AVSVsnBin]} ->
                     BackendInfo = State#state.object_storage,
                     State#state{object_storage = BackendInfo#backend_info{
-                                                   write_handler = NewWriteHandler,
-                                                   read_handler  = NewReadHandler}};
+                                                   avs_version_bin_cur = AVSVsnBin,
+                                                   write_handler       = NewWriteHandler,
+                                                   read_handler        = NewReadHandler}};
                 {error, _} ->
                     State
             end;
@@ -563,19 +581,21 @@ compact_fun(#state{meta_db_id       = MetaDBId,
                           TmpPath = gen_raw_file_path(FilePath),
                           %% must reopen the original file when handling at another process
                           case leo_object_storage_haystack:open(TmpPath) of
-                              {ok, [TmpWriteHandler, TmpReadHandler]} ->
+                              {ok, [TmpWriteHandler, TmpReadHandler, AVSVsnBinCur]} ->
                                   case leo_object_storage_haystack:open(OrigFilePath) of
-                                      {ok, [WriteHandler, ReadHandler]} ->
+                                      {ok, [WriteHandler, ReadHandler, AVSVsnBinPrv]} ->
                                           FileSize = filelib:file_size(OrigFilePath),
                                           ok = file:advise(TmpWriteHandler, 0, FileSize, dont_need),
                                           ok = file:advise(ReadHandler, 0, FileSize, sequential),
                                           {ok, State#state{
                                                  object_storage = StorageInfo#backend_info{
-                                                                    tmp_file_path_raw = TmpPath,
-                                                                    write_handler     = WriteHandler,
-                                                                    read_handler      = ReadHandler,
-                                                                    tmp_write_handler = TmpWriteHandler,
-                                                                    tmp_read_handler  = TmpReadHandler}}};
+                                                                    avs_version_bin_cur = AVSVsnBinCur,
+                                                                    avs_version_bin_prv = AVSVsnBinPrv,
+                                                                    tmp_file_path_raw   = TmpPath,
+                                                                    write_handler       = WriteHandler,
+                                                                    read_handler        = ReadHandler,
+                                                                    tmp_write_handler   = TmpWriteHandler,
+                                                                    tmp_read_handler    = TmpReadHandler}}};
                                       Error ->
                                           {Error, State}
                                   end;
@@ -744,29 +764,33 @@ calc_remain_disksize(MetaDBId, FilePath) ->
 
 %% @doc Is deleted a record ?
 %% @private
--spec(is_deleted_rec(atom(), #metadata{}) ->
+-spec(is_deleted_rec(atom(), #backend_info{}, #metadata{}) ->
              boolean()).
-is_deleted_rec(_MetaDBId, #metadata{del = Del}) when Del =/= ?DEL_FALSE ->
+is_deleted_rec(_MetaDBId, _StorageInfo, #metadata{del = Del}) when Del =/= ?DEL_FALSE ->
     true;
-is_deleted_rec(MetaDBId, #metadata{key      = Key,
+is_deleted_rec(MetaDBId, #backend_info{avs_version_bin_prv = AVSVsnBinPrv} = StorageInfo, 
+                         #metadata{key      = Key,
                                    addr_id  = AddrId} = MetaFromAvs) ->
-    case leo_backend_db_api:get(MetaDBId, term_to_binary({AddrId, Key})) of
+    BackendKey = gen_backend_key(AVSVsnBinPrv,
+                                 AddrId,
+                                 Key),
+    case leo_backend_db_api:get(MetaDBId, BackendKey) of
         {ok, MetaOrg} ->
             MetaOrgTerm = binary_to_term(MetaOrg),
-            is_deleted_rec(MetaDBId, MetaFromAvs, MetaOrgTerm);
+            is_deleted_rec(MetaDBId, StorageInfo, MetaFromAvs, MetaOrgTerm);
         not_found ->
             true;
         _Other ->
             false
     end.
 
--spec(is_deleted_rec(atom(), #metadata{}, #metadata{}) ->
+-spec(is_deleted_rec(atom(), #backend_info{}, #metadata{}, #metadata{}) ->
              boolean()).
-is_deleted_rec(_MetaDBId,_Meta0, Meta1) when Meta1#metadata.del =/= 0 ->
+is_deleted_rec(_MetaDBId, _StorageInfo, _Meta0, Meta1) when Meta1#metadata.del =/= 0 ->
     true;
-is_deleted_rec(_MetaDBId, Meta0, Meta1) when Meta0#metadata.offset =/= Meta1#metadata.offset ->
+is_deleted_rec(_MetaDBId, _StorageInfo, Meta0, Meta1) when Meta0#metadata.offset =/= Meta1#metadata.offset ->
     true;
-is_deleted_rec(_MetaDBId,_Meta0,_Meta1) ->
+is_deleted_rec(_MetaDBId, _StorageInfo, _Meta0, _Meta1) ->
     false.
 
 
@@ -792,7 +816,7 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
         0 ->
             void
     end,
-    case (is_deleted_rec(MetaDBId, Metadata) orelse HasChargeOfNode == false) of
+    case (is_deleted_rec(MetaDBId, StorageInfo, Metadata) orelse HasChargeOfNode == false) of
         true ->
             do_compact1(ok, Metadata, CompactParams, State);
         false ->
@@ -805,10 +829,12 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
                                                          CompactParams#compact_params.body_bin) of
                 {ok, Offset} ->
                     NewMeta = Metadata#metadata{offset = Offset},
+                    BackendKey = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
+                                          Metadata#metadata.addr_id,
+                                          Metadata#metadata.key),
                     Ret = leo_backend_db_api:compact_put(
                             MetaDBId,
-                            term_to_binary({Metadata#metadata.addr_id,
-                                            Metadata#metadata.key}),
+                            BackendKey,
                             term_to_binary(NewMeta)),
 
                     ObjectSize = leo_object_storage_haystack:calc_obj_size(NewMeta),
@@ -860,3 +886,11 @@ do_compact1(Error,_,_,_) ->
 gen_raw_file_path(FilePath) ->
     lists:append([FilePath, "_", integer_to_list(leo_date:now())]).
 
+%% @doc Generate an key for backend db
+%%      AVS2.2 -> term_to_binary({AddrId, Key})
+%%      AVS2.4 -> Key
+%% @private
+gen_backend_key(?AVS_HEADER_VSN_2_2, AddrId, Key) ->
+    term_to_binary({AddrId, Key});
+gen_backend_key(?AVS_HEADER_VSN_2_4, _AddrId, Key) ->
+    Key.
