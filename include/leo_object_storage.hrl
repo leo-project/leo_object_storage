@@ -41,8 +41,8 @@
 -type(storage_status() :: ?STATE_COMPACTING | ?STATE_ACTIVE).
 
 %% AVS version strings
--define(AVS_HEADER_VSN_2_2,  <<"LeoFS AVS-2.2">>).
--define(AVS_HEADER_VSN_2_4,  <<"LeoFS AVS-2.4">>).
+-define(AVS_HEADER_VSN_2_2,  <<"LeoFS AVS-2.2">>). %% leofs v0.14 - v1.0.0-pre1
+-define(AVS_HEADER_VSN_2_4,  <<"LeoFS AVS-2.4">>). %% leofs v1.0.0-pre1 -
 -define(AVS_HEADER_VSN_TOBE, ?AVS_HEADER_VSN_2_4).
 
 %% Error Constants
@@ -166,4 +166,3 @@
             _ -> false
         end).
 -endif.
-

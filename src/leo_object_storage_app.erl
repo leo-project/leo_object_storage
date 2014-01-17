@@ -63,4 +63,3 @@ consider_profiling() ->
         _ ->
             not_profiling
     end.
-

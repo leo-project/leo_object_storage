@@ -294,7 +294,9 @@ handle_call(get_avs_version_bin, _From, #state{object_storage = StorageInfo} = S
 handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
                                          object_storage = StorageInfo,
                                          storage_stats  = StorageStats} = State) ->
-    Key = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur, Object#object.addr_id, Object#object.key),
+    Key = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
+                          Object#object.addr_id,
+                          Object#object.key),
     {DiffRec, Oldsize} =
         case leo_object_storage_haystack:head(
                MetaDBId, Key) of
@@ -322,9 +324,10 @@ handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
 
 
 handle_call({get, {AddrId, Key}, StartPos, EndPos}, _From, #state{meta_db_id      = MetaDBId,
-                                                        object_storage  = StorageInfo,
-                                                        is_strict_check = IsStrictCheck} = State) ->
-    BackendKey = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur, AddrId, Key),
+                                                                  object_storage  = StorageInfo,
+                                                                  is_strict_check = IsStrictCheck} = State) ->
+    BackendKey = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
+                                 AddrId, Key),
     Reply = leo_object_storage_haystack:get(
               MetaDBId, StorageInfo, BackendKey, StartPos, EndPos, IsStrictCheck),
 
@@ -337,7 +340,9 @@ handle_call({get, {AddrId, Key}, StartPos, EndPos}, _From, #state{meta_db_id    
 handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
                                             object_storage = StorageInfo,
                                             storage_stats  = StorageStats} = State) ->
-    Key = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur, Object#object.addr_id, Object#object.key),
+    Key = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
+                          Object#object.addr_id,
+                          Object#object.key),
     {DiffRec, Oldsize} =
         case leo_object_storage_haystack:head(
                MetaDBId, Key) of
@@ -363,14 +368,16 @@ handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
 
 
 handle_call({head, {AddrId, Key}}, _From, #state{meta_db_id = MetaDBId, object_storage = StorageInfo} = State) ->
-    BackendKey = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur, AddrId, Key),
+    BackendKey = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
+                                 AddrId, Key),
     Reply = leo_object_storage_haystack:head(MetaDBId, BackendKey),
     {reply, Reply, State};
 
 
 handle_call({fetch, {AddrId, Key}, Fun}, _From, #state{meta_db_id     = MetaDBId,
-                                             object_storage = StorageInfo} = State) ->
-    BackendKey = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur, AddrId, Key),
+                                                       object_storage = StorageInfo} = State) ->
+    BackendKey = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
+                                 AddrId, Key),
     Reply = leo_object_storage_haystack:fetch(MetaDBId, BackendKey, Fun),
     {reply, Reply, State};
 
@@ -378,7 +385,9 @@ handle_call({fetch, {AddrId, Key}, Fun}, _From, #state{meta_db_id     = MetaDBId
 handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
                                                   object_storage = StorageInfo,
                                                   storage_stats  = StorageStats} = State) ->
-    BackendKey = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur, Metadata#metadata.addr_id, Metadata#metadata.key),
+    BackendKey = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
+                                 Metadata#metadata.addr_id,
+                                 Metadata#metadata.key),
     {DiffRec, Oldsize} =
         case leo_object_storage_haystack:head(
                MetaDBId, BackendKey) of
@@ -648,11 +657,11 @@ compact_fun1({ok, #state{meta_db_id     = MetaDBId,
                               Ret ->
                                   Ret
                           catch _:Reason ->
-                              error_logger:error_msg("~p,~p,~p,~p~n",
-                                                      [{module, ?MODULE_STRING}, {function, "compact_fun/2"},
-                                                       {line, ?LINE},
-                                                       {body, {MetaDBId, Reason}}]),
-                              {error, Reason}
+                                  error_logger:error_msg("~p,~p,~p,~p~n",
+                                                         [{module, ?MODULE_STRING}, {function, "compact_fun/2"},
+                                                          {line, ?LINE},
+                                                          {body, {MetaDBId, Reason}}]),
+                                  {error, Reason}
                           end;
                       Error0 ->
                           Error0
@@ -768,13 +777,11 @@ calc_remain_disksize(MetaDBId, FilePath) ->
              boolean()).
 is_deleted_rec(_MetaDBId, _StorageInfo, #metadata{del = Del}) when Del =/= ?DEL_FALSE ->
     true;
-is_deleted_rec(MetaDBId, #backend_info{avs_version_bin_prv = AVSVsnBinPrv} = StorageInfo, 
-                         #metadata{key      = Key,
-                                   addr_id  = AddrId} = MetaFromAvs) ->
-    BackendKey = gen_backend_key(AVSVsnBinPrv,
-                                 AddrId,
-                                 Key),
-    case leo_backend_db_api:get(MetaDBId, BackendKey) of
+is_deleted_rec(MetaDBId, #backend_info{avs_version_bin_prv = AVSVsnBinPrv} = StorageInfo,
+               #metadata{key      = Key,
+                         addr_id  = AddrId} = MetaFromAvs) ->
+    KeyOfMetadata = gen_backend_key(AVSVsnBinPrv, AddrId, Key),
+    case leo_backend_db_api:get(MetaDBId, KeyOfMetadata) of
         {ok, MetaOrg} ->
             MetaOrgTerm = binary_to_term(MetaOrg),
             is_deleted_rec(MetaDBId, StorageInfo, MetaFromAvs, MetaOrgTerm);
@@ -829,13 +836,11 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
                                                          CompactParams#compact_params.body_bin) of
                 {ok, Offset} ->
                     NewMeta = Metadata#metadata{offset = Offset},
-                    BackendKey = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
-                                          Metadata#metadata.addr_id,
-                                          Metadata#metadata.key),
+                    KeyOfMetadata = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
+                                                    Metadata#metadata.addr_id,
+                                                    Metadata#metadata.key),
                     Ret = leo_backend_db_api:compact_put(
-                            MetaDBId,
-                            BackendKey,
-                            term_to_binary(NewMeta)),
+                            MetaDBId, KeyOfMetadata, term_to_binary(NewMeta)),
 
                     ObjectSize = leo_object_storage_haystack:calc_obj_size(NewMeta),
                     NewCompactParams = CompactParams#compact_params{

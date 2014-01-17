@@ -291,4 +291,3 @@ do_request(delete, [Key, Object]) ->
 do_request(head, [{AddrId, Key}]) ->
     KeyBin = term_to_binary({AddrId, Key}),
     ?SERVER_MODULE:head(get_object_storage_pid(KeyBin), {AddrId, Key}).
-

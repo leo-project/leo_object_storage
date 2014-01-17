@@ -99,11 +99,12 @@ calc_obj_size(#object{key = Key, dsize = DSize}) ->
     calc_obj_size(KSize, DSize).
 -spec(calc_obj_size(integer(), integer()) -> integer()).
 calc_obj_size(KSize, DSize) ->
-    %% header + footer(padding) + ksize +dsize + binary_to_term(Key, AddrId) + binary_to_term(Metadata)
+    %% header + footer(padding) + ksize +dsize 
+    %%        + binary_to_term(Key, AddrId) + binary_to_term(Metadata)
     ?BLEN_HEADER/8 + KSize*3 + DSize + ?LEN_PADDING + 58.
 
 -spec(open(FilePath::string) ->
-            {ok, port(), port(), binary()} | {error, any()}).
+             {ok, port(), port(), binary()} | {error, any()}).
 open(FilePath) ->
     case create_file(FilePath) of
         {ok, WriteHandler} ->
@@ -734,4 +735,3 @@ compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
-
