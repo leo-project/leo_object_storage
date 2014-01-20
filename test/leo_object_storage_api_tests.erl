@@ -70,6 +70,7 @@ new_([Path1, _]) ->
     [{specs,_},{active,Active0},{supervisors,_},{workers,Workers0}] = supervisor:count_children(Ref),
     ?assertEqual(DivCount0 + 2, Active0),  % +2 for compaction manager + backend_db_sup
     ?assertEqual(DivCount0 + 2, Workers0), % +2 for compaction manager + backend_db_sup
+    {ok, ?AVS_HEADER_VSN_TOBE} = leo_object_storage_server:get_avs_version_bin(leo_object_storage_api:get_object_storage_pid_first()),
 
     application:stop(leo_backend_db),
     application:stop(bitcask),
@@ -183,63 +184,69 @@ operate_([Path1, Path2]) ->
 fetch_by_addr_id_([Path1, Path2]) ->
     ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
 
-    ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0">>),
-    ok = put_test_data(127,  <<"air/on/g/string/1">>, <<"JSB1">>),
-    ok = put_test_data(255,  <<"air/on/g/string/2">>, <<"JSB2">>),
-    ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3">>),
-    ok = put_test_data(1023, <<"air/on/g/string/4">>, <<"JSB4">>),
-
-    FromAddrId = 0,
-    ToAddrId   = 255,
-
-    Fun = fun(K, V, Acc) ->
-                  {AddrId,_Key} = binary_to_term(K),
-                  Metadata      = binary_to_term(V),
-
-                  case (AddrId >= FromAddrId andalso
-                        AddrId =< ToAddrId) of
-                      true  ->
-                          [Metadata|Acc];
-                      false ->
-                          Acc
-                  end
-          end,
-    {ok, Res} = leo_object_storage_api:fetch_by_addr_id(0, Fun),
-    ?assertEqual(3, length(Res)),
-
-    application:stop(leo_backend_db),
-    application:stop(bitcask),
-    application:stop(leo_object_storage),
+    try
+        ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0">>),
+        ok = put_test_data(127,  <<"air/on/g/string/1">>, <<"JSB1">>),
+        ok = put_test_data(255,  <<"air/on/g/string/2">>, <<"JSB2">>),
+        ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3">>),
+        ok = put_test_data(1023, <<"air/on/g/string/4">>, <<"JSB4">>),
+    
+        FromAddrId = 0,
+        ToAddrId   = 255,
+    
+        Fun = fun(_K, V, Acc) ->
+                      %Key = binary_to_term(K),
+                      %AddrId = leo_object_storage_api:head(Key),
+                      Metadata      = binary_to_term(V),
+                      AddrId = Metadata#metadata.addr_id,
+    
+                      case (AddrId >= FromAddrId andalso
+                            AddrId =< ToAddrId) of
+                          true  ->
+                              io:format(user, "[debug]meta:~p~n", [Metadata]),
+                              [Metadata|Acc];
+                          false ->
+                              Acc
+                      end
+              end,
+        {ok, Res} = leo_object_storage_api:fetch_by_addr_id(0, Fun),
+        ?assertEqual(3, length(Res))
+    after
+        application:stop(leo_backend_db),
+        application:stop(bitcask),
+        application:stop(leo_object_storage)
+    end,
     ok.
 
 fetch_by_key_([Path1, Path2]) ->
     ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
-
-    ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0">>),
-    ok = put_test_data(127,  <<"air/on/g/string/1">>, <<"JSB1">>),
-    ok = put_test_data(255,  <<"air/on/g/string/2">>, <<"JSB2">>),
-    ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3">>),
-    ok = put_test_data(1023, <<"air/on/g/string/4">>, <<"JSB4">>),
-
-    Fun = fun(K, V, Acc) ->
-                  {_AddrId,Key} = binary_to_term(K),
-                  Metadata      = binary_to_term(V),
-
-                  case (Key == <<"air/on/g/string/0">> orelse
-                        Key == <<"air/on/g/string/2">> orelse
-                        Key == <<"air/on/g/string/4">>) of
-                      true  ->
-                          [Metadata|Acc];
-                      false ->
-                          Acc
-                  end
-          end,
-    {ok, Res} = leo_object_storage_api:fetch_by_key("air/on/g/string", Fun),
-    ?assertEqual(3, length(Res)),
-
-    application:stop(leo_backend_db),
-    application:stop(bitcask),
-    application:stop(leo_object_storage),
+    try
+        ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0">>),
+        ok = put_test_data(127,  <<"air/on/g/string/1">>, <<"JSB1">>),
+        ok = put_test_data(255,  <<"air/on/g/string/2">>, <<"JSB2">>),
+        ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3">>),
+        ok = put_test_data(1023, <<"air/on/g/string/4">>, <<"JSB4">>),
+    
+        Fun = fun(K, V, Acc) ->
+                      Metadata      = binary_to_term(V),
+    
+                      case (K == <<"air/on/g/string/0">> orelse
+                            K == <<"air/on/g/string/2">> orelse
+                            K == <<"air/on/g/string/4">>) of
+                          true  ->
+                              io:format(user, "[debug]meta:~p~n", [Metadata]),
+                              [Metadata|Acc];
+                          false ->
+                              Acc
+                      end
+              end,
+        {ok, Res} = leo_object_storage_api:fetch_by_key(<<"air/on/g/string">>, Fun),
+        ?assertEqual(3, length(Res))
+    after
+        application:stop(leo_backend_db),
+        application:stop(bitcask),
+        application:stop(leo_object_storage)
+    end,
     ok.
 
 stats_test_() ->

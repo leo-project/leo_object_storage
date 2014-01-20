@@ -52,7 +52,7 @@
 %% ------------------------ %%
 %%       AVS-Related
 %% ------------------------ %%
--define(AVS_HEADER_VSN,     <<"LeoFS AVS-2.2",13,10>>).
+-define(AVS_HEADER_VSN,     <<?AVS_HEADER_VSN_TOBE/binary,13,10>>).
 -define(AVS_PART_OF_HEADER, <<"CHKSUM:128,KSIZE:16,BLEN_MSIZE:32,DSIZE:32,OFFSET:64,ADDRID:128,CLOCK:64,TIMESTAMP:42,DEL:1,BUF:437,CHUNK_SIZE:32,CHUNK_NUM:24,CHUNK_INDEX:24",13,10>>).
 -define(AVS_PART_OF_BODY,   <<"KEY/binary,DATA/binary",13,10>>).
 -define(AVS_PART_OF_FOOTER, <<"PADDING:64",13,10>>).
@@ -99,17 +99,23 @@ calc_obj_size(#object{key = Key, dsize = DSize}) ->
     calc_obj_size(KSize, DSize).
 -spec(calc_obj_size(integer(), integer()) -> integer()).
 calc_obj_size(KSize, DSize) ->
-    %% header + footer(padding) + ksize +dsize + binary_to_term(Key, AddrId) + binary_to_term(Metadata)
+    %% header + footer(padding) + ksize +dsize 
+    %%        + binary_to_term(Key, AddrId) + binary_to_term(Metadata)
     ?BLEN_HEADER/8 + KSize*3 + DSize + ?LEN_PADDING + 58.
 
 -spec(open(FilePath::string) ->
-             {ok, port(), port()} | {error, any()}).
+             {ok, port(), port(), binary()} | {error, any()}).
 open(FilePath) ->
     case create_file(FilePath) of
         {ok, WriteHandler} ->
             case open_fun(FilePath) of
                 {ok, ReadHandler} ->
-                    {ok, [WriteHandler, ReadHandler]};
+                    case file:read_line(ReadHandler) of
+                        {ok, Bin} ->
+                            {ok, [WriteHandler, ReadHandler, binary:part(Bin, 0, size(Bin) - 1)]};
+                        Error ->
+                            Error
+                    end;
                 Error ->
                     Error
             end;
@@ -468,6 +474,14 @@ create_needle(#object{addr_id    = AddrId,
                  Bin/binary >>,
     Needle.
 
+%% @doc Generate an key for backend db
+%%      AVS2.2 -> term_to_binary({AddrId, Key})
+%%      AVS2.4 -> Key
+%% @private
+gen_backend_key(?AVS_HEADER_VSN_2_2, AddrId, Key) ->
+    term_to_binary({AddrId, Key});
+gen_backend_key(?AVS_HEADER_VSN_2_4, _AddrId, Key) ->
+    Key.
 
 %% @doc Insert an object into the object-storage
 %% @private
@@ -526,12 +540,14 @@ put_fun2(MetaDBId, StorageInfo, Needle, #metadata{key      = Key,
                                                   addr_id  = AddrId,
                                                   offset   = Offset,
                                                   checksum = Checksum} = Meta) ->
-    #backend_info{write_handler = WriteHandler} = StorageInfo,
+    #backend_info{write_handler       = WriteHandler,
+                  avs_version_bin_cur = AVSVsnBin} = StorageInfo,
 
+    Key4BackendDB = gen_backend_key(AVSVsnBin, AddrId, Key),
     case file:pwrite(WriteHandler, Offset, Needle) of
         ok ->
             case catch leo_backend_db_api:put(MetaDBId,
-                                              term_to_binary({AddrId, Key}),
+                                              Key4BackendDB,
                                               term_to_binary(Meta)) of
                 ok ->
                     {ok, Checksum};
@@ -719,4 +735,3 @@ compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
-

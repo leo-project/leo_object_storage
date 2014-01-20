@@ -296,4 +296,3 @@ gen_id(metadata, Id) ->
     list_to_atom(lists:append(["leo_metadata",
                                "_",
                                integer_to_list(Id)])).
-

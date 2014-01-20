@@ -40,6 +40,10 @@
 -define(STATE_ACTIVE,          'active').
 -type(storage_status() :: ?STATE_COMPACTING | ?STATE_ACTIVE).
 
+%% AVS version strings
+-define(AVS_HEADER_VSN_2_2,  <<"LeoFS AVS-2.2">>). %% leofs v0.14 - v1.0.0-pre1
+-define(AVS_HEADER_VSN_2_4,  <<"LeoFS AVS-2.4">>). %% leofs v1.0.0-pre1 -
+-define(AVS_HEADER_VSN_TOBE, ?AVS_HEADER_VSN_2_4).
 
 %% Error Constants
 %%
@@ -59,6 +63,8 @@
 
 -record(backend_info, {
           backend             :: atom(),
+          avs_version_bin_cur :: binary(),
+          avs_version_bin_prv :: binary(), %% need to know during compaction
           file_path           :: string(),
           file_path_raw       :: string(),
           write_handler       :: pid(),
@@ -160,4 +166,3 @@
             _ -> false
         end).
 -endif.
-
