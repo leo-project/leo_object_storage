@@ -33,7 +33,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([open/1, close/2,
-         put/3, get/3, get/6, delete/3, head/2, fetch/3, store/4]).
+         put/3, get/3, get/6, delete/3, head/2, fetch/4, store/4]).
 
 -export([calc_obj_size/1,
          calc_obj_size/2,
@@ -183,11 +183,12 @@ head(MetaDBId, Key) ->
 
 %% @doc Fetch objects from the object-storage
 %%
--spec(fetch(atom(), binary(), function()) ->
+-spec(fetch(atom(), binary(), function(), pos_integer()|undefined) ->
              ok | {error, any()}).
-fetch(MetaDBId, Key, Fun) ->
-    leo_backend_db_api:fetch(MetaDBId, Key, Fun).
-
+fetch(MetaDBId, Key, Fun, undefined) ->
+    leo_backend_db_api:fetch(MetaDBId, Key, Fun);
+fetch(MetaDBId, Key, Fun, MaxKeys) ->
+    leo_backend_db_api:fetch(MetaDBId, Key, Fun, MaxKeys).
 
 %% @doc Store metadata and binary
 %%

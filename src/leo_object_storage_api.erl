@@ -32,7 +32,7 @@
 
 -export([start/1,
          put/2, get/1, get/3, delete/2, head/1,
-         fetch_by_addr_id/2, fetch_by_key/2,
+         fetch_by_addr_id/2, fetch_by_addr_id/3, fetch_by_key/2, fetch_by_key/3,
          store/2,
          stats/0
         ]).
@@ -108,20 +108,27 @@ head(Key) ->
 -spec(fetch_by_addr_id(integer(), function()) ->
              {ok, list()} | not_found).
 fetch_by_addr_id(AddrId, Fun) ->
+    fetch_by_addr_id(AddrId, Fun, undefined).
+fetch_by_addr_id(AddrId, Fun, MaxKeys) ->
     case get_object_storage_pid(all) of
         undefined ->
             not_found;
         List ->
             Res = lists:foldl(
                     fun(Id, Acc) ->
-                            case ?SERVER_MODULE:fetch(Id, {AddrId, <<>>}, Fun) of
+                            case ?SERVER_MODULE:fetch(Id, {AddrId, <<>>}, Fun, MaxKeys) of
                                 {ok, Values} ->
                                     [Values|Acc];
                                 _ ->
                                     Acc
                             end
                     end, [], List),
-            {ok, lists:reverse(lists:flatten(Res))}
+            case MaxKeys of
+                undefined ->
+                    {ok, lists:reverse(lists:flatten(Res))};
+                _ -> 
+                    {ok, lists:sublist(lists:reverse(lists:flatten(Res)), MaxKeys)}
+            end
     end.
 
 
@@ -130,20 +137,29 @@ fetch_by_addr_id(AddrId, Fun) ->
 -spec(fetch_by_key(binary(), function()) ->
              {ok, list()} | not_found).
 fetch_by_key(Key, Fun) ->
+    fetch_by_key(Key, Fun, undefined).
+-spec(fetch_by_key(binary(), function(), pos_integer()|undefined) ->
+             {ok, list()} | not_found).
+fetch_by_key(Key, Fun, MaxKeys) ->
     case get_object_storage_pid(all) of
         undefined ->
             not_found;
         List ->
             Res = lists:foldl(
                     fun(Id, Acc) ->
-                            case ?SERVER_MODULE:fetch(Id, {0, Key}, Fun) of
+                            case ?SERVER_MODULE:fetch(Id, {0, Key}, Fun, MaxKeys) of
                                 {ok, Values} ->
                                     [Values|Acc];
                                 _ ->
                                     Acc
                             end
                     end, [], List),
-            {ok, lists:reverse(lists:flatten(Res))}
+            case MaxKeys of
+                undefined ->
+                    {ok, lists:reverse(lists:flatten(Res))};
+                _ -> 
+                    {ok, lists:sublist(lists:reverse(lists:flatten(Res)), MaxKeys)}
+            end
     end.
 
 

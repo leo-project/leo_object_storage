@@ -35,7 +35,7 @@
 
 %% API
 -export([start_link/4, start_link/5, stop/1]).
--export([put/2, get/4, delete/2, head/2, fetch/3, store/3]).
+-export([put/2, get/4, delete/2, head/2, fetch/4, store/3]).
 -export([compact/2, compact_suspend/1, compact_resume/1, stats/1]).
 -export([get_avs_version_bin/1]).
 
@@ -154,10 +154,10 @@ head(Id, Key) ->
 
 %% @doc Retrieve objects from the object-storage by Key and Function
 %%
--spec(fetch(atom(), binary(), function()) ->
+-spec(fetch(atom(), binary(), function(), pos_integer()|undefined) ->
              {ok, list()} | {error, any()}).
-fetch(Id, Key, Fun) ->
-    gen_server:call(Id, {fetch, Key, Fun}, ?DEF_TIMEOUT).
+fetch(Id, Key, Fun, MaxKeys) ->
+    gen_server:call(Id, {fetch, Key, Fun, MaxKeys}, ?DEF_TIMEOUT).
 
 
 %% @doc Store metadata and data
@@ -374,11 +374,11 @@ handle_call({head, {AddrId, Key}}, _From, #state{meta_db_id = MetaDBId, object_s
     {reply, Reply, State};
 
 
-handle_call({fetch, {AddrId, Key}, Fun}, _From, #state{meta_db_id     = MetaDBId,
+handle_call({fetch, {AddrId, Key}, Fun, MaxKeys}, _From, #state{meta_db_id     = MetaDBId,
                                                        object_storage = StorageInfo} = State) ->
     BackendKey = gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
                                  AddrId, Key),
-    Reply = leo_object_storage_haystack:fetch(MetaDBId, BackendKey, Fun),
+    Reply = leo_object_storage_haystack:fetch(MetaDBId, BackendKey, Fun, MaxKeys),
     {reply, Reply, State};
 
 
