@@ -241,7 +241,9 @@ fetch_by_key_([Path1, Path2]) ->
                       end
               end,
         {ok, Res} = leo_object_storage_api:fetch_by_key(<<"air/on/g/string">>, Fun),
-        ?assertEqual(3, length(Res))
+        ?assertEqual(3, length(Res)),
+        {ok, Res2} = leo_object_storage_api:fetch_by_key(<<"air/on/g/string">>, Fun, 2),
+        ?assertEqual(2, length(Res2))
     after
         application:stop(leo_backend_db),
         application:stop(bitcask),

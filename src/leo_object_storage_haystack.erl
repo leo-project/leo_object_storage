@@ -33,7 +33,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([open/1, close/2,
-         put/3, get/3, get/6, delete/3, head/2, fetch/3, store/4]).
+         put/3, get/3, get/6, delete/3, head/2, fetch/4, store/4]).
 
 -export([calc_obj_size/1,
          calc_obj_size/2,
@@ -99,7 +99,7 @@ calc_obj_size(#object{key = Key, dsize = DSize}) ->
     calc_obj_size(KSize, DSize).
 -spec(calc_obj_size(integer(), integer()) -> integer()).
 calc_obj_size(KSize, DSize) ->
-    %% header + footer(padding) + ksize +dsize 
+    %% header + footer(padding) + ksize +dsize
     %%        + binary_to_term(Key, AddrId) + binary_to_term(Metadata)
     ?BLEN_HEADER/8 + KSize*3 + DSize + ?LEN_PADDING + 58.
 
@@ -183,11 +183,12 @@ head(MetaDBId, Key) ->
 
 %% @doc Fetch objects from the object-storage
 %%
--spec(fetch(atom(), binary(), function()) ->
+-spec(fetch(atom(), binary(), function(), pos_integer()|undefined) ->
              ok | {error, any()}).
-fetch(MetaDBId, Key, Fun) ->
-    leo_backend_db_api:fetch(MetaDBId, Key, Fun).
-
+fetch(MetaDBId, Key, Fun, undefined) ->
+    leo_backend_db_api:fetch(MetaDBId, Key, Fun);
+fetch(MetaDBId, Key, Fun, MaxKeys) ->
+    leo_backend_db_api:fetch(MetaDBId, Key, Fun, MaxKeys).
 
 %% @doc Store metadata and binary
 %%
@@ -474,14 +475,7 @@ create_needle(#object{addr_id    = AddrId,
                  Bin/binary >>,
     Needle.
 
-%% @doc Generate an key for backend db
-%%      AVS2.2 -> term_to_binary({AddrId, Key})
-%%      AVS2.4 -> Key
-%% @private
-gen_backend_key(?AVS_HEADER_VSN_2_2, AddrId, Key) ->
-    term_to_binary({AddrId, Key});
-gen_backend_key(?AVS_HEADER_VSN_2_4, _AddrId, Key) ->
-    Key.
+
 
 %% @doc Insert an object into the object-storage
 %% @private
@@ -543,7 +537,7 @@ put_fun2(MetaDBId, StorageInfo, Needle, #metadata{key      = Key,
     #backend_info{write_handler       = WriteHandler,
                   avs_version_bin_cur = AVSVsnBin} = StorageInfo,
 
-    Key4BackendDB = gen_backend_key(AVSVsnBin, AddrId, Key),
+    Key4BackendDB = ?gen_backend_key(AVSVsnBin, AddrId, Key),
     case file:pwrite(WriteHandler, Offset, Needle) of
         ok ->
             case catch leo_backend_db_api:put(MetaDBId,
