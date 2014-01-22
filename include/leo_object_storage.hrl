@@ -45,6 +45,17 @@
 -define(AVS_HEADER_VSN_2_4,  <<"LeoFS AVS-2.4">>). %% leofs v1.0.0-pre1 -
 -define(AVS_HEADER_VSN_TOBE, ?AVS_HEADER_VSN_2_4).
 
+%% @doc Generate an key for backend db
+-define(gen_backend_key(_VSN, _AddrId, _Key),
+        begin
+            case _VSN of
+                ?AVS_HEADER_VSN_2_2 -> 
+                    term_to_binary({_AddrId, _Key});
+                ?AVS_HEADER_VSN_2_4 ->
+                    _Key
+            end
+        end).
+
 %% Error Constants
 %%
 -define(ERROR_FD_CLOSED,               "already closed file-descriptor").

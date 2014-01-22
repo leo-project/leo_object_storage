@@ -99,7 +99,7 @@ calc_obj_size(#object{key = Key, dsize = DSize}) ->
     calc_obj_size(KSize, DSize).
 -spec(calc_obj_size(integer(), integer()) -> integer()).
 calc_obj_size(KSize, DSize) ->
-    %% header + footer(padding) + ksize +dsize 
+    %% header + footer(padding) + ksize +dsize
     %%        + binary_to_term(Key, AddrId) + binary_to_term(Metadata)
     ?BLEN_HEADER/8 + KSize*3 + DSize + ?LEN_PADDING + 58.
 
@@ -475,14 +475,7 @@ create_needle(#object{addr_id    = AddrId,
                  Bin/binary >>,
     Needle.
 
-%% @doc Generate an key for backend db
-%%      AVS2.2 -> term_to_binary({AddrId, Key})
-%%      AVS2.4 -> Key
-%% @private
-gen_backend_key(?AVS_HEADER_VSN_2_2, AddrId, Key) ->
-    term_to_binary({AddrId, Key});
-gen_backend_key(?AVS_HEADER_VSN_2_4, _AddrId, Key) ->
-    Key.
+
 
 %% @doc Insert an object into the object-storage
 %% @private
@@ -544,7 +537,7 @@ put_fun2(MetaDBId, StorageInfo, Needle, #metadata{key      = Key,
     #backend_info{write_handler       = WriteHandler,
                   avs_version_bin_cur = AVSVsnBin} = StorageInfo,
 
-    Key4BackendDB = gen_backend_key(AVSVsnBin, AddrId, Key),
+    Key4BackendDB = ?gen_backend_key(AVSVsnBin, AddrId, Key),
     case file:pwrite(WriteHandler, Offset, Needle) of
         ok ->
             case catch leo_backend_db_api:put(MetaDBId,

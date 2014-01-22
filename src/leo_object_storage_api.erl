@@ -126,7 +126,7 @@ fetch_by_addr_id(AddrId, Fun, MaxKeys) ->
             case MaxKeys of
                 undefined ->
                     {ok, lists:reverse(lists:flatten(Res))};
-                _ -> 
+                _ ->
                     {ok, lists:sublist(lists:reverse(lists:flatten(Res)), MaxKeys)}
             end
     end.
@@ -157,7 +157,7 @@ fetch_by_key(Key, Fun, MaxKeys) ->
             case MaxKeys of
                 undefined ->
                     {ok, lists:reverse(lists:flatten(Res))};
-                _ -> 
+                _ ->
                     {ok, lists:sublist(lists:reverse(lists:flatten(Res)), MaxKeys)}
             end
     end.
