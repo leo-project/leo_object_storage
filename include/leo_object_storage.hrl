@@ -44,6 +44,8 @@
 -define(AVS_HEADER_VSN_2_2,  <<"LeoFS AVS-2.2">>). %% leofs v0.14 - v1.0.0-pre1
 -define(AVS_HEADER_VSN_2_4,  <<"LeoFS AVS-2.4">>). %% leofs v1.0.0-pre1 -
 -define(AVS_HEADER_VSN_TOBE, ?AVS_HEADER_VSN_2_4).
+%% Max Data Block Size to be larger than leo_gateway's large object settings
+-define(MAX_DATABLOCK_SIZE, 1024 * 1024 * 10).
 
 %% @doc Generate an key for backend db
 -define(gen_backend_key(_VSN, _AddrId, _Key),
