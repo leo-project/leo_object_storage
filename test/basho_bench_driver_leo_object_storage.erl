@@ -35,11 +35,12 @@
 %%
 -spec(new(any()) ->
              ok).
-new(_Id) ->
+new(1) ->
     Procs = basho_bench_config:get(obj_storage_procs, 64),
     Path  = basho_bench_config:get(obj_storage_path,  "./avs/"),
-
     ok = leo_object_storage_api:start([{Procs, Path}]),
+    {ok, null};
+new(_) ->
     {ok, null}.
 
 
@@ -49,8 +50,8 @@ new(_Id) ->
              {ok, any()} | {error, any(), any()}).
 run(get, KeyGen, _ValueGen, State) ->
     Key = KeyGen(),
-    case leo_object_storage_api:get(Key) of
-        {ok, _} ->
+    case leo_object_storage_api:get({0, Key}) of
+        {ok, _, _} ->
             {ok, State};
         not_found ->
             {ok, State};
@@ -61,12 +62,22 @@ run(get, KeyGen, _ValueGen, State) ->
 run(put, KeyGen, ValueGen, State) ->
     Key  = KeyGen(),
     Val  = ValueGen(),
-    Pool = leo_object_storage_pool:new(#object{key  = Key,
-                                               data = Val}),
-    case leo_object_storage_api:put(Key, Pool) of
+    case put_test_data(Key, Val) of
         {ok, _ETag} ->
             {ok, State};
         {error, Cause} ->
             {error, Cause, State}
     end.
 
+put_test_data(Key, Bin) ->
+    Object = #object{method    = put,
+                     addr_id   = 0,
+                     key       = Key,
+                     ksize     = byte_size(Key),
+                     data      = Bin,
+                     dsize     = byte_size(Bin),
+                     checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
+                     timestamp = leo_date:now(),
+                     clock     = leo_date:clock()
+                    },
+    leo_object_storage_api:put({0, Key}, Object).
