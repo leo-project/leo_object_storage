@@ -682,19 +682,19 @@ compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
     case RemainSize > (?MAX_DATABLOCK_SIZE) of
         true ->
             Cause = ?ERROR_INVALID_DATA,
-                    error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING}, {function, "compact_get/4"},
-                                            {line, ?LINE}, {body, "Data size too large"}]),
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING}, {function, "compact_get/4"},
+                                    {line, ?LINE}, {body, "Data size too large"}]),
             {error, Cause};
         false ->
             case file:pread(ReadHandler, Offset + HeaderSize, RemainSize) of
                 {ok, RemainBin} ->
                     RemainLen = byte_size(RemainBin),
-        
+
                     case RemainLen of
                         RemainSize ->
                             <<KeyValue:KSize/binary, BodyValue:DSize4Read/binary, _Footer/binary>> = RemainBin,
-        
+
                             case leo_hex:raw_binary_to_integer(crypto:hash(md5, BodyValue)) of
                                 Checksum ->
                                     Timestamp = calendar:datetime_to_gregorian_seconds(
