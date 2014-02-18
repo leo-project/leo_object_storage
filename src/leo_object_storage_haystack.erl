@@ -679,53 +679,61 @@ compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
                      false -> DSize
                  end,
     RemainSize = KSize + DSize4Read + ?LEN_PADDING,
+    case RemainSize > (?MAX_DATABLOCK_SIZE) of
+        true ->
+            Cause = ?ERROR_INVALID_DATA,
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING}, {function, "compact_get/4"},
+                                    {line, ?LINE}, {body, "Data size too large"}]),
+            {error, Cause};
+        false ->
+            case file:pread(ReadHandler, Offset + HeaderSize, RemainSize) of
+                {ok, RemainBin} ->
+                    RemainLen = byte_size(RemainBin),
 
-    case file:pread(ReadHandler, Offset + HeaderSize, RemainSize) of
-        {ok, RemainBin} ->
-            RemainLen = byte_size(RemainBin),
+                    case RemainLen of
+                        RemainSize ->
+                            <<KeyValue:KSize/binary, BodyValue:DSize4Read/binary, _Footer/binary>> = RemainBin,
 
-            case RemainLen of
-                RemainSize ->
-                    <<KeyValue:KSize/binary, BodyValue:DSize4Read/binary, _Footer/binary>> = RemainBin,
-
-                    case leo_hex:raw_binary_to_integer(crypto:hash(md5, BodyValue)) of
-                        Checksum ->
-                            Timestamp = calendar:datetime_to_gregorian_seconds(
-                                          {{Year, Month, Day}, {Hour, Min, Second}}),
-                            Meta = #metadata{key       = KeyValue,
-                                             addr_id   = AddrId,
-                                             ksize     = KSize,
-                                             msize     = MSize,
-                                             dsize     = DSize,
-                                             csize     = CSize,
-                                             cnumber   = CNum,
-                                             cindex    = CIndex,
-                                             offset    = OrgOffset,
-                                             clock     = NumOfClock,
-                                             timestamp = Timestamp,
-                                             checksum  = Checksum,
-                                             del       = Del},
-                            {ok, Meta, [HeaderBin, KeyValue, BodyValue,
-                                        Offset + HeaderSize + RemainSize]};
+                            case leo_hex:raw_binary_to_integer(crypto:hash(md5, BodyValue)) of
+                                Checksum ->
+                                    Timestamp = calendar:datetime_to_gregorian_seconds(
+                                                  {{Year, Month, Day}, {Hour, Min, Second}}),
+                                    Meta = #metadata{key       = KeyValue,
+                                                     addr_id   = AddrId,
+                                                     ksize     = KSize,
+                                                     msize     = MSize,
+                                                     dsize     = DSize,
+                                                     csize     = CSize,
+                                                     cnumber   = CNum,
+                                                     cindex    = CIndex,
+                                                     offset    = OrgOffset,
+                                                     clock     = NumOfClock,
+                                                     timestamp = Timestamp,
+                                                     checksum  = Checksum,
+                                                     del       = Del},
+                                    {ok, Meta, [HeaderBin, KeyValue, BodyValue,
+                                                Offset + HeaderSize + RemainSize]};
+                                _ ->
+                                    Cause = ?ERROR_INVALID_DATA,
+                                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                                           [{module, ?MODULE_STRING}, {function, "compact_get/4"},
+                                                            {line, ?LINE}, {body, Cause}]),
+                                    {error, Cause}
+                            end;
                         _ ->
-                            Cause = ?ERROR_INVALID_DATA,
+                            Cause = ?ERROR_DATA_SIZE_DID_NOT_MATCH,
                             error_logger:error_msg("~p,~p,~p,~p~n",
                                                    [{module, ?MODULE_STRING}, {function, "compact_get/4"},
                                                     {line, ?LINE}, {body, Cause}]),
                             {error, Cause}
                     end;
-                _ ->
-                    Cause = ?ERROR_DATA_SIZE_DID_NOT_MATCH,
+                eof = Cause ->
+                    {error, Cause};
+                {error, Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING}, {function, "compact_get/4"},
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause}
-            end;
-        eof = Cause ->
-            {error, Cause};
-        {error, Cause} ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "compact_get/4"},
-                                    {line, ?LINE}, {body, Cause}]),
-            {error, Cause}
+            end
     end.

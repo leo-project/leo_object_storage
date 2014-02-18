@@ -335,14 +335,23 @@ compact_test_() ->
              ?assertEqual(9, SumTotal0),
              ?assertEqual(8, SumActive0),
 
-             ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0-1">>),
-             ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3-1">>),
 
              ?assertEqual({error,badstate}, leo_compaction_manager_fsm:suspend()),
              ?assertEqual({error,badstate}, leo_compaction_manager_fsm:resume()),
 
-             %% append incorrect data
-             _ = leo_object_storage_api:add_incorrect_data(crypto:rand_bytes(256)),
+             %% append incorrect data based on IS devenv's corrupted data
+             {ok, CorruptedDataBlock} = file:read_file("../test/broken_part.avs"),
+             _ = leo_object_storage_api:add_incorrect_data(CorruptedDataBlock),
+
+             ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0-1">>),
+             ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3-1">>),
+
+             ok = put_test_data(10001, <<"air/on/g/string/1/0">>, <<"JSB0-1">>),
+             ok = put_test_data(10002, <<"air/on/g/string/1/2">>, <<"JSB0-1">>),
+             ok = put_test_data(10003, <<"air/on/g/string/1/3">>, <<"JSB0-1">>),
+             ok = put_test_data(10004, <<"air/on/g/string/1/4">>, <<"JSB0-1">>),
+             ok = put_test_data(10005, <<"air/on/g/string/1/5">>, <<"JSB0-1">>),
+             ok = put_test_data(10006, <<"air/on/g/string/1/6">>, <<"JSB0-1">>),
 
              AllTargets = leo_object_storage_api:get_object_storage_pid('all'),
              ?assertEqual({ok, #compaction_stats{status = 'idle',
@@ -384,8 +393,8 @@ compact_test_() ->
                               SumTotalSize + TotalSize,
                               SumActiveSize + ActiveSize}
                      end, {0, 0, 0, 0}, Res1),
-             ?assertEqual(12, SumTotal1),
-             ?assertEqual(7, SumActive1),
+             ?assertEqual(18, SumTotal1),
+             ?assertEqual(13, SumActive1),
              ?assertEqual(true, SumTotalSize1 > SumActiveSize1),
              timer:sleep(250),
 
@@ -431,17 +440,23 @@ compact_test_() ->
                                              compaction_histories = [{Start, End}|_Rest],
                                              total_sizes = TotalSize,
                                              active_sizes = ActiveSize,
+                                             has_error = HasError,
                                              total_num  = Total,
-                                             active_num = Active}},
+                                             active_num = Active} = SS},
                          {SumTotal, SumActive, SumTotalSize, SumActiveSize}) ->
+                             io:format(user, "[debug]ss:~p~n",[SS]),
+                             case TotalSize of
+                                 0 -> void;
+                                 _ -> ?assertEqual(false, HasError)
+                             end,
                              ?assertEqual(true, Start =< End),
                              {SumTotal + Total,
                               SumActive + Active,
                               SumTotalSize + TotalSize,
                               SumActiveSize + ActiveSize}
                      end, {0, 0, 0, 0}, Res2),
-             ?assertEqual(7, SumTotal2),
-             ?assertEqual(7, SumActive2),
+             ?assertEqual(13, SumTotal2),
+             ?assertEqual(13, SumActive2),
              ?assertEqual(true, SumTotalSize2 =:= SumActiveSize2),
 
              %% inspect for after compaction
