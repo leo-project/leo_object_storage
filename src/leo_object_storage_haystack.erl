@@ -499,6 +499,7 @@ put_fun1(MetaDBId, StorageInfo, #object{addr_id    = AddrId,
                                         msize      = MSize,
                                         meta       = _MBin,
                                         csize      = CSize,
+                                        checksum   = Checksum,
                                         cnumber    = CNum,
                                         cindex     = CIndex,
                                         offset     = Offset,
@@ -506,14 +507,14 @@ put_fun1(MetaDBId, StorageInfo, #object{addr_id    = AddrId,
                                         timestamp  = Timestamp,
                                         ring_hash  = RingHash,
                                         del        = Del} = Object) ->
-    KSize    = byte_size(Key),
-    Checksum = case Bin of
-                   <<>> -> 281949768489412648962353822266799178366;
-                   _    -> leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin))
-               end,
+    KSize     = byte_size(Key),
+    Checksum1 = case Checksum of
+                    0 -> leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin));
+                    _ -> Checksum
+                end,
 
     Needle = create_needle(Object#object{ksize    = KSize,
-                                         checksum = Checksum}),
+                                         checksum = Checksum1}),
     Meta = #metadata{key       = Key,
                      addr_id   = AddrId,
                      ksize     = KSize,
@@ -525,7 +526,7 @@ put_fun1(MetaDBId, StorageInfo, #object{addr_id    = AddrId,
                      offset    = Offset,
                      clock     = Clock,
                      timestamp = Timestamp,
-                     checksum  = Checksum,
+                     checksum  = Checksum1,
                      ring_hash = RingHash,
                      del       = Del},
     put_fun2(MetaDBId, StorageInfo, Needle, Meta).
