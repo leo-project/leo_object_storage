@@ -70,8 +70,9 @@ new_([Path1, _]) ->
     [{specs,_},{active,Active0},{supervisors,_},{workers,Workers0}] = supervisor:count_children(Ref),
     ?assertEqual(DivCount0 + 2, Active0),  % +2 for compaction manager + backend_db_sup
     ?assertEqual(DivCount0 + 2, Workers0), % +2 for compaction manager + backend_db_sup
-    {ok, ?AVS_HEADER_VSN_TOBE} = leo_object_storage_server:get_avs_version_bin(leo_object_storage_api:get_object_storage_pid_first()),
-
+    {ok, ?AVS_HEADER_VSN_TOBE} =
+        leo_object_storage_server:get_avs_version_bin(
+          leo_object_storage_api:get_object_storage_pid_first()),
     application:stop(leo_backend_db),
     application:stop(bitcask),
     application:stop(leo_object_storage),
@@ -190,16 +191,16 @@ fetch_by_addr_id_([Path1, Path2]) ->
         ok = put_test_data(255,  <<"air/on/g/string/2">>, <<"JSB2">>),
         ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3">>),
         ok = put_test_data(1023, <<"air/on/g/string/4">>, <<"JSB4">>),
-    
+
         FromAddrId = 0,
         ToAddrId   = 255,
-    
+
         Fun = fun(_K, V, Acc) ->
-                      %Key = binary_to_term(K),
-                      %AddrId = leo_object_storage_api:head(Key),
+                      %% Key = binary_to_term(K),
+                      %% AddrId = leo_object_storage_api:head(Key),
                       Metadata      = binary_to_term(V),
                       AddrId = Metadata#metadata.addr_id,
-    
+
                       case (AddrId >= FromAddrId andalso
                             AddrId =< ToAddrId) of
                           true  ->
@@ -226,10 +227,10 @@ fetch_by_key_([Path1, Path2]) ->
         ok = put_test_data(255,  <<"air/on/g/string/2">>, <<"JSB2">>),
         ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3">>),
         ok = put_test_data(1023, <<"air/on/g/string/4">>, <<"JSB4">>),
-    
+
         Fun = fun(K, V, Acc) ->
                       Metadata      = binary_to_term(V),
-    
+
                       case (K == <<"air/on/g/string/0">> orelse
                             K == <<"air/on/g/string/2">> orelse
                             K == <<"air/on/g/string/4">>) of
@@ -269,29 +270,32 @@ stats_test_() ->
              ok = put_test_data(2047, <<"air/on/g/string/6">>, <<"JSB6">>),
              ok = put_test_data(4095, <<"air/on/g/string/7">>, <<"JSB7">>),
              ok = put_test_data(4095, <<"air/on/g/string/7">>, <<"JSB8">>),
-         
+
              {ok, Res} = leo_object_storage_api:stats(),
              ?assertEqual(8, length(Res)),
-         
+
              catch leo_object_storage_sup:stop(),
              application:stop(leo_backend_db),
              application:stop(bitcask),
              application:stop(leo_object_storage),
              io:format(user, "*** [test]stopped ~n", []),
-         
+
              %% relaunch and validate stored datas
              ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
              io:format(user, "*** [test]restarted ~n", []),
              {ok, Res1} = leo_object_storage_api:stats(),
              ?assertEqual(8, length(Res)),
-             {SumTotal0, SumActive0} = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
-                                                                           total_num  = Total,
-                                                                           active_num = Active}}, {SumTotal, SumActive}) ->
-                                                           {SumTotal + Total, SumActive + Active}
-                                                   end, {0, 0}, Res1),
+             {SumTotal0, SumActive0} =
+                 lists:foldl(
+                   fun({ok, #storage_stats{file_path  = _ObjPath,
+                                           total_num  = Total,
+                                           active_num = Active}},
+                       {SumTotal, SumActive}) ->
+                           {SumTotal + Total, SumActive + Active}
+                   end, {0, 0}, Res1),
              ?assertEqual(9, SumTotal0),
              ?assertEqual(8, SumActive0),
-         
+
              catch leo_object_storage_sup:stop(),
              io:format(user, "*** [test]stopped2 ~n", []),
              application:stop(leo_backend_db),

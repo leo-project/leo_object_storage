@@ -341,37 +341,40 @@ get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck) ->
     end.
 
 
-%% @doc When getting invalid positions, should return an identified status to reply 416 on HTTP
-%%      for now dsize = -2 indicate invalid pos
+%% @doc When getting invalid positions,
+%%      should return an identified status to reply 416 on HTTP
+%%      for now dsize = -2 indicate invalid position
 %% @private
 get_fun_1(_MetaDBId,_StorageInfo,
           #metadata{key      = Key,
-                    dsize    = ObjectSize,
-                    addr_id  = AddrId} = Metadata, StartPos, EndPos,_IsStrictCheck)
-  when StartPos >= ObjectSize orelse
-       StartPos <  0 orelse
-       EndPos   >= ObjectSize ->
+                    dsize    = DSize,
+                    addr_id  = AddrId} = Metadata,
+          StartPos, EndPos,_IsStrictCheck) when StartPos >= DSize orelse
+                                                StartPos <  0 orelse
+                                                EndPos   >= DSize ->
     {ok, Metadata, #object{key     = Key,
                            addr_id = AddrId,
                            data    = <<>>,
                            dsize   = -2}};
 get_fun_1(_MetaDBId, StorageInfo,
           #metadata{key      = Key,
-                    ksize    = KeySize,
-                    dsize    = ObjectSize,
+                    ksize    = KSize,
+                    dsize    = DSize,
+                    msize    = _MSize,
                     addr_id  = AddrId,
                     offset   = Offset,
                     cnumber  = 0,
-                    checksum = Checksum} = Metadata, StartPos, EndPos, IsStrictCheck) ->
+                    checksum = Checksum} = Metadata,
+          StartPos, EndPos, IsStrictCheck) ->
     %% Calculate actual start-point and end-point
-    {NewStartPos, NewEndPos} = calc_pos(StartPos, EndPos, ObjectSize),
-    NewOffset     = Offset + erlang:round(?BLEN_HEADER/8) + KeySize + NewStartPos,
-    NewObjectSize = NewEndPos - NewStartPos + 1,
+    {StartPos_1, EndPos_1} = calc_pos(StartPos, EndPos, DSize),
+    Offset_1 = Offset + erlang:round(?BLEN_HEADER/8) + KSize + StartPos_1,
+    DSize_1  = EndPos_1 - StartPos_1 + 1,
 
     %% Retrieve the object
     #backend_info{read_handler = ReadHandler} = StorageInfo,
 
-    case file:pread(ReadHandler, NewOffset, NewObjectSize) of
+    case file:pread(ReadHandler, Offset_1, DSize_1) of
         {ok, Bin} when IsStrictCheck == true,
                        StartPos == 0,
                        EndPos   == 0 ->
@@ -380,7 +383,7 @@ get_fun_1(_MetaDBId, StorageInfo,
                     {ok, Metadata, #object{key     = Key,
                                            addr_id = AddrId,
                                            data    = Bin,
-                                           dsize   = NewObjectSize}};
+                                           dsize   = DSize_1}};
                 _ ->
                     {error, invalid_object}
             end;
@@ -388,7 +391,7 @@ get_fun_1(_MetaDBId, StorageInfo,
             {ok, Metadata, #object{key     = Key,
                                    addr_id = AddrId,
                                    data    = Bin,
-                                   dsize   = NewObjectSize}};
+                                   dsize   = DSize_1}};
         eof = Cause ->
             {error, Cause};
         {error, Cause} ->
@@ -407,14 +410,15 @@ get_fun_1(_MetaDBId,_StorageInfo, #metadata{key     = Key,
                            dsize   = 0}}.
 
 
+%% @doc Retrieve start-position and endposition of an object
 %% @private
-calc_pos(_StartPos, EndPos, ObjectSize) when EndPos < 0 ->
-    NewStartPos = ObjectSize + EndPos,
-    NewEndPos   = ObjectSize - 1,
-    {NewStartPos, NewEndPos};
-calc_pos(StartPos, 0, ObjectSize) ->
-    {StartPos, ObjectSize - 1};
-calc_pos(StartPos, EndPos, _ObjectSize) ->
+calc_pos(_StartPos, EndPos, DSize) when EndPos < 0 ->
+    StartPos_1 = DSize + EndPos,
+    EndPos_1   = DSize - 1,
+    {StartPos_1, EndPos_1};
+calc_pos(StartPos, 0, DSize) ->
+    {StartPos, DSize - 1};
+calc_pos(StartPos, EndPos, _DSize) ->
     {StartPos, EndPos}.
 
 
@@ -439,7 +443,7 @@ create_needle(#object{addr_id    = AddrId,
                       ksize      = KSize,
                       dsize      = DSize,
                       msize      = MSize,
-                      meta       = _MBin,
+                      meta       = MBin,
                       csize      = CSize,
                       cnumber    = CNum,
                       cindex     = CIndex,
@@ -453,7 +457,7 @@ create_needle(#object{addr_id    = AddrId,
         calendar:gregorian_seconds_to_datetime(Timestamp),
 
     Padding = <<0:64>>,
-    Bin     = << Key/binary, Body/binary, Padding/binary >>,
+    DataBin = << Key/binary, Body/binary, MBin/binary, Padding/binary >>,
     Needle  = << Checksum:?BLEN_CHKSUM,
                  KSize:?BLEN_KSIZE,
                  DSize:?BLEN_DSIZE,
@@ -472,7 +476,7 @@ create_needle(#object{addr_id    = AddrId,
                  CNum:?BLEN_CHUNK_NUM,
                  CIndex:?BLEN_CHUNK_INDEX,
                  0:?BLEN_BUF,
-                 Bin/binary >>,
+                 DataBin/binary >>,
     Needle.
 
 
