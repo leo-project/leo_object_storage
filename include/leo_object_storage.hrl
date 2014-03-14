@@ -42,7 +42,7 @@
 
 %% AVS version strings
 -define(AVS_HEADER_VSN_2_2,  <<"LeoFS AVS-2.2">>). %% leofs v0.14 - v1.0.0-pre1
--define(AVS_HEADER_VSN_2_4,  <<"LeoFS AVS-2.4">>). %% leofs v1.0.0-pre1 -
+-define(AVS_HEADER_VSN_2_4,  <<"LeoFS AVS-2.4">>). %% leofs v1.0.0-pre1 - current ver
 -define(AVS_HEADER_VSN_TOBE, ?AVS_HEADER_VSN_2_4).
 %% Max Data Block Size to be larger than leo_gateway's large object settings
 -define(MAX_DATABLOCK_SIZE, 1024 * 1024 * 10).
@@ -51,7 +51,7 @@
 -define(gen_backend_key(_VSN, _AddrId, _Key),
         begin
             case _VSN of
-                ?AVS_HEADER_VSN_2_2 -> 
+                ?AVS_HEADER_VSN_2_2 ->
                     term_to_binary({_AddrId, _Key});
                 ?AVS_HEADER_VSN_2_4 ->
                     _Key
@@ -87,7 +87,7 @@
           tmp_read_handler    :: pid()
          }).
 
--record(metadata, {
+-record(metadata, { %% - leofs-v1.0.0-pre3
           key = <<>>          :: binary(),      %% filename
           addr_id    = 0      :: pos_integer(), %% ring-address id (MD5 > hex-to-integer)
           ksize      = 0      :: pos_integer(), %% file-path size
@@ -106,7 +106,31 @@
           del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
          }).
 
--record(object, {
+-record(metadata_1, { %% leofs-v1.0.0 - current ver
+          key = <<>>          :: binary(),      %% filename
+          addr_id    = 0      :: pos_integer(), %% ring-address id (MD5 > hex-to-integer)
+          ksize      = 0      :: pos_integer(), %% file-path size
+          dsize      = 0      :: pos_integer(), %% data size
+          msize      = 0      :: pos_integer(), %% custom-metadata size
+
+          csize      = 0      :: pos_integer(), %% * chunked data size    (for large-object)
+          cnumber    = 0      :: pos_integer(), %% * # of chunked objects (for large-object)
+          cindex     = 0      :: pos_integer(), %% * chunked object index (for large-object)
+
+          offset     = 0      :: pos_integer(), %% object-container's offset
+          clock      = 0      :: pos_integer(), %% clock
+          timestamp  = 0      :: pos_integer(), %% timestamp
+          checksum   = 0      :: pos_integer(), %% checksum (MD5 > hex-to-integer)
+          ring_hash  = 0      :: pos_integer(), %% RING's Hash(CRC32) when write an object.
+
+          cluster_id = []     :: string(),      %% cluster-id for the mdc-replication
+          num_of_replicas = 0 :: pos_integer(), %% # of replicas for the mdc-replication
+
+          del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
+         }).
+-define(METADATA, 'metadata_1').
+
+-record(object, { %% - leofs-v1.0.0-pre3
           method,
           key        = <<>>   :: binary(),  %% filename
           addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
@@ -128,6 +152,34 @@
           req_id     = 0      :: pos_integer(), %% request id
           del = ?DEL_FALSE    :: del_flag() %% delete flag
          }).
+
+-record(object_1, { %% leofs-v1.0.0 - current ver
+          method,
+          key        = <<>>   :: binary(),  %% filename
+          addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
+          data       = <<>>   :: binary(),  %% file
+          meta       = <<>>   :: binary(),  %% custom-metadata
+          ksize      = 0      :: pos_integer(), %% filename size
+          dsize      = 0      :: pos_integer(), %% data size
+          msize      = 0      :: pos_integer(), %% custom-metadata size
+
+          csize      = 0      :: pos_integer(), %% * chunked data size    (for large-object)
+          cnumber    = 0      :: pos_integer(), %% * # of chunked objects (for large-object)
+          cindex     = 0      :: pos_integer(), %% * chunked object index (for large-object)
+
+          offset     = 0      :: pos_integer(), %% object-container's offset
+          clock      = 0      :: pos_integer(), %% clock
+          timestamp  = 0      :: pos_integer(), %% timestamp
+          checksum   = 0      :: pos_integer(), %% checksum (MD5 > hex-to-integer)
+          ring_hash  = 0      :: pos_integer(), %% RING's Hash(CRC32) when write an object.
+          req_id     = 0      :: pos_integer(), %% request id
+
+          cluster_id = []     :: string(),      %% cluster-id for the mdc-replication
+          num_of_replicas = 0 :: pos_integer(), %% # of replicas for the mdc-replication
+
+          del = ?DEL_FALSE    :: del_flag()     %% delete flag
+         }).
+-define(OBJECT, 'object_1').
 
 -record(storage_stats, {
           file_path            = []    :: string(),

@@ -91,10 +91,10 @@
 %%--------------------------------------------------------------------
 %% @doc Open and clreate a file.
 %%
--spec(calc_obj_size(#metadata{}|#object{}) -> integer()).
-calc_obj_size(#metadata{ksize = KSize, dsize = DSize}) ->
+-spec(calc_obj_size(#?METADATA{}|#?OBJECT{}) -> integer()).
+calc_obj_size(#?METADATA{ksize = KSize, dsize = DSize}) ->
     calc_obj_size(KSize, DSize);
-calc_obj_size(#object{key = Key, dsize = DSize}) ->
+calc_obj_size(#?OBJECT{key = Key, dsize = DSize}) ->
     KSize = byte_size(Key),
     calc_obj_size(KSize, DSize).
 -spec(calc_obj_size(integer(), integer()) -> integer()).
@@ -136,7 +136,7 @@ close(WriteHandler, ReadHandler) ->
 
 %% @doc Insert an object and a metadata into the object-storage
 %%
--spec(put(atom(), #backend_info{}, #object{}) ->
+-spec(put(atom(), #backend_info{}, #?OBJECT{}) ->
              {ok, integer()} | {error, any()}).
 put(MetaDBId, StorageInfo, Object) ->
     put_fun0(MetaDBId, StorageInfo, Object).
@@ -145,7 +145,7 @@ put(MetaDBId, StorageInfo, Object) ->
 %% @doc Retrieve an object and a metadata from the object-storage
 %%
 -spec(get(atom(), #backend_info{}, binary()) ->
-             {ok, #metadata{}, #object{}} | {error, any()}).
+             {ok, #?METADATA{}, #?OBJECT{}} | {error, any()}).
 get(MetaDBId, StorageInfo, Key) ->
     get(MetaDBId, StorageInfo, Key, 0, 0, false).
 
@@ -155,7 +155,7 @@ get(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck) ->
 
 %% @doc Remove an object and a metadata from the object-storage
 %%
--spec(delete(atom(), #backend_info{}, #object{}) ->
+-spec(delete(atom(), #backend_info{}, #?OBJECT{}) ->
              ok | {error, any()}).
 delete(MetaDBId, StorageInfo, Object) ->
     case put_fun0(MetaDBId, StorageInfo, Object) of
@@ -169,7 +169,7 @@ delete(MetaDBId, StorageInfo, Object) ->
 %% @doc Retrieve a metada from backend_db from the object-storage
 %%
 -spec(head(atom(), binary()) ->
-             {ok, #metadata{}} | not_found | {error, any()}).
+             {ok, #?METADATA{}} | not_found | {error, any()}).
 head(MetaDBId, Key) ->
     case catch leo_backend_db_api:get(MetaDBId, Key) of
         {ok, MetadataBin} ->
@@ -192,25 +192,25 @@ fetch(MetaDBId, Key, Fun, MaxKeys) ->
 
 %% @doc Store metadata and binary
 %%
--spec(store(atom(), #backend_info{}, #metadata{}, binary()) ->
+-spec(store(atom(), #backend_info{}, #?METADATA{}, binary()) ->
              ok | {error, any()}).
 store(MetaDBId, StorageInfo, Metadata, Bin) ->
-    Key = Metadata#metadata.key,
+    Key = Metadata#?METADATA.key,
     Checksum = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
 
-    Object = #object{addr_id    = Metadata#metadata.addr_id,
-                     key        = Key,
-                     ksize      = Metadata#metadata.ksize,
-                     dsize      = Metadata#metadata.dsize,
-                     data       = Bin,
-                     cindex     = Metadata#metadata.cindex,
-                     csize      = Metadata#metadata.csize,
-                     cnumber    = Metadata#metadata.cnumber,
-                     clock      = Metadata#metadata.clock,
-                     timestamp  = Metadata#metadata.timestamp,
-                     checksum   = Checksum,
-                     ring_hash  = Metadata#metadata.ring_hash,
-                     del        = Metadata#metadata.del},
+    Object = #?OBJECT{addr_id    = Metadata#?METADATA.addr_id,
+                      key        = Key,
+                      ksize      = Metadata#?METADATA.ksize,
+                      dsize      = Metadata#?METADATA.dsize,
+                      data       = Bin,
+                      cindex     = Metadata#?METADATA.cindex,
+                      csize      = Metadata#?METADATA.csize,
+                      cnumber    = Metadata#?METADATA.cnumber,
+                      clock      = Metadata#?METADATA.clock,
+                      timestamp  = Metadata#?METADATA.timestamp,
+                      checksum   = Checksum,
+                      ring_hash  = Metadata#?METADATA.ring_hash,
+                      del        = Metadata#?METADATA.del},
 
     case put_fun0(MetaDBId, StorageInfo, Object) of
         {ok, _Checksum} ->
@@ -324,7 +324,7 @@ get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck) ->
     case catch leo_backend_db_api:get(MetaDBId, Key) of
         {ok, MetadataBin} ->
             Metadata = binary_to_term(MetadataBin),
-            case (Metadata#metadata.del == ?DEL_FALSE) of
+            case (Metadata#?METADATA.del == ?DEL_FALSE) of
                 true ->
                     get_fun_1(MetaDBId, StorageInfo, Metadata,
                               StartPos, EndPos, IsStrictCheck);
@@ -346,25 +346,25 @@ get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck) ->
 %%      for now dsize = -2 indicate invalid position
 %% @private
 get_fun_1(_MetaDBId,_StorageInfo,
-          #metadata{key      = Key,
-                    dsize    = DSize,
-                    addr_id  = AddrId} = Metadata,
+          #?METADATA{key      = Key,
+                     dsize    = DSize,
+                     addr_id  = AddrId} = Metadata,
           StartPos, EndPos,_IsStrictCheck) when StartPos >= DSize orelse
                                                 StartPos <  0 orelse
                                                 EndPos   >= DSize ->
-    {ok, Metadata, #object{key     = Key,
-                           addr_id = AddrId,
-                           data    = <<>>,
-                           dsize   = -2}};
+    {ok, Metadata, #?OBJECT{key     = Key,
+                            addr_id = AddrId,
+                            data    = <<>>,
+                            dsize   = -2}};
 get_fun_1(_MetaDBId, StorageInfo,
-          #metadata{key      = Key,
-                    ksize    = KSize,
-                    dsize    = DSize,
-                    msize    = _MSize,
-                    addr_id  = AddrId,
-                    offset   = Offset,
-                    cnumber  = 0,
-                    checksum = Checksum} = Metadata,
+          #?METADATA{key      = Key,
+                     ksize    = KSize,
+                     dsize    = DSize,
+                     msize    = _MSize,
+                     addr_id  = AddrId,
+                     offset   = Offset,
+                     cnumber  = 0,
+                     checksum = Checksum} = Metadata,
           StartPos, EndPos, IsStrictCheck) ->
     %% Calculate actual start-point and end-point
     {StartPos_1, EndPos_1} = calc_pos(StartPos, EndPos, DSize),
@@ -380,18 +380,18 @@ get_fun_1(_MetaDBId, StorageInfo,
                        EndPos   == 0 ->
             case leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)) of
                 Checksum ->
-                    {ok, Metadata, #object{key     = Key,
-                                           addr_id = AddrId,
-                                           data    = Bin,
-                                           dsize   = DSize_1}};
+                    {ok, Metadata, #?OBJECT{key     = Key,
+                                            addr_id = AddrId,
+                                            data    = Bin,
+                                            dsize   = DSize_1}};
                 _ ->
                     {error, invalid_object}
             end;
         {ok, Bin} ->
-            {ok, Metadata, #object{key     = Key,
-                                   addr_id = AddrId,
-                                   data    = Bin,
-                                   dsize   = DSize_1}};
+            {ok, Metadata, #?OBJECT{key     = Key,
+                                    addr_id = AddrId,
+                                    data    = Bin,
+                                    dsize   = DSize_1}};
         eof = Cause ->
             {error, Cause};
         {error, Cause} ->
@@ -402,12 +402,12 @@ get_fun_1(_MetaDBId, StorageInfo,
     end;
 
 %% For parent of chunked object
-get_fun_1(_MetaDBId,_StorageInfo, #metadata{key     = Key,
-                                            addr_id = AddrId} = Metadata, _,_,_) ->
-    {ok, Metadata, #object{key     = Key,
-                           addr_id = AddrId,
-                           data    = <<>>,
-                           dsize   = 0}}.
+get_fun_1(_MetaDBId,_StorageInfo, #?METADATA{key     = Key,
+                                             addr_id = AddrId} = Metadata, _,_,_) ->
+    {ok, Metadata, #?OBJECT{key     = Key,
+                            addr_id = AddrId,
+                            data    = <<>>,
+                            dsize   = 0}}.
 
 
 %% @doc Retrieve start-position and endposition of an object
@@ -438,21 +438,21 @@ put_super_block(ObjectStorageWriteHandler) ->
 
 %% @doc Create a needle
 %% @private
-create_needle(#object{addr_id    = AddrId,
-                      key        = Key,
-                      ksize      = KSize,
-                      dsize      = DSize,
-                      msize      = MSize,
-                      meta       = MBin,
-                      csize      = CSize,
-                      cnumber    = CNum,
-                      cindex     = CIndex,
-                      data       = Body,
-                      clock      = Clock,
-                      offset     = Offset,
-                      timestamp  = Timestamp,
-                      checksum   = Checksum,
-                      del        = Del}) ->
+create_needle(#?OBJECT{addr_id    = AddrId,
+                       key        = Key,
+                       ksize      = KSize,
+                       dsize      = DSize,
+                       msize      = MSize,
+                       meta       = MBin,
+                       csize      = CSize,
+                       cnumber    = CNum,
+                       cindex     = CIndex,
+                       data       = Body,
+                       clock      = Clock,
+                       offset     = Offset,
+                       timestamp  = Timestamp,
+                       checksum   = Checksum,
+                       del        = Del}) ->
     {{Year,Month,Day},{Hour,Min,Second}} =
         calendar:gregorian_seconds_to_datetime(Timestamp),
 
@@ -488,7 +488,7 @@ put_fun0(MetaDBId, StorageInfo, Object) ->
 
     case file:position(ObjectStorageWriteHandler, eof) of
         {ok, Offset} ->
-            put_fun1(MetaDBId, StorageInfo, Object#object{offset = Offset});
+            put_fun1(MetaDBId, StorageInfo, Object#?OBJECT{offset = Offset});
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING}, {function, "put_fun0/1"},
@@ -496,49 +496,49 @@ put_fun0(MetaDBId, StorageInfo, Object) ->
             {error, Cause}
     end.
 
-put_fun1(MetaDBId, StorageInfo, #object{addr_id    = AddrId,
-                                        key        = Key,
-                                        dsize      = DSize,
-                                        data       = Bin,
-                                        msize      = MSize,
-                                        meta       = _MBin,
-                                        csize      = CSize,
-                                        checksum   = Checksum,
-                                        cnumber    = CNum,
-                                        cindex     = CIndex,
-                                        offset     = Offset,
-                                        clock      = Clock,
-                                        timestamp  = Timestamp,
-                                        ring_hash  = RingHash,
-                                        del        = Del} = Object) ->
+put_fun1(MetaDBId, StorageInfo, #?OBJECT{addr_id    = AddrId,
+                                         key        = Key,
+                                         dsize      = DSize,
+                                         data       = Bin,
+                                         msize      = MSize,
+                                         meta       = _MBin,
+                                         csize      = CSize,
+                                         checksum   = Checksum,
+                                         cnumber    = CNum,
+                                         cindex     = CIndex,
+                                         offset     = Offset,
+                                         clock      = Clock,
+                                         timestamp  = Timestamp,
+                                         ring_hash  = RingHash,
+                                         del        = Del} = Object) ->
     KSize     = byte_size(Key),
     Checksum1 = case Checksum of
                     0 -> leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin));
                     _ -> Checksum
                 end,
 
-    Needle = create_needle(Object#object{ksize    = KSize,
-                                         checksum = Checksum1}),
-    Meta = #metadata{key       = Key,
-                     addr_id   = AddrId,
-                     ksize     = KSize,
-                     msize     = MSize,
-                     dsize     = DSize,
-                     csize     = CSize,
-                     cnumber   = CNum,
-                     cindex    = CIndex,
-                     offset    = Offset,
-                     clock     = Clock,
-                     timestamp = Timestamp,
-                     checksum  = Checksum1,
-                     ring_hash = RingHash,
-                     del       = Del},
+    Needle = create_needle(Object#?OBJECT{ksize    = KSize,
+                                          checksum = Checksum1}),
+    Meta = #?METADATA{key       = Key,
+                      addr_id   = AddrId,
+                      ksize     = KSize,
+                      msize     = MSize,
+                      dsize     = DSize,
+                      csize     = CSize,
+                      cnumber   = CNum,
+                      cindex    = CIndex,
+                      offset    = Offset,
+                      clock     = Clock,
+                      timestamp = Timestamp,
+                      checksum  = Checksum1,
+                      ring_hash = RingHash,
+                      del       = Del},
     put_fun2(MetaDBId, StorageInfo, Needle, Meta).
 
-put_fun2(MetaDBId, StorageInfo, Needle, #metadata{key      = Key,
-                                                  addr_id  = AddrId,
-                                                  offset   = Offset,
-                                                  checksum = Checksum} = Meta) ->
+put_fun2(MetaDBId, StorageInfo, Needle, #?METADATA{key      = Key,
+                                                   addr_id  = AddrId,
+                                                   offset   = Offset,
+                                                   checksum = Checksum} = Meta) ->
     #backend_info{write_handler       = WriteHandler,
                   avs_version_bin_cur = AVSVsnBin} = StorageInfo,
 
@@ -573,35 +573,35 @@ put_fun2(MetaDBId, StorageInfo, Needle, #metadata{key      = Key,
 %%--------------------------------------------------------------------
 %% @doc Insert an object into the object-container when compacting
 %% @private
--spec(compact_put(pid(), #metadata{}, binary(), binary()) ->
+-spec(compact_put(pid(), #?METADATA{}, binary(), binary()) ->
              ok | {error, any()}).
-compact_put(WriteHandler, #metadata{addr_id   = AddrId,
-                                    ksize     = KSize,
-                                    msize     = MSize,
-                                    dsize     = DSize,
-                                    csize     = CSize,
-                                    cnumber   = CNum,
-                                    cindex    = CIndex,
-                                    clock     = Clock,
-                                    timestamp = Timestamp,
-                                    checksum  = Checksum,
-                                    del       = Del} = _Meta, KeyBin, BodyBin) ->
+compact_put(WriteHandler, #?METADATA{addr_id   = AddrId,
+                                     ksize     = KSize,
+                                     msize     = MSize,
+                                     dsize     = DSize,
+                                     csize     = CSize,
+                                     cnumber   = CNum,
+                                     cindex    = CIndex,
+                                     clock     = Clock,
+                                     timestamp = Timestamp,
+                                     checksum  = Checksum,
+                                     del       = Del} = _Meta, KeyBin, BodyBin) ->
     case file:position(WriteHandler, eof) of
         {ok, Offset} ->
-            Needle = create_needle(#object{addr_id    = AddrId,
-                                           key        = KeyBin,
-                                           ksize      = KSize,
-                                           dsize      = DSize,
-                                           msize      = MSize,
-                                           csize      = CSize,
-                                           cnumber    = CNum,
-                                           cindex     = CIndex,
-                                           data       = BodyBin,
-                                           clock      = Clock,
-                                           offset     = Offset,
-                                           timestamp  = Timestamp,
-                                           checksum   = Checksum,
-                                           del        = Del}),
+            Needle = create_needle(#?OBJECT{addr_id    = AddrId,
+                                            key        = KeyBin,
+                                            ksize      = KSize,
+                                            dsize      = DSize,
+                                            msize      = MSize,
+                                            csize      = CSize,
+                                            cnumber    = CNum,
+                                            cindex     = CIndex,
+                                            data       = BodyBin,
+                                            clock      = Clock,
+                                            offset     = Offset,
+                                            timestamp  = Timestamp,
+                                            checksum   = Checksum,
+                                            del        = Del}),
 
             case file:pwrite(WriteHandler, Offset, Needle) of
                 ok ->
@@ -704,19 +704,19 @@ compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
                                 Checksum ->
                                     Timestamp = calendar:datetime_to_gregorian_seconds(
                                                   {{Year, Month, Day}, {Hour, Min, Second}}),
-                                    Meta = #metadata{key       = KeyValue,
-                                                     addr_id   = AddrId,
-                                                     ksize     = KSize,
-                                                     msize     = MSize,
-                                                     dsize     = DSize,
-                                                     csize     = CSize,
-                                                     cnumber   = CNum,
-                                                     cindex    = CIndex,
-                                                     offset    = OrgOffset,
-                                                     clock     = NumOfClock,
-                                                     timestamp = Timestamp,
-                                                     checksum  = Checksum,
-                                                     del       = Del},
+                                    Meta = #?METADATA{key       = KeyValue,
+                                                      addr_id   = AddrId,
+                                                      ksize     = KSize,
+                                                      msize     = MSize,
+                                                      dsize     = DSize,
+                                                      csize     = CSize,
+                                                      cnumber   = CNum,
+                                                      cindex    = CIndex,
+                                                      offset    = OrgOffset,
+                                                      clock     = NumOfClock,
+                                                      timestamp = Timestamp,
+                                                      checksum  = Checksum,
+                                                      del       = Del},
                                     {ok, Meta, [HeaderBin, KeyValue, BodyValue,
                                                 Offset + HeaderSize + RemainSize]};
                                 _ ->

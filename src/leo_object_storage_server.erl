@@ -122,7 +122,7 @@ get_avs_version_bin(Id) ->
 %%--------------------------------------------------------------------
 %% @doc Insert an object and an object's metadata into the object-storage
 %%
--spec(put(atom(), #object{}) ->
+-spec(put(atom(), #?OBJECT{}) ->
              ok | {error, any()}).
 put(Id, Object) ->
     gen_server:call(Id, {put, Object}, ?DEF_TIMEOUT).
@@ -131,14 +131,14 @@ put(Id, Object) ->
 %% @doc Retrieve an object from the object-storage
 %%
 -spec(get(atom(), tuple(), integer(), integer()) ->
-             {ok, #metadata{}, #object{}} | not_found | {error, any()}).
+             {ok, #?METADATA{}, #?OBJECT{}} | not_found | {error, any()}).
 get(Id, Key, StartPos, EndPos) ->
     gen_server:call(Id, {get, Key, StartPos, EndPos}, ?DEF_TIMEOUT).
 
 
 %% @doc Remove an object from the object-storage - (logical-delete)
 %%
--spec(delete(atom(), #object{}) ->
+-spec(delete(atom(), #?OBJECT{}) ->
              ok | {error, any()}).
 delete(Id, Object) ->
     gen_server:call(Id, {delete, Object}, ?DEF_TIMEOUT).
@@ -147,7 +147,7 @@ delete(Id, Object) ->
 %% @doc Retrieve an object's metadata from the object-storage
 %%
 -spec(head(atom(), tuple()) ->
-             {ok, #metadata{}} | {error, any()}).
+             {ok, #?METADATA{}} | {error, any()}).
 head(Id, Key) ->
     gen_server:call(Id, {head, Key}, ?DEF_TIMEOUT).
 
@@ -162,7 +162,7 @@ fetch(Id, Key, Fun, MaxKeys) ->
 
 %% @doc Store metadata and data
 %%
--spec(store(atom(), #metadata{}, binary()) ->
+-spec(store(atom(), #?METADATA{}, binary()) ->
              ok | {error, any()}).
 store(Id, Metadata, Bin) ->
     gen_server:call(Id, {store, Metadata, Bin}, ?DEF_TIMEOUT).
@@ -295,8 +295,8 @@ handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
                                          object_storage = StorageInfo,
                                          storage_stats  = StorageStats} = State) ->
     Key = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
-                           Object#object.addr_id,
-                           Object#object.key),
+                           Object#?OBJECT.addr_id,
+                           Object#?OBJECT.key),
     {DiffRec, Oldsize} =
         case leo_object_storage_haystack:head(
                MetaDBId, Key) of
@@ -341,8 +341,8 @@ handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
                                             object_storage = StorageInfo,
                                             storage_stats  = StorageStats} = State) ->
     Key = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
-                           Object#object.addr_id,
-                           Object#object.key),
+                           Object#?OBJECT.addr_id,
+                           Object#?OBJECT.key),
     {DiffRec, Oldsize} =
         case leo_object_storage_haystack:head(
                MetaDBId, Key) of
@@ -386,8 +386,8 @@ handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
                                                   object_storage = StorageInfo,
                                                   storage_stats  = StorageStats} = State) ->
     BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
-                                  Metadata#metadata.addr_id,
-                                  Metadata#metadata.key),
+                                  Metadata#?METADATA.addr_id,
+                                  Metadata#?METADATA.key),
     {DiffRec, Oldsize} =
         case leo_object_storage_haystack:head(
                MetaDBId, BackendKey) of
@@ -773,13 +773,13 @@ calc_remain_disksize(MetaDBId, FilePath) ->
 
 %% @doc Is deleted a record ?
 %% @private
--spec(is_deleted_rec(atom(), #backend_info{}, #metadata{}) ->
+-spec(is_deleted_rec(atom(), #backend_info{}, #?METADATA{}) ->
              boolean()).
-is_deleted_rec(_MetaDBId, _StorageInfo, #metadata{del = Del}) when Del =/= ?DEL_FALSE ->
+is_deleted_rec(_MetaDBId, _StorageInfo, #?METADATA{del = Del}) when Del =/= ?DEL_FALSE ->
     true;
 is_deleted_rec(MetaDBId, #backend_info{avs_version_bin_prv = AVSVsnBinPrv} = StorageInfo,
-               #metadata{key      = Key,
-                         addr_id  = AddrId} = MetaFromAvs) ->
+               #?METADATA{key      = Key,
+                          addr_id  = AddrId} = MetaFromAvs) ->
     KeyOfMetadata = ?gen_backend_key(AVSVsnBinPrv, AddrId, Key),
     case leo_backend_db_api:get(MetaDBId, KeyOfMetadata) of
         {ok, MetaOrg} ->
@@ -791,11 +791,11 @@ is_deleted_rec(MetaDBId, #backend_info{avs_version_bin_prv = AVSVsnBinPrv} = Sto
             false
     end.
 
--spec(is_deleted_rec(atom(), #backend_info{}, #metadata{}, #metadata{}) ->
+-spec(is_deleted_rec(atom(), #backend_info{}, #?METADATA{}, #?METADATA{}) ->
              boolean()).
-is_deleted_rec(_MetaDBId, _StorageInfo, _Meta0, Meta1) when Meta1#metadata.del =/= 0 ->
+is_deleted_rec(_MetaDBId, _StorageInfo, _Meta0, Meta1) when Meta1#?METADATA.del =/= 0 ->
     true;
-is_deleted_rec(_MetaDBId, _StorageInfo, Meta0, Meta1) when Meta0#metadata.offset =/= Meta1#metadata.offset ->
+is_deleted_rec(_MetaDBId, _StorageInfo, Meta0, Meta1) when Meta0#?METADATA.offset =/= Meta1#?METADATA.offset ->
     true;
 is_deleted_rec(_MetaDBId, _StorageInfo, _Meta0, _Meta1) ->
     false.
@@ -803,7 +803,7 @@ is_deleted_rec(_MetaDBId, _StorageInfo, _Meta0, _Meta1) ->
 
 %% @doc Reduce unnecessary objects from object-container.
 %% @private
--spec(do_compact(#metadata{}, #compact_params{}, #state{}) ->
+-spec(do_compact(#?METADATA{}, #compact_params{}, #state{}) ->
              ok | {error, any()}).
 do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
                                            object_storage = StorageInfo} = State) ->
@@ -835,10 +835,10 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
                                                          CompactParams#compact_params.key_bin,
                                                          CompactParams#compact_params.body_bin) of
                 {ok, Offset} ->
-                    NewMeta = Metadata#metadata{offset = Offset},
+                    NewMeta = Metadata#?METADATA{offset = Offset},
                     KeyOfMetadata = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
-                                                     Metadata#metadata.addr_id,
-                                                     Metadata#metadata.key),
+                                                     Metadata#?METADATA.addr_id,
+                                                     Metadata#?METADATA.key),
                     Ret = leo_backend_db_api:compact_put(
                             MetaDBId, KeyOfMetadata, term_to_binary(NewMeta)),
 
