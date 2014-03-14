@@ -231,10 +231,10 @@ header_bin_to_metadata(Bin) ->
            CNum:?BLEN_CHUNK_NUM,
            CIndex:?BLEN_CHUNK_INDEX,
            _:?BLEN_BUF >> = Bin,
-        Timestamp = 
+        Timestamp =
             case catch calendar:datetime_to_gregorian_seconds(
                          {{Year, Month, Day}, {Hour, Min, Second}}) of
-                {'EXIT', Cause} ->
+                {'EXIT',_Cause} ->
                     0;
                 Val ->
                     Val
@@ -252,9 +252,9 @@ header_bin_to_metadata(Bin) ->
                    checksum  = Checksum,
                    del       = Del}
     catch
-        _:_Cause ->
+        _:_ ->
             {error, invalid_format}
-                
+
     end.
 
 

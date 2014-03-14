@@ -647,17 +647,11 @@ compact_get_1(HeaderBin, #?METADATA{ksize = KSize,
 compact_get_1(HeaderBin, #?METADATA{ksize = KSize,
                                     msize = MSize
                                    } = Metadata, DSize, Bin, TotalSize) ->
-    case (KSize + MSize + DSize + ?LEN_PADDING) == byte_size(Bin) of
-        true ->
-            << KeyBin:KSize/binary,
-               BodyBin:DSize/binary,
-               CMetaBin:MSize/binary,
-               _Footer/binary>> = Bin,
-            compact_get_2(HeaderBin, Metadata, KeyBin, BodyBin, CMetaBin, TotalSize);
-        false ->
-            Cause = ?ERROR_DATA_SIZE_DID_NOT_MATCH,
-            {error, Cause}
-    end.
+    << KeyBin:KSize/binary,
+       BodyBin:DSize/binary,
+       CMetaBin:MSize/binary,
+       _Footer/binary>> = Bin,
+    compact_get_2(HeaderBin, Metadata, KeyBin, BodyBin, CMetaBin, TotalSize).
 
 %% @private
 compact_get_2(HeaderBin, Metadata, KeyBin, BodyBin, CMetaBin, TotalSize) ->
