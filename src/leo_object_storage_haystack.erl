@@ -569,13 +569,26 @@ compact_get(ReadHandler, Offset) ->
 -spec(compact_get(pid(), integer(), integer(), binary()) ->
              ok | {error, any()}).
 compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
-    %% @TODO
-    Metadata = leo_object_storage_transformer:header_bin_to_metadata(HeaderBin),
-    DSize4Read = case (Metadata#?METADATA.cnumber > 0) of
+    case leo_object_storage_transformer:header_bin_to_metadata(HeaderBin) of
+        {error, Cause} ->
+            {error, Cause};
+        Metadata ->
+            compact_get(Metadata, ReadHandler,
+                        Offset, HeaderSize, HeaderBin)
+    end.
+
+%% @private
+compact_get(#?METADATA{ksize = KSize,
+                       dsize = DSize,
+                       msize = MSize,
+                       cnumber = CNum} = Metadata, ReadHandler,
+            Offset, HeaderSize, HeaderBin) ->
+    DSize4Read = case (CNum > 0) of
                      true  -> 0;
-                     false -> Metadata#?METADATA.dsize
+                     false -> DSize
                  end,
-    RemainSize = Metadata#?METADATA.ksize + DSize4Read + ?LEN_PADDING,
+    RemainSize = (KSize + DSize4Read
+                  + MSize + ?LEN_PADDING),
 
     case (RemainSize > ?MAX_DATABLOCK_SIZE) of
         true ->
@@ -621,23 +634,30 @@ compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
             end
     end.
 
-
 %% @private
-compact_get_1(HeaderBin, #?METADATA{ksize = KSize} = Metadata, DSize, Bin, TotalSize) ->
+compact_get_1(_HeaderBin, #?METADATA{ksize = 0},_DSize,_Bin,_TotalSize) ->
+    {error, ?ERROR_DATA_SIZE_DID_NOT_MATCH};
+compact_get_1(HeaderBin, #?METADATA{ksize = KSize,
+                                    msize = 0
+                                   } = Metadata, DSize, Bin, TotalSize) ->
     << KeyBin:KSize/binary,
        BodyBin:DSize/binary,
        _Footer/binary>> = Bin,
-    compact_get_2(HeaderBin, Metadata, KeyBin, BodyBin, <<>>, TotalSize).
-
-%% @TODO
-%% compact_get_1(_HeaderBin, #?METADATA{ksize = KSize,
-%%                                      msize = MSize} = _Metadata, DSize, Bin,_TotalSize) ->
-%%     << KeyBin:KSize/binary,
-%%        BodyBin:DSize/binary,
-%%        CMetaBin:MSize/binary,
-%%        _Footer/binary>> = Bin,
-%%     [KeyBin, BodyBin, CMetaBin].
-%%     %% compact_get_2(HeaderBin, Metadata, KeyBin, BodyBin, CMetaBin, TotalSize).
+    compact_get_2(HeaderBin, Metadata, KeyBin, BodyBin, <<>>, TotalSize);
+compact_get_1(HeaderBin, #?METADATA{ksize = KSize,
+                                    msize = MSize
+                                   } = Metadata, DSize, Bin, TotalSize) ->
+    case (KSize + MSize + DSize + ?LEN_PADDING) == byte_size(Bin) of
+        true ->
+            << KeyBin:KSize/binary,
+               BodyBin:DSize/binary,
+               CMetaBin:MSize/binary,
+               _Footer/binary>> = Bin,
+            compact_get_2(HeaderBin, Metadata, KeyBin, BodyBin, CMetaBin, TotalSize);
+        false ->
+            Cause = ?ERROR_DATA_SIZE_DID_NOT_MATCH,
+            {error, Cause}
+    end.
 
 %% @private
 compact_get_2(HeaderBin, Metadata, KeyBin, BodyBin, CMetaBin, TotalSize) ->
