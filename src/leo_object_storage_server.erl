@@ -656,9 +656,11 @@ compact_fun1({ok, #state{meta_db_id     = MetaDBId,
                           try do_compact(Metadata, CompactParams, State) of
                               Ret ->
                                   Ret
-                          catch _:Reason ->
+                          catch
+                              _:Reason ->
                                   error_logger:error_msg("~p,~p,~p,~p~n",
-                                                         [{module, ?MODULE_STRING}, {function, "compact_fun/2"},
+                                                         [{module, ?MODULE_STRING},
+                                                          {function, "compact_fun/2"},
                                                           {line, ?LINE},
                                                           {body, {MetaDBId, Reason}}]),
                                   {error, Reason}
@@ -669,8 +671,10 @@ compact_fun1({ok, #state{meta_db_id     = MetaDBId,
               Error1 ->
                   Error1
           end,
-    _ = leo_object_storage_haystack:close(WriteHandler,    ReadHandler),
-    _ = leo_object_storage_haystack:close(TmpWriteHandler, TmpReadHandler),
+
+    catch leo_object_storage_haystack:close(WriteHandler,    ReadHandler),
+    catch leo_object_storage_haystack:close(TmpWriteHandler, TmpReadHandler),
+
     %% @TODO add history(end datetime)
     NewHist2 = compact_add_history(finish, NewHist),
     NewState = State#state{storage_stats = StorageStats#storage_stats{compaction_histories = NewHist2},
@@ -823,9 +827,10 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
         0 ->
             void
     end,
-    case (is_deleted_rec(MetaDBId, StorageInfo, Metadata) orelse HasChargeOfNode == false) of
+    case (is_deleted_rec(MetaDBId, StorageInfo, Metadata)
+          orelse HasChargeOfNode == false) of
         true ->
-            do_compact1(ok, Metadata, CompactParams, State);
+            do_comapct_1(ok, Metadata, CompactParams, State);
         false ->
             %% Insert into the temporary object-container.
             %%
@@ -847,16 +852,16 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
                                          num_of_active_object  = NumActive  + 1,
                                          size_of_active_object = SizeActive + ObjectSize},
 
-                    do_compact1(Ret, NewMeta, NewCompactParams, State);
+                    do_comapct_1(Ret, NewMeta, NewCompactParams, State);
                 Error ->
-                    do_compact1(Error, Metadata, CompactParams, State)
+                    do_comapct_1(Error, Metadata, CompactParams, State)
             end
     end.
 
 
 %% @doc Reduce unnecessary objects from object-container.
 %% @private
-do_compact1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} = State) ->
+do_comapct_1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} = State) ->
     ReadHandler = StorageInfo#backend_info.read_handler,
 
     case leo_object_storage_haystack:compact_get(ReadHandler, CompactParams#compact_params.next_offset) of
@@ -874,13 +879,13 @@ do_compact1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} = 
                             Cause =:= ?ERROR_DATA_SIZE_DID_NOT_MATCH ->
             %% retry until eof
             OldOffset = CompactParams#compact_params.next_offset,
-            do_compact1(ok, Metadata,
-                        CompactParams#compact_params{next_offset = OldOffset + 1},
-                        State);
+            do_comapct_1(ok, Metadata,
+                         CompactParams#compact_params{next_offset = OldOffset + 1},
+                         State);
         Error ->
             Error
     end;
-do_compact1(Error,_,_,_) ->
+do_comapct_1(Error,_,_,_) ->
     Error.
 
 

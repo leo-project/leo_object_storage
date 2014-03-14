@@ -25,38 +25,20 @@
 -define(APP_NAME, 'leo_object_storage').
 
 %% Default Values
--define(DEF_METADATA_DB,               'bitcask').
--define(DEF_OBJECT_STORAGE_SUB_DIR,    "object/").
--define(DEF_METADATA_STORAGE_SUB_DIR,  "metadata/").
--define(DEF_STATE_SUB_DIR,             "state/").
+-define(DEF_METADATA_DB,              'bitcask').
+-define(DEF_OBJECT_STORAGE_SUB_DIR,   "object/").
+-define(DEF_METADATA_STORAGE_SUB_DIR, "metadata/").
+-define(DEF_STATE_SUB_DIR,            "state/").
 
 %% ETS-Table
--define(ETS_CONTAINERS_TABLE,  'leo_object_storage_containers').
--define(ETS_INFO_TABLE,        'leo_object_storage_info').
+-define(ETS_CONTAINERS_TABLE, 'leo_object_storage_containers').
+-define(ETS_INFO_TABLE,       'leo_object_storage_info').
 
 %% regarding compaction
 -define(ENV_COMPACTION_STATUS, 'compaction_status').
 -define(STATE_COMPACTING,      'compacting').
 -define(STATE_ACTIVE,          'active').
 -type(storage_status() :: ?STATE_COMPACTING | ?STATE_ACTIVE).
-
-%% AVS version strings
--define(AVS_HEADER_VSN_2_2,  <<"LeoFS AVS-2.2">>). %% leofs v0.14 - v1.0.0-pre1
--define(AVS_HEADER_VSN_2_4,  <<"LeoFS AVS-2.4">>). %% leofs v1.0.0-pre1 - current ver
--define(AVS_HEADER_VSN_TOBE, ?AVS_HEADER_VSN_2_4).
-%% Max Data Block Size to be larger than leo_gateway's large object settings
--define(MAX_DATABLOCK_SIZE, 1024 * 1024 * 10).
-
-%% @doc Generate an key for backend db
--define(gen_backend_key(_VSN, _AddrId, _Key),
-        begin
-            case _VSN of
-                ?AVS_HEADER_VSN_2_2 ->
-                    term_to_binary({_AddrId, _Key});
-                ?AVS_HEADER_VSN_2_4 ->
-                    _Key
-            end
-        end).
 
 %% Error Constants
 %%
@@ -74,6 +56,65 @@
 -type(del_flag() :: ?DEL_TRUE | ?DEL_FALSE).
 -type(type_of_method() :: get | put | delete | head).
 
+
+%%--------------------------------------------------------------------
+%% AVS-Related
+%%--------------------------------------------------------------------
+%% AVS version strings
+-define(AVS_HEADER_VSN_2_2,  <<"LeoFS AVS-2.2">>). %% leofs v0.14 - v1.0.0-pre1
+-define(AVS_HEADER_VSN_2_4,  <<"LeoFS AVS-2.4">>). %% leofs v1.0.0-pre1 - current ver
+-define(AVS_HEADER_VSN_TOBE, ?AVS_HEADER_VSN_2_4).
+
+%% Max Data Block Size to be larger than leo_gateway's large object settings
+-define(MAX_DATABLOCK_SIZE, 1024 * 1024 * 10).
+
+%% @doc Generate an key for backend db
+-define(gen_backend_key(_VSN, _AddrId, _Key),
+        begin
+            case _VSN of
+                ?AVS_HEADER_VSN_2_2 ->
+                    term_to_binary({_AddrId, _Key});
+                ?AVS_HEADER_VSN_2_4 ->
+                    _Key
+            end
+        end).
+
+-define(AVS_HEADER_VSN,     <<?AVS_HEADER_VSN_TOBE/binary,13,10>>).
+-define(AVS_PART_OF_HEADER, <<"CHKSUM:128,KSIZE:16,BLEN_MSIZE:32,DSIZE:32,OFFSET:64,ADDRID:128,CLOCK:64,TIMESTAMP:42,DEL:1,BUF:437,CHUNK_SIZE:32,CHUNK_NUM:24,CHUNK_INDEX:24",13,10>>).
+-define(AVS_PART_OF_BODY,   <<"KEY/binary,DATA/binary",13,10>>).
+-define(AVS_PART_OF_FOOTER, <<"PADDING:64",13,10>>).
+-define(AVS_SUPER_BLOCK,    <<?AVS_HEADER_VSN/binary,
+                              ?AVS_PART_OF_HEADER/binary,
+                              ?AVS_PART_OF_BODY/binary,
+                              ?AVS_PART_OF_FOOTER/binary>>).
+%% ------------------------ %%
+-define(BLEN_CHKSUM,       128). %% chechsum (MD5)
+-define(BLEN_KSIZE,         16). %% key size
+-define(BLEN_MSIZE,         32). %% custome-metadata size
+-define(BLEN_DSIZE,         32). %% file size
+-define(BLEN_OFFSET,        64). %% offset
+-define(BLEN_ADDRID,       128). %% ring-address id
+-define(BLEN_CLOCK,         64). %% clock
+-define(BLEN_TS_Y,          12). %% timestamp-year
+-define(BLEN_TS_M,           6). %% timestamp-month
+-define(BLEN_TS_D,           6). %% timestamp-day
+-define(BLEN_TS_H,           6). %% timestamp-hour
+-define(BLEN_TS_N,           6). %% timestamp-min
+-define(BLEN_TS_S,           6). %% timestamp-sec
+-define(BLEN_DEL,            1). %% delete flag
+-define(BLEN_CHUNK_SIZE,    32). %% * chunked data size    (for large-object)
+-define(BLEN_CHUNK_NUM,     24). %% * # of chunked objects (for large-object)
+-define(BLEN_CHUNK_INDEX,   24). %% * chunked object index (for large-object)
+%% ----------------------------- %%
+-define(BLEN_BUF,          437). %% buffer
+%% ----------------------------- %%
+-define(BLEN_HEADER,      1024). %% 128 Byte
+-define(LEN_PADDING,         8). %% footer
+
+
+%%--------------------------------------------------------------------
+%% Records
+%%--------------------------------------------------------------------
 -record(backend_info, {
           backend             :: atom(),
           avs_version_bin_cur :: binary(),
@@ -125,6 +166,7 @@
 
           cluster_id = []     :: string(),      %% cluster-id for the mdc-replication
           num_of_replicas = 0 :: pos_integer(), %% # of replicas for the mdc-replication
+          ver = 0             :: pos_integer(), %% version number
 
           del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
          }).
@@ -176,6 +218,7 @@
 
           cluster_id = []     :: string(),      %% cluster-id for the mdc-replication
           num_of_replicas = 0 :: pos_integer(), %% # of replicas for the mdc-replication
+          ver = 0             :: pos_integer(), %% version number
 
           del = ?DEL_FALSE    :: del_flag()     %% delete flag
          }).

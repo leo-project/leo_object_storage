@@ -338,8 +338,6 @@ compact_test_() ->
                              end, {0, 0}, Res0),
              ?assertEqual(9, SumTotal0),
              ?assertEqual(8, SumActive0),
-
-
              ?assertEqual({error,badstate}, leo_compaction_manager_fsm:suspend()),
              ?assertEqual({error,badstate}, leo_compaction_manager_fsm:resume()),
 

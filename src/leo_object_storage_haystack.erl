@@ -49,43 +49,6 @@
 -define(ERR_TYPE_TIMEOUT, timeout).
 
 
-%% ------------------------ %%
-%%       AVS-Related
-%% ------------------------ %%
--define(AVS_HEADER_VSN,     <<?AVS_HEADER_VSN_TOBE/binary,13,10>>).
--define(AVS_PART_OF_HEADER, <<"CHKSUM:128,KSIZE:16,BLEN_MSIZE:32,DSIZE:32,OFFSET:64,ADDRID:128,CLOCK:64,TIMESTAMP:42,DEL:1,BUF:437,CHUNK_SIZE:32,CHUNK_NUM:24,CHUNK_INDEX:24",13,10>>).
--define(AVS_PART_OF_BODY,   <<"KEY/binary,DATA/binary",13,10>>).
--define(AVS_PART_OF_FOOTER, <<"PADDING:64",13,10>>).
--define(AVS_SUPER_BLOCK,    <<?AVS_HEADER_VSN/binary,
-                              ?AVS_PART_OF_HEADER/binary,
-                              ?AVS_PART_OF_BODY/binary,
-                              ?AVS_PART_OF_FOOTER/binary>>).
-%% ------------------------ %%
--define(BLEN_CHKSUM,       128). %% chechsum (MD5)
--define(BLEN_KSIZE,         16). %% key size
--define(BLEN_MSIZE,         32). %% custome-metadata size
--define(BLEN_DSIZE,         32). %% file size
--define(BLEN_OFFSET,        64). %% offset
--define(BLEN_ADDRID,       128). %% ring-address id
--define(BLEN_CLOCK,         64). %% clock
--define(BLEN_TS_Y,          12). %% timestamp-year
--define(BLEN_TS_M,           6). %% timestamp-month
--define(BLEN_TS_D,           6). %% timestamp-day
--define(BLEN_TS_H,           6). %% timestamp-hour
--define(BLEN_TS_N,           6). %% timestamp-min
--define(BLEN_TS_S,           6). %% timestamp-sec
--define(BLEN_DEL,            1). %% delete flag
--define(BLEN_CHUNK_SIZE,    32). %% * chunked data size    (for large-object)
--define(BLEN_CHUNK_NUM,     24). %% * # of chunked objects (for large-object)
--define(BLEN_CHUNK_INDEX,   24). %% * chunked object index (for large-object)
-%% ----------------------------- %%
--define(BLEN_BUF,          437). %% buffer
-%% ----------------------------- %%
--define(BLEN_HEADER,      1024). %% 128 Byte
--define(LEN_PADDING,         8). %% footer
-%% ----------------------------- %%
-
-
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
@@ -139,7 +102,7 @@ close(WriteHandler, ReadHandler) ->
 -spec(put(atom(), #backend_info{}, #?OBJECT{}) ->
              {ok, integer()} | {error, any()}).
 put(MetaDBId, StorageInfo, Object) ->
-    put_fun0(MetaDBId, StorageInfo, Object).
+    put_fun_1(MetaDBId, StorageInfo, Object).
 
 
 %% @doc Retrieve an object and a metadata from the object-storage
@@ -158,7 +121,7 @@ get(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck) ->
 -spec(delete(atom(), #backend_info{}, #?OBJECT{}) ->
              ok | {error, any()}).
 delete(MetaDBId, StorageInfo, Object) ->
-    case put_fun0(MetaDBId, StorageInfo, Object) of
+    case put_fun_1(MetaDBId, StorageInfo, Object) of
         {ok, _Checksum} ->
             ok;
         {error, Cause} ->
@@ -173,7 +136,13 @@ delete(MetaDBId, StorageInfo, Object) ->
 head(MetaDBId, Key) ->
     case catch leo_backend_db_api:get(MetaDBId, Key) of
         {ok, MetadataBin} ->
-            {ok, MetadataBin};
+            case leo_object_storage_transformer:transform_metadata(
+                   binary_to_term(MetadataBin)) of
+                {error, Cause} ->
+                    {error, Cause};
+                Metadata->
+                    {ok, term_to_binary(Metadata)}
+            end;
         not_found = Cause ->
             Cause;
         {_, Cause} ->
@@ -195,24 +164,11 @@ fetch(MetaDBId, Key, Fun, MaxKeys) ->
 -spec(store(atom(), #backend_info{}, #?METADATA{}, binary()) ->
              ok | {error, any()}).
 store(MetaDBId, StorageInfo, Metadata, Bin) ->
-    Key = Metadata#?METADATA.key,
     Checksum = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
-
-    Object = #?OBJECT{addr_id    = Metadata#?METADATA.addr_id,
-                      key        = Key,
-                      ksize      = Metadata#?METADATA.ksize,
-                      dsize      = Metadata#?METADATA.dsize,
-                      data       = Bin,
-                      cindex     = Metadata#?METADATA.cindex,
-                      csize      = Metadata#?METADATA.csize,
-                      cnumber    = Metadata#?METADATA.cnumber,
-                      clock      = Metadata#?METADATA.clock,
-                      timestamp  = Metadata#?METADATA.timestamp,
-                      checksum   = Checksum,
-                      ring_hash  = Metadata#?METADATA.ring_hash,
-                      del        = Metadata#?METADATA.del},
-
-    case put_fun0(MetaDBId, StorageInfo, Object) of
+    Object_1 = leo_object_storage_transformer:metadata_to_object(Metadata),
+    Object_2 = Object_1#?OBJECT{data = Bin,
+                                checksum = Checksum},
+    case put_fun_1(MetaDBId, StorageInfo, Object_2) of
         {ok, _Checksum} ->
             ok;
         {error, Cause} ->
@@ -323,12 +279,14 @@ open_fun(FilePath, RetryTimes) ->
 get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck) ->
     case catch leo_backend_db_api:get(MetaDBId, Key) of
         {ok, MetadataBin} ->
-            Metadata = binary_to_term(MetadataBin),
-            case (Metadata#?METADATA.del == ?DEL_FALSE) of
-                true ->
-                    get_fun_1(MetaDBId, StorageInfo, Metadata,
+            Metadata_1 = binary_to_term(MetadataBin),
+            Metadata_2 = leo_object_storage_transformer:transform_metadata(Metadata_1),
+
+            case Metadata_2#?METADATA.del of
+                ?DEL_FALSE ->
+                    get_fun_1(MetaDBId, StorageInfo, Metadata_2,
                               StartPos, EndPos, IsStrictCheck);
-                false ->
+                _ ->
                     not_found
             end;
         Error ->
@@ -345,26 +303,20 @@ get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck) ->
 %%      should return an identified status to reply 416 on HTTP
 %%      for now dsize = -2 indicate invalid position
 %% @private
-get_fun_1(_MetaDBId,_StorageInfo,
-          #?METADATA{key      = Key,
-                     dsize    = DSize,
-                     addr_id  = AddrId} = Metadata,
+get_fun_1(_MetaDBId,_StorageInfo, #?METADATA{dsize = DSize} = Metadata,
           StartPos, EndPos,_IsStrictCheck) when StartPos >= DSize orelse
                                                 StartPos <  0 orelse
                                                 EndPos   >= DSize ->
-    {ok, Metadata, #?OBJECT{key     = Key,
-                            addr_id = AddrId,
-                            data    = <<>>,
-                            dsize   = -2}};
-get_fun_1(_MetaDBId, StorageInfo,
-          #?METADATA{key      = Key,
-                     ksize    = KSize,
-                     dsize    = DSize,
-                     msize    = _MSize,
-                     addr_id  = AddrId,
-                     offset   = Offset,
-                     cnumber  = 0,
-                     checksum = Checksum} = Metadata,
+    Object_1 = leo_object_storage_transformer:metadata_to_object(Metadata),
+    Object_2 = Object_1#?OBJECT{data    = <<>>,
+                                dsize   = -2},
+    {ok, Metadata, Object_2};
+
+get_fun_1(_MetaDBId, StorageInfo, #?METADATA{ksize    = KSize,
+                                             dsize    = DSize,
+                                             offset   = Offset,
+                                             cnumber  = 0,
+                                             checksum = Checksum} = Metadata,
           StartPos, EndPos, IsStrictCheck) ->
     %% Calculate actual start-point and end-point
     {StartPos_1, EndPos_1} = calc_pos(StartPos, EndPos, DSize),
@@ -373,6 +325,7 @@ get_fun_1(_MetaDBId, StorageInfo,
 
     %% Retrieve the object
     #backend_info{read_handler = ReadHandler} = StorageInfo,
+    Object_1 = leo_object_storage_transformer:metadata_to_object(Metadata),
 
     case file:pread(ReadHandler, Offset_1, DSize_1) of
         {ok, Bin} when IsStrictCheck == true,
@@ -380,18 +333,14 @@ get_fun_1(_MetaDBId, StorageInfo,
                        EndPos   == 0 ->
             case leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)) of
                 Checksum ->
-                    {ok, Metadata, #?OBJECT{key     = Key,
-                                            addr_id = AddrId,
-                                            data    = Bin,
-                                            dsize   = DSize_1}};
+                    {ok, Metadata, Object_1#?OBJECT{data  = Bin,
+                                                    dsize = DSize_1}};
                 _ ->
                     {error, invalid_object}
             end;
         {ok, Bin} ->
-            {ok, Metadata, #?OBJECT{key     = Key,
-                                    addr_id = AddrId,
-                                    data    = Bin,
-                                    dsize   = DSize_1}};
+            {ok, Metadata, Object_1#?OBJECT{data  = Bin,
+                                            dsize = DSize_1}};
         eof = Cause ->
             {error, Cause};
         {error, Cause} ->
@@ -402,12 +351,10 @@ get_fun_1(_MetaDBId, StorageInfo,
     end;
 
 %% For parent of chunked object
-get_fun_1(_MetaDBId,_StorageInfo, #?METADATA{key     = Key,
-                                             addr_id = AddrId} = Metadata, _,_,_) ->
-    {ok, Metadata, #?OBJECT{key     = Key,
-                            addr_id = AddrId,
-                            data    = <<>>,
-                            dsize   = 0}}.
+get_fun_1(_MetaDBId,_StorageInfo, #?METADATA{} = Metadata, _,_,_) ->
+    Object = leo_object_storage_transformer:metadata_to_object(Metadata),
+    {ok, Metadata, Object#?OBJECT{data  = <<>>,
+                                  dsize = 0}}.
 
 
 %% @doc Retrieve start-position and endposition of an object
@@ -455,9 +402,11 @@ create_needle(#?OBJECT{addr_id    = AddrId,
                        del        = Del}) ->
     {{Year,Month,Day},{Hour,Min,Second}} =
         calendar:gregorian_seconds_to_datetime(Timestamp),
-
     Padding = <<0:64>>,
-    DataBin = << Key/binary, Body/binary, MBin/binary, Padding/binary >>,
+    DataBin = case (MSize < 1) of
+                  true  -> << Key/binary, Body/binary, Padding/binary >>;
+                  false -> << Key/binary, Body/binary, MBin/binary, Padding/binary >>
+              end,
     Needle  = << Checksum:?BLEN_CHKSUM,
                  KSize:?BLEN_KSIZE,
                  DSize:?BLEN_DSIZE,
@@ -483,62 +432,37 @@ create_needle(#?OBJECT{addr_id    = AddrId,
 
 %% @doc Insert an object into the object-storage
 %% @private
-put_fun0(MetaDBId, StorageInfo, Object) ->
+put_fun_1(MetaDBId, StorageInfo, Object) ->
     #backend_info{write_handler = ObjectStorageWriteHandler} = StorageInfo,
 
     case file:position(ObjectStorageWriteHandler, eof) of
         {ok, Offset} ->
-            put_fun1(MetaDBId, StorageInfo, Object#?OBJECT{offset = Offset});
+            put_fun_2(MetaDBId, StorageInfo, Object#?OBJECT{offset = Offset});
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "put_fun0/1"},
+                                   [{module, ?MODULE_STRING}, {function, "put_fun_1/1"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
 
-put_fun1(MetaDBId, StorageInfo, #?OBJECT{addr_id    = AddrId,
-                                         key        = Key,
-                                         dsize      = DSize,
-                                         data       = Bin,
-                                         msize      = MSize,
-                                         meta       = _MBin,
-                                         csize      = CSize,
-                                         checksum   = Checksum,
-                                         cnumber    = CNum,
-                                         cindex     = CIndex,
-                                         offset     = Offset,
-                                         clock      = Clock,
-                                         timestamp  = Timestamp,
-                                         ring_hash  = RingHash,
-                                         del        = Del} = Object) ->
+put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key      = Key,
+                                          ksize    = KSize,
+                                          data     = Bin,
+                                          checksum = Checksum} = Object) ->
     KSize     = byte_size(Key),
     Checksum1 = case Checksum of
                     0 -> leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin));
                     _ -> Checksum
                 end,
-
     Needle = create_needle(Object#?OBJECT{ksize    = KSize,
                                           checksum = Checksum1}),
-    Meta = #?METADATA{key       = Key,
-                      addr_id   = AddrId,
-                      ksize     = KSize,
-                      msize     = MSize,
-                      dsize     = DSize,
-                      csize     = CSize,
-                      cnumber   = CNum,
-                      cindex    = CIndex,
-                      offset    = Offset,
-                      clock     = Clock,
-                      timestamp = Timestamp,
-                      checksum  = Checksum1,
-                      ring_hash = RingHash,
-                      del       = Del},
-    put_fun2(MetaDBId, StorageInfo, Needle, Meta).
+    Metadata = leo_object_storage_transformer:object_to_metadata(Object),
+    put_fun_3(MetaDBId, StorageInfo, Needle, Metadata).
 
-put_fun2(MetaDBId, StorageInfo, Needle, #?METADATA{key      = Key,
-                                                   addr_id  = AddrId,
-                                                   offset   = Offset,
-                                                   checksum = Checksum} = Meta) ->
+put_fun_3(MetaDBId, StorageInfo, Needle, #?METADATA{key      = Key,
+                                                    addr_id  = AddrId,
+                                                    offset   = Offset,
+                                                    checksum = Checksum} = Meta) ->
     #backend_info{write_handler       = WriteHandler,
                   avs_version_bin_cur = AVSVsnBin} = StorageInfo,
 
@@ -552,18 +476,18 @@ put_fun2(MetaDBId, StorageInfo, Needle, #?METADATA{key      = Key,
                     {ok, Checksum};
                 {'EXIT', Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING}, {function, "put_fun2/2"},
+                                           [{module, ?MODULE_STRING}, {function, "put_fun_3/2"},
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause};
                 {error, Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING}, {function, "put_fun2/2"},
+                                           [{module, ?MODULE_STRING}, {function, "put_fun_3/2"},
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause}
             end;
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "put_fun2/2"},
+                                   [{module, ?MODULE_STRING}, {function, "put_fun_3/2"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
@@ -575,46 +499,33 @@ put_fun2(MetaDBId, StorageInfo, Needle, #?METADATA{key      = Key,
 %% @private
 -spec(compact_put(pid(), #?METADATA{}, binary(), binary()) ->
              ok | {error, any()}).
-compact_put(WriteHandler, #?METADATA{addr_id   = AddrId,
-                                     ksize     = KSize,
-                                     msize     = MSize,
-                                     dsize     = DSize,
-                                     csize     = CSize,
-                                     cnumber   = CNum,
-                                     cindex    = CIndex,
-                                     clock     = Clock,
-                                     timestamp = Timestamp,
-                                     checksum  = Checksum,
-                                     del       = Del} = _Meta, KeyBin, BodyBin) ->
+compact_put(WriteHandler, Metadata, KeyBin, BodyBin) ->
     case file:position(WriteHandler, eof) of
         {ok, Offset} ->
-            Needle = create_needle(#?OBJECT{addr_id    = AddrId,
-                                            key        = KeyBin,
-                                            ksize      = KSize,
-                                            dsize      = DSize,
-                                            msize      = MSize,
-                                            csize      = CSize,
-                                            cnumber    = CNum,
-                                            cindex     = CIndex,
-                                            data       = BodyBin,
-                                            clock      = Clock,
-                                            offset     = Offset,
-                                            timestamp  = Timestamp,
-                                            checksum   = Checksum,
-                                            del        = Del}),
-
-            case file:pwrite(WriteHandler, Offset, Needle) of
+            Metadata_1 = leo_object_storage_transformer: transform_metadata(Metadata),
+            Object = leo_object_storage_transformer:metadata_to_object(Metadata_1),
+            Needle = create_needle(Object#?OBJECT{key  = KeyBin,
+                                                  data = BodyBin}),
+            case catch file:pwrite(WriteHandler, Offset, Needle) of
                 ok ->
                     {ok, Offset};
+                {'EXIT', Cause} ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING},
+                                            {function, "compact_put/4"},
+                                            {line, ?LINE}, {body, Cause}]),
+                    {error, Cause};
                 {error, Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING}, {function, "compact_put/4"},
+                                           [{module, ?MODULE_STRING},
+                                            {function, "compact_put/4"},
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause}
             end;
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "compact_put/4"},
+                                   [{module, ?MODULE_STRING},
+                                    {function, "compact_put/4"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
@@ -648,97 +559,100 @@ compact_get(ReadHandler, Offset) ->
             {error, Cause};
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "compact_get/2"},
+                                   [{module, ?MODULE_STRING},
+                                    {function, "compact_get/2"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
 
-
-%% @doc Retrieve a file from object-container when compacting.
 %% @private
 -spec(compact_get(pid(), integer(), integer(), binary()) ->
              ok | {error, any()}).
 compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
-    << Checksum:?BLEN_CHKSUM,
-       KSize:?BLEN_KSIZE,
-       DSize:?BLEN_DSIZE,
-       MSize:?BLEN_MSIZE,
-       OrgOffset:?BLEN_OFFSET,
-       AddrId:?BLEN_ADDRID,
-       NumOfClock:?BLEN_CLOCK,
-       Year:?BLEN_TS_Y,
-       Month:?BLEN_TS_M,
-       Day:?BLEN_TS_D,
-       Hour:?BLEN_TS_H,
-       Min:?BLEN_TS_N,
-       Second:?BLEN_TS_S,
-       Del:?BLEN_DEL,
-       CSize:?BLEN_CHUNK_SIZE,
-       CNum:?BLEN_CHUNK_NUM,
-       CIndex:?BLEN_CHUNK_INDEX,
-       _:?BLEN_BUF
-    >> = HeaderBin,
-
-    DSize4Read = case (CNum > 0) of
+    %% @TODO
+    Metadata = leo_object_storage_transformer:header_bin_to_metadata(HeaderBin),
+    DSize4Read = case (Metadata#?METADATA.cnumber > 0) of
                      true  -> 0;
-                     false -> DSize
+                     false -> Metadata#?METADATA.dsize
                  end,
-    RemainSize = KSize + DSize4Read + ?LEN_PADDING,
-    case RemainSize > (?MAX_DATABLOCK_SIZE) of
+    RemainSize = Metadata#?METADATA.ksize + DSize4Read + ?LEN_PADDING,
+
+    case (RemainSize > ?MAX_DATABLOCK_SIZE) of
         true ->
             Cause = ?ERROR_INVALID_DATA,
             error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "compact_get/4"},
-                                    {line, ?LINE}, {body, "Data size too large"}]),
+                                   [{module, ?MODULE_STRING},
+                                    {function, "compact_get/4"},
+                                    {line, ?LINE},
+                                    {body, "Data size too large"}]),
             {error, Cause};
         false ->
-            case file:pread(ReadHandler, Offset + HeaderSize, RemainSize) of
-                {ok, RemainBin} ->
-                    RemainLen = byte_size(RemainBin),
+            try
+                case file:pread(ReadHandler, Offset + HeaderSize, RemainSize) of
+                    {ok, RemainBin} ->
+                        case byte_size(RemainBin) of
+                            RemainSize ->
+                                compact_get_1(HeaderBin, Metadata,
+                                              DSize4Read, RemainBin,
+                                              Offset + HeaderSize + RemainSize);
+                            _ ->
+                                Cause = ?ERROR_DATA_SIZE_DID_NOT_MATCH,
+                                error_logger:error_msg("~p,~p,~p,~p~n",
+                                                       [{module, ?MODULE_STRING},
+                                                        {function, "compact_get/4"},
+                                                        {line, ?LINE},
+                                                        {body, Cause}]),
+                                {error, Cause}
+                        end;
 
-                    case RemainLen of
-                        RemainSize ->
-                            <<KeyValue:KSize/binary, BodyValue:DSize4Read/binary, _Footer/binary>> = RemainBin,
 
-                            case leo_hex:raw_binary_to_integer(crypto:hash(md5, BodyValue)) of
-                                Checksum ->
-                                    Timestamp = calendar:datetime_to_gregorian_seconds(
-                                                  {{Year, Month, Day}, {Hour, Min, Second}}),
-                                    Meta = #?METADATA{key       = KeyValue,
-                                                      addr_id   = AddrId,
-                                                      ksize     = KSize,
-                                                      msize     = MSize,
-                                                      dsize     = DSize,
-                                                      csize     = CSize,
-                                                      cnumber   = CNum,
-                                                      cindex    = CIndex,
-                                                      offset    = OrgOffset,
-                                                      clock     = NumOfClock,
-                                                      timestamp = Timestamp,
-                                                      checksum  = Checksum,
-                                                      del       = Del},
-                                    {ok, Meta, [HeaderBin, KeyValue, BodyValue,
-                                                Offset + HeaderSize + RemainSize]};
-                                _ ->
-                                    Cause = ?ERROR_INVALID_DATA,
-                                    error_logger:error_msg("~p,~p,~p,~p~n",
-                                                           [{module, ?MODULE_STRING}, {function, "compact_get/4"},
-                                                            {line, ?LINE}, {body, Cause}]),
-                                    {error, Cause}
-                            end;
-                        _ ->
-                            Cause = ?ERROR_DATA_SIZE_DID_NOT_MATCH,
-                            error_logger:error_msg("~p,~p,~p,~p~n",
-                                                   [{module, ?MODULE_STRING}, {function, "compact_get/4"},
-                                                    {line, ?LINE}, {body, Cause}]),
-                            {error, Cause}
-                    end;
-                eof = Cause ->
-                    {error, Cause};
-                {error, Cause} ->
-                    error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING}, {function, "compact_get/4"},
-                                            {line, ?LINE}, {body, Cause}]),
-                    {error, Cause}
+                    eof = Cause ->
+                        {error, Cause};
+                    {error, Cause} ->
+                        error_logger:error_msg("~p,~p,~p,~p~n",
+                                               [{module, ?MODULE_STRING},
+                                                {function, "compact_get/4"},
+                                                {line, ?LINE}, {body, Cause}]),
+                        {error, Cause}
+                end
+            catch
+                _:Reason ->
+                    {error, Reason}
             end
+    end.
+
+
+%% @private
+compact_get_1(HeaderBin, #?METADATA{ksize = KSize} = Metadata, DSize, Bin, TotalSize) ->
+    << KeyBin:KSize/binary,
+       BodyBin:DSize/binary,
+       _Footer/binary>> = Bin,
+    compact_get_2(HeaderBin, Metadata, KeyBin, BodyBin, <<>>, TotalSize).
+
+%% @TODO
+%% compact_get_1(_HeaderBin, #?METADATA{ksize = KSize,
+%%                                      msize = MSize} = _Metadata, DSize, Bin,_TotalSize) ->
+%%     << KeyBin:KSize/binary,
+%%        BodyBin:DSize/binary,
+%%        CMetaBin:MSize/binary,
+%%        _Footer/binary>> = Bin,
+%%     [KeyBin, BodyBin, CMetaBin].
+%%     %% compact_get_2(HeaderBin, Metadata, KeyBin, BodyBin, CMetaBin, TotalSize).
+
+%% @private
+compact_get_2(HeaderBin, Metadata, KeyBin, BodyBin, CMetaBin, TotalSize) ->
+    Checksum = Metadata#?METADATA.checksum,
+    Metadata_1 = leo_object_storage_transformer:cmeta_bin_into_metadata(
+                   CMetaBin, Metadata),
+    case leo_hex:raw_binary_to_integer(crypto:hash(md5, BodyBin)) of
+        Checksum ->
+            {ok, Metadata_1#?METADATA{key = KeyBin},
+             [HeaderBin, KeyBin, BodyBin, TotalSize]};
+        _Other ->
+            Cause = ?ERROR_INVALID_DATA,
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING},
+                                    {function, "compact_get_2/4"},
+                                    {line, ?LINE}, {body, Cause}]),
+            {error, Cause}
     end.
