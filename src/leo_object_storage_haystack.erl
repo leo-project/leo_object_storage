@@ -308,8 +308,8 @@ get_fun_1(_MetaDBId,_StorageInfo, #?METADATA{dsize = DSize} = Metadata,
                                                 StartPos <  0 orelse
                                                 EndPos   >= DSize ->
     Object_1 = leo_object_storage_transformer:metadata_to_object(Metadata),
-    Object_2 = Object_1#?OBJECT{data    = <<>>,
-                                dsize   = -2},
+    Object_2 = Object_1#?OBJECT{data  = <<>>,
+                                dsize = -2},
     {ok, Metadata, Object_2};
 
 get_fun_1(_MetaDBId, StorageInfo, #?METADATA{ksize    = KSize,
