@@ -446,17 +446,16 @@ put_fun_1(MetaDBId, StorageInfo, Object) ->
     end.
 
 put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key      = Key,
-                                          ksize    = KSize,
                                           data     = Bin,
                                           checksum = Checksum} = Object) ->
-    KSize     = byte_size(Key),
     Checksum1 = case Checksum of
                     0 -> leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin));
                     _ -> Checksum
                 end,
-    Needle = create_needle(Object#?OBJECT{ksize    = KSize,
-                                          checksum = Checksum1}),
-    Metadata = leo_object_storage_transformer:object_to_metadata(Object),
+    Object_1 = Object#?OBJECT{ksize    = byte_size(Key),
+                              checksum = Checksum1},
+    Needle = create_needle(Object_1),
+    Metadata = leo_object_storage_transformer:object_to_metadata(Object_1),
     put_fun_3(MetaDBId, StorageInfo, Needle, Metadata).
 
 put_fun_3(MetaDBId, StorageInfo, Needle, #?METADATA{key      = Key,
