@@ -308,8 +308,8 @@ get_fun_1(_MetaDBId,_StorageInfo, #?METADATA{dsize = DSize} = Metadata,
                                                 StartPos <  0 orelse
                                                 EndPos   >= DSize ->
     Object_1 = leo_object_storage_transformer:metadata_to_object(Metadata),
-    Object_2 = Object_1#?OBJECT{data    = <<>>,
-                                dsize   = -2},
+    Object_2 = Object_1#?OBJECT{data  = <<>>,
+                                dsize = -2},
     {ok, Metadata, Object_2};
 
 get_fun_1(_MetaDBId, StorageInfo, #?METADATA{ksize    = KSize,
@@ -646,17 +646,11 @@ compact_get_1(HeaderBin, #?METADATA{ksize = KSize,
 compact_get_1(HeaderBin, #?METADATA{ksize = KSize,
                                     msize = MSize
                                    } = Metadata, DSize, Bin, TotalSize) ->
-    case (KSize + MSize + DSize + ?LEN_PADDING) == byte_size(Bin) of
-        true ->
-            << KeyBin:KSize/binary,
-               BodyBin:DSize/binary,
-               CMetaBin:MSize/binary,
-               _Footer/binary>> = Bin,
-            compact_get_2(HeaderBin, Metadata, KeyBin, BodyBin, CMetaBin, TotalSize);
-        false ->
-            Cause = ?ERROR_DATA_SIZE_DID_NOT_MATCH,
-            {error, Cause}
-    end.
+    << KeyBin:KSize/binary,
+       BodyBin:DSize/binary,
+       CMetaBin:MSize/binary,
+       _Footer/binary>> = Bin,
+    compact_get_2(HeaderBin, Metadata, KeyBin, BodyBin, CMetaBin, TotalSize).
 
 %% @private
 compact_get_2(HeaderBin, Metadata, KeyBin, BodyBin, CMetaBin, TotalSize) ->
