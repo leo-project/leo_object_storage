@@ -70,8 +70,9 @@ new_([Path1, _]) ->
     [{specs,_},{active,Active0},{supervisors,_},{workers,Workers0}] = supervisor:count_children(Ref),
     ?assertEqual(DivCount0 + 2, Active0),  % +2 for compaction manager + backend_db_sup
     ?assertEqual(DivCount0 + 2, Workers0), % +2 for compaction manager + backend_db_sup
-    {ok, ?AVS_HEADER_VSN_TOBE} = leo_object_storage_server:get_avs_version_bin(leo_object_storage_api:get_object_storage_pid_first()),
-
+    {ok, ?AVS_HEADER_VSN_TOBE} =
+        leo_object_storage_server:get_avs_version_bin(
+          leo_object_storage_api:get_object_storage_pid_first()),
     application:stop(leo_backend_db),
     application:stop(bitcask),
     application:stop(leo_object_storage),
@@ -90,78 +91,78 @@ operate_([Path1, Path2]) ->
     AddrId = 0,
     Key = <<"air/on/g/string">>,
     Bin = <<"J.S.Bach">>,
-    Object = #object{method    = put,
-                     addr_id   = AddrId,
-                     key       = Key,
-                     ksize     = byte_size(Key),
-                     data      = Bin,
-                     dsize     = byte_size(Bin),
-                     checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
-                     timestamp = leo_date:now(),
-                     clock     = leo_date:clock()},
+    Object = #?OBJECT{method    = put,
+                      addr_id   = AddrId,
+                      key       = Key,
+                      ksize     = byte_size(Key),
+                      data      = Bin,
+                      dsize     = byte_size(Bin),
+                      checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
+                      timestamp = leo_date:now(),
+                      clock     = leo_date:clock()},
     {ok,_ETag} = leo_object_storage_api:put({AddrId, Key}, Object),
 
     %% 2. Get
     {ok, Meta1, Obj0} = leo_object_storage_api:get({AddrId, Key}),
-    ?assertEqual(AddrId, Meta1#metadata.addr_id),
-    ?assertEqual(Key,    Meta1#metadata.key),
-    ?assertEqual(0,      Meta1#metadata.del),
-    ?assertEqual(AddrId,         Obj0#object.addr_id),
-    ?assertEqual(Key,            Obj0#object.key),
-    ?assertEqual(Bin,            Obj0#object.data),
-    ?assertEqual(byte_size(Bin), Obj0#object.dsize),
-    ?assertEqual(0,              Obj0#object.del),
+    ?assertEqual(AddrId, Meta1#?METADATA.addr_id),
+    ?assertEqual(Key,    Meta1#?METADATA.key),
+    ?assertEqual(0,      Meta1#?METADATA.del),
+    ?assertEqual(AddrId,         Obj0#?OBJECT.addr_id),
+    ?assertEqual(Key,            Obj0#?OBJECT.key),
+    ?assertEqual(Bin,            Obj0#?OBJECT.data),
+    ?assertEqual(byte_size(Bin), Obj0#?OBJECT.dsize),
+    ?assertEqual(0,              Obj0#?OBJECT.del),
 
     %% 3. Store (for Copy)
     ok = leo_object_storage_api:store(Meta1, Bin),
     {ok, Meta1_1, _} = leo_object_storage_api:get({AddrId, Key}),
-    ?assertEqual(AddrId, Meta1_1#metadata.addr_id),
-    ?assertEqual(Key,    Meta1_1#metadata.key),
-    ?assertEqual(0,      Meta1_1#metadata.del),
+    ?assertEqual(AddrId, Meta1_1#?METADATA.addr_id),
+    ?assertEqual(Key,    Meta1_1#?METADATA.key),
+    ?assertEqual(0,      Meta1_1#?METADATA.del),
 
 
     %% 4. Get - for range query via HTTP
     %% >> Case of regular.
     {ok, _Meta1_1, Obj0_1} = leo_object_storage_api:get({AddrId, Key}, 4, 7),
-    ?assertEqual(4, byte_size(Obj0_1#object.data)),
-    ?assertEqual(<<"Bach">>, Obj0_1#object.data),
+    ?assertEqual(4, byte_size(Obj0_1#?OBJECT.data)),
+    ?assertEqual(<<"Bach">>, Obj0_1#?OBJECT.data),
 
     %% >> Case of "end-position over data-size".
     {ok, _Meta1_2, Obj0_2} = leo_object_storage_api:get({AddrId, Key}, 5, 9),
-    ?assertEqual(<<>>, Obj0_2#object.data),
-    ?assertEqual(-2, Obj0_2#object.dsize),
+    ?assertEqual(<<>>, Obj0_2#?OBJECT.data),
+    ?assertEqual(-2, Obj0_2#?OBJECT.dsize),
 
     %% >> Case of "end-position is zero". This means "end-position is data-size".
     {ok, _Meta1_3, Obj0_3} = leo_object_storage_api:get({AddrId, Key}, 2, 0),
-    ?assertEqual(<<"S.Bach">>, Obj0_3#object.data),
+    ?assertEqual(<<"S.Bach">>, Obj0_3#?OBJECT.data),
 
     %% >> Case of "start-position over data-size"
     {ok, _Meta1_4, Obj0_4} = leo_object_storage_api:get({AddrId, Key}, 8, 0),
-    ?assertEqual(<<>>, Obj0_4#object.data),
-    ?assertEqual(-2, Obj0_4#object.dsize),
+    ?assertEqual(<<>>, Obj0_4#?OBJECT.data),
+    ?assertEqual(-2, Obj0_4#?OBJECT.dsize),
 
     %% >> Case of "end-position is negative". This means retrieving from end
     {ok, _Meta1_5, Obj0_5} = leo_object_storage_api:get({AddrId, Key}, 0, -2),
-    ?assertEqual(<<"ch">>, Obj0_5#object.data),
+    ?assertEqual(<<"ch">>, Obj0_5#?OBJECT.data),
 
     %% 5. Head
     {ok, Res2} = leo_object_storage_api:head({AddrId, Key}),
     Meta2 = binary_to_term(Res2),
-    ?assertEqual(AddrId, Meta2#metadata.addr_id),
-    ?assertEqual(Key,    Meta2#metadata.key),
-    ?assertEqual(0,      Meta2#metadata.del),
+    ?assertEqual(AddrId, Meta2#?METADATA.addr_id),
+    ?assertEqual(Key,    Meta2#?METADATA.key),
+    ?assertEqual(0,      Meta2#?METADATA.del),
 
     %% 6. Delete
-    Object2 = #object{method    = delete,
-                      key       = Key,
-                      ksize     = byte_size(Key),
-                      addr_id   = AddrId,
-                      data      = <<>>,
-                      dsize     = 0,
-                      checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
-                      timestamp = leo_date:now(),
-                      clock     = leo_date:clock(),
-                      del       = 1},
+    Object2 = #?OBJECT{method    = delete,
+                       key       = Key,
+                       ksize     = byte_size(Key),
+                       addr_id   = AddrId,
+                       data      = <<>>,
+                       dsize     = 0,
+                       checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
+                       timestamp = leo_date:now(),
+                       clock     = leo_date:clock(),
+                       del       = 1},
     ok = leo_object_storage_api:delete({AddrId, Key}, Object2),
 
     %% 7. Get
@@ -171,9 +172,9 @@ operate_([Path1, Path2]) ->
     %% 8. Head
     {ok, Res5} = leo_object_storage_api:head({AddrId, Key}),
     Meta5 = binary_to_term(Res5),
-    ?assertEqual(AddrId, Meta5#metadata.addr_id),
-    ?assertEqual(Key,    Meta5#metadata.key),
-    ?assertEqual(1,      Meta5#metadata.del),
+    ?assertEqual(AddrId, Meta5#?METADATA.addr_id),
+    ?assertEqual(Key,    Meta5#?METADATA.key),
+    ?assertEqual(1,      Meta5#?METADATA.del),
 
 
     application:stop(leo_backend_db),
@@ -190,16 +191,16 @@ fetch_by_addr_id_([Path1, Path2]) ->
         ok = put_test_data(255,  <<"air/on/g/string/2">>, <<"JSB2">>),
         ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3">>),
         ok = put_test_data(1023, <<"air/on/g/string/4">>, <<"JSB4">>),
-    
+
         FromAddrId = 0,
         ToAddrId   = 255,
-    
+
         Fun = fun(_K, V, Acc) ->
-                      %Key = binary_to_term(K),
-                      %AddrId = leo_object_storage_api:head(Key),
+                      %% Key = binary_to_term(K),
+                      %% AddrId = leo_object_storage_api:head(Key),
                       Metadata      = binary_to_term(V),
-                      AddrId = Metadata#metadata.addr_id,
-    
+                      AddrId = Metadata#?METADATA.addr_id,
+
                       case (AddrId >= FromAddrId andalso
                             AddrId =< ToAddrId) of
                           true  ->
@@ -226,10 +227,10 @@ fetch_by_key_([Path1, Path2]) ->
         ok = put_test_data(255,  <<"air/on/g/string/2">>, <<"JSB2">>),
         ok = put_test_data(511,  <<"air/on/g/string/3">>, <<"JSB3">>),
         ok = put_test_data(1023, <<"air/on/g/string/4">>, <<"JSB4">>),
-    
+
         Fun = fun(K, V, Acc) ->
                       Metadata      = binary_to_term(V),
-    
+
                       case (K == <<"air/on/g/string/0">> orelse
                             K == <<"air/on/g/string/2">> orelse
                             K == <<"air/on/g/string/4">>) of
@@ -269,29 +270,32 @@ stats_test_() ->
              ok = put_test_data(2047, <<"air/on/g/string/6">>, <<"JSB6">>),
              ok = put_test_data(4095, <<"air/on/g/string/7">>, <<"JSB7">>),
              ok = put_test_data(4095, <<"air/on/g/string/7">>, <<"JSB8">>),
-         
+
              {ok, Res} = leo_object_storage_api:stats(),
              ?assertEqual(8, length(Res)),
-         
+
              catch leo_object_storage_sup:stop(),
              application:stop(leo_backend_db),
              application:stop(bitcask),
              application:stop(leo_object_storage),
              io:format(user, "*** [test]stopped ~n", []),
-         
+
              %% relaunch and validate stored datas
              ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
              io:format(user, "*** [test]restarted ~n", []),
              {ok, Res1} = leo_object_storage_api:stats(),
              ?assertEqual(8, length(Res)),
-             {SumTotal0, SumActive0} = lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
-                                                                           total_num  = Total,
-                                                                           active_num = Active}}, {SumTotal, SumActive}) ->
-                                                           {SumTotal + Total, SumActive + Active}
-                                                   end, {0, 0}, Res1),
+             {SumTotal0, SumActive0} =
+                 lists:foldl(
+                   fun({ok, #storage_stats{file_path  = _ObjPath,
+                                           total_num  = Total,
+                                           active_num = Active}},
+                       {SumTotal, SumActive}) ->
+                           {SumTotal + Total, SumActive + Active}
+                   end, {0, 0}, Res1),
              ?assertEqual(9, SumTotal0),
              ?assertEqual(8, SumActive0),
-         
+
              catch leo_object_storage_sup:stop(),
              io:format(user, "*** [test]stopped2 ~n", []),
              application:stop(leo_backend_db),
@@ -334,8 +338,6 @@ compact_test_() ->
                              end, {0, 0}, Res0),
              ?assertEqual(9, SumTotal0),
              ?assertEqual(8, SumActive0),
-
-
              ?assertEqual({error,badstate}, leo_compaction_manager_fsm:suspend()),
              ?assertEqual({error,badstate}, leo_compaction_manager_fsm:resume()),
 
@@ -366,16 +368,16 @@ compact_test_() ->
                                                 }}, leo_compaction_manager_fsm:status()),
              AddrId = 4095,
              Key    = <<"air/on/g/string/7">>,
-             Object = #object{method    = delete,
-                              key       = Key,
-                              ksize     = byte_size(Key),
-                              addr_id   = AddrId,
-                              data      = <<>>,
-                              dsize     = 0,
-                              checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
-                              timestamp = leo_date:now(),
-                              clock     = leo_date:clock(),
-                              del       = 1},
+             Object = #?OBJECT{method    = delete,
+                               key       = Key,
+                               ksize     = byte_size(Key),
+                               addr_id   = AddrId,
+                               data      = <<>>,
+                               dsize     = 0,
+                               checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
+                               timestamp = leo_date:now(),
+                               clock     = leo_date:clock(),
+                               del       = 1},
              ok = leo_object_storage_api:delete({AddrId, Key}, Object),
 
              %% inspect for compaction
@@ -468,25 +470,25 @@ compact_test_() ->
              {ok, Meta0, Obj0} = get_test_data(TestAddrId0, TestKey0),
              {ok, Meta1, Obj1} = get_test_data(TestAddrId1, TestKey1),
 
-             ?assertEqual(TestAddrId0,  Meta0#metadata.addr_id),
-             ?assertEqual(TestKey0,     Meta0#metadata.key),
-             ?assertEqual(6,            Meta0#metadata.dsize),
-             ?assertEqual(0,            Meta0#metadata.del),
-             ?assertEqual(TestAddrId0,  Obj0#object.addr_id),
-             ?assertEqual(TestKey0,     Obj0#object.key),
-             ?assertEqual(6,            Obj0#object.dsize),
-             ?assertEqual(<<"JSB0-1">>, Obj0#object.data),
-             ?assertEqual(0,            Obj0#object.del),
+             ?assertEqual(TestAddrId0,  Meta0#?METADATA.addr_id),
+             ?assertEqual(TestKey0,     Meta0#?METADATA.key),
+             ?assertEqual(6,            Meta0#?METADATA.dsize),
+             ?assertEqual(0,            Meta0#?METADATA.del),
+             ?assertEqual(TestAddrId0,  Obj0#?OBJECT.addr_id),
+             ?assertEqual(TestKey0,     Obj0#?OBJECT.key),
+             ?assertEqual(6,            Obj0#?OBJECT.dsize),
+             ?assertEqual(<<"JSB0-1">>, Obj0#?OBJECT.data),
+             ?assertEqual(0,            Obj0#?OBJECT.del),
 
-             ?assertEqual(TestAddrId1,  Meta1#metadata.addr_id),
-             ?assertEqual(TestKey1,     Meta1#metadata.key),
-             ?assertEqual(6,            Meta1#metadata.dsize),
-             ?assertEqual(0,            Meta1#metadata.del),
-             ?assertEqual(TestAddrId1,  Obj1#object.addr_id),
-             ?assertEqual(TestKey1,     Obj1#object.key),
-             ?assertEqual(6,            Obj1#object.dsize),
-             ?assertEqual(<<"JSB3-1">>, Obj1#object.data),
-             ?assertEqual(0,            Obj1#object.del),
+             ?assertEqual(TestAddrId1,  Meta1#?METADATA.addr_id),
+             ?assertEqual(TestKey1,     Meta1#?METADATA.key),
+             ?assertEqual(6,            Meta1#?METADATA.dsize),
+             ?assertEqual(0,            Meta1#?METADATA.del),
+             ?assertEqual(TestAddrId1,  Obj1#?OBJECT.addr_id),
+             ?assertEqual(TestKey1,     Obj1#?OBJECT.key),
+             ?assertEqual(6,            Obj1#?OBJECT.dsize),
+             ?assertEqual(<<"JSB3-1">>, Obj1#?OBJECT.data),
+             ?assertEqual(0,            Obj1#?OBJECT.del),
 
 
              ok = leo_object_storage_sup:stop(),
@@ -507,16 +509,16 @@ compact_test_() ->
 %% INNER FUNCTIONS
 %%--------------------------------------------------------------------
 put_test_data(AddrId, Key, Bin) ->
-    Object = #object{method    = put,
-                     addr_id   = AddrId,
-                     key       = Key,
-                     ksize     = byte_size(Key),
-                     data      = Bin,
-                     dsize     = byte_size(Bin),
-                     checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
-                     timestamp = leo_date:now(),
-                     clock     = leo_date:clock()
-                    },
+    Object = #?OBJECT{method    = put,
+                      addr_id   = AddrId,
+                      key       = Key,
+                      ksize     = byte_size(Key),
+                      data      = Bin,
+                      dsize     = byte_size(Bin),
+                      checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
+                      timestamp = leo_date:now(),
+                      clock     = leo_date:clock()
+                     },
     {ok, _Checksum} = leo_object_storage_api:put({AddrId, Key}, Object),
     ok.
 

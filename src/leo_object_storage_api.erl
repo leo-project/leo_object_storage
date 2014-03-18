@@ -68,7 +68,7 @@ start(ObjectStorageInfo) ->
 %% @doc Insert an object into the object-storage
 %% @param Key = {$VNODE_ID, $OBJ_KEY}
 %%
--spec(put(tuple(), #object{}) ->
+-spec(put(tuple(), #?OBJECT{}) ->
              {ok, integer()} | {error, any()}).
 put(Key, Object) ->
     do_request(put, [Key, Object]).
@@ -82,14 +82,14 @@ get(Key) ->
     get(Key, 0, 0).
 
 -spec(get(tuple(), integer(), integer()) ->
-             {ok, #metadata{}, #object{}} | not_found | {error, any()}).
+             {ok, #?METADATA{}, #?OBJECT{}} | not_found | {error, any()}).
 get(Key, StartPos, EndPos) ->
     do_request(get, [Key, StartPos, EndPos]).
 
 
 %% @doc Remove an object from the object-storage
 %%
--spec(delete(tuple(), #object{}) ->
+-spec(delete(tuple(), #?OBJECT{}) ->
              ok | {error, any()}).
 delete(Key, Object) ->
     do_request(delete, [Key, Object]).
@@ -165,7 +165,7 @@ fetch_by_key(Key, Fun, MaxKeys) ->
 
 %% @doc Store metadata and data
 %%
--spec(store(#metadata{}, binary()) ->
+-spec(store(#?METADATA{}, binary()) ->
              ok | {error, any()}).
 store(Metadata, Bin) ->
     do_request(store, [Metadata, Bin]).
@@ -275,8 +275,8 @@ do_request(get, [{AddrId, Key}, StartPos, EndPos]) ->
     KeyBin = term_to_binary({AddrId, Key}),
     ?SERVER_MODULE:get(get_object_storage_pid(KeyBin), {AddrId, Key}, StartPos, EndPos);
 do_request(store, [Metadata, Bin]) ->
-    #metadata{addr_id = AddrId,
-              key     = Key} = Metadata,
+    #?METADATA{addr_id = AddrId,
+               key     = Key} = Metadata,
     Id = get_object_storage_pid(term_to_binary({AddrId, Key})),
     case get_status_by_id(Id) of
         ?STATE_ACTIVE ->

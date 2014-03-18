@@ -68,11 +68,11 @@ objpool(Method) ->
     N = erlang:get("K"),
     Key = lists:append(["key_", integer_to_list(N)]),
     Bin = crypto:rand_bytes(1024),
-    leo_object_storage_pool:new(#object{method   = Method,
-                                        addr_id  = 0,
-                                        key      = Key,
-                                        data     = Bin,
-                                        dsize    = byte_size(Bin)}).
+    leo_object_storage_pool:new(#?OBJECT{method   = Method,
+                                         addr_id  = 0,
+                                         key      = Key,
+                                         data     = Bin,
+                                         dsize    = byte_size(Bin)}).
 
 %% @doc Property TEST
 %%
