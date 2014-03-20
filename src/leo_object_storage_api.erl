@@ -37,6 +37,8 @@
          stats/0
         ]).
 
+-export([head_with_calc_md5/2]).
+
 -export([get_object_storage_pid/1]).
 -export([get_object_storage_pid_first/0]).
 
@@ -101,6 +103,14 @@ delete(Key, Object) ->
              {ok, metadata} | {error, any()}).
 head(Key) ->
     do_request(head, [Key]).
+
+%% @doc Retrieve a metada/data from backend_db/object-storage
+%%      AND calc MD5 based on the body data
+%%
+-spec(head_with_calc_md5(tuple(), any()) ->
+             {ok, metadata, any()} | {error, any()}).
+head_with_calc_md5(Key, MD5Context) ->
+    do_request(head_with_calc_md5, [Key, MD5Context]).
 
 
 %% @doc Fetch objects by ring-address-id
@@ -306,4 +316,7 @@ do_request(delete, [Key, Object]) ->
     end;
 do_request(head, [{AddrId, Key}]) ->
     KeyBin = term_to_binary({AddrId, Key}),
-    ?SERVER_MODULE:head(get_object_storage_pid(KeyBin), {AddrId, Key}).
+    ?SERVER_MODULE:head(get_object_storage_pid(KeyBin), {AddrId, Key});
+do_request(head_with_calc_md5, [{AddrId, Key}, MD5Context]) ->
+    KeyBin = term_to_binary({AddrId, Key}),
+    ?SERVER_MODULE:head_with_calc_md5(get_object_storage_pid(KeyBin), {AddrId, Key}, MD5Context).

@@ -35,6 +35,8 @@
 -export([open/1, close/2,
          put/3, get/3, get/6, delete/3, head/2, fetch/4, store/4]).
 
+-export([head_with_calc_md5/4]).
+
 -export([calc_obj_size/1,
          calc_obj_size/2,
          compact_put/4,
@@ -149,6 +151,21 @@ head(MetaDBId, Key) ->
             {error, Cause}
     end.
 
+%% @doc Retrieve a metada/data from backend_db/object-storage
+%%      AND calc MD5 based on the body data
+%%
+-spec(head_with_calc_md5(atom(), #backend_info{}, binary(), any()) ->
+             {ok, #?METADATA{}} | not_found | {error, any()}).
+head_with_calc_md5(MetaDBId, StorageInfo, Key, MD5Context) ->
+    case get_fun(MetaDBId, StorageInfo, Key, 0, 0, false) of
+        {ok, #?METADATA{cnumber = 0} = Meta, #?OBJECT{data = Bin}} ->
+            % calc MD5
+            {ok, Meta, crypto:hash_update(MD5Context, Bin)};
+        {ok, #?METADATA{cnumber = _N} = Meta, _Object} ->
+            % Not calc due to existing some grand childs
+            {ok, Meta, MD5Context};
+        Other -> Other
+    end.
 
 %% @doc Fetch objects from the object-storage
 %%

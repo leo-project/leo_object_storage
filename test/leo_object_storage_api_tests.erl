@@ -113,6 +113,14 @@ operate_([Path1, Path2]) ->
     ?assertEqual(byte_size(Bin), Obj0#?OBJECT.dsize),
     ?assertEqual(0,              Obj0#?OBJECT.del),
 
+    %% 2-1. Head with calculating MD5
+    ExpectedMD5 = crypto:hash(md5, Bin),
+    Context = crypto:hash_init(md5),
+    {ok, MetaMD5, Context2} = leo_object_storage_api:head_with_calc_md5({AddrId, Key}, Context),
+    ?assertEqual(ExpectedMD5, crypto:hash_final(Context2)),
+    ?assertEqual(AddrId, MetaMD5#?METADATA.addr_id),
+    ?assertEqual(Key,    MetaMD5#?METADATA.key),
+
     %% 3. Store (for Copy)
     ok = leo_object_storage_api:store(Meta1, Bin),
     {ok, Meta1_1, _} = leo_object_storage_api:get({AddrId, Key}),

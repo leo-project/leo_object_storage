@@ -38,6 +38,7 @@
 -export([put/2, get/4, delete/2, head/2, fetch/4, store/3]).
 -export([compact/2, compact_suspend/1, compact_resume/1, stats/1]).
 -export([get_avs_version_bin/1]).
+-export([head_with_calc_md5/3]).
 
 -ifdef(TEST).
 -export([add_incorrect_data/2]).
@@ -150,6 +151,14 @@ delete(Id, Object) ->
              {ok, #?METADATA{}} | {error, any()}).
 head(Id, Key) ->
     gen_server:call(Id, {head, Key}, ?DEF_TIMEOUT).
+
+%% @doc Retrieve a metada/data from backend_db/object-storage 
+%%      AND calc MD5 based on the body data
+%%
+-spec(head_with_calc_md5(atom(), tuple(), any()) ->
+             {ok, #?METADATA{}, any()} | {error, any()}).
+head_with_calc_md5(Id, Key, MD5Context) ->
+    gen_server:call(Id, {head_with_calc_md5, Key, MD5Context}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve objects from the object-storage by Key and Function
@@ -372,6 +381,18 @@ handle_call({head, {AddrId, Key}}, _From, #state{meta_db_id = MetaDBId, object_s
                                   AddrId, Key),
     Reply = leo_object_storage_haystack:head(MetaDBId, BackendKey),
     {reply, Reply, State};
+
+handle_call({head_with_calc_md5, {AddrId, Key}, MD5Context}, _From, #state{meta_db_id      = MetaDBId,
+                                                                           object_storage  = StorageInfo} = State) ->
+    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
+                                  AddrId, Key),
+    Reply = leo_object_storage_haystack:head_with_calc_md5(
+              MetaDBId, StorageInfo, BackendKey, MD5Context),
+
+    NewState = after_proc(Reply, State),
+    erlang:garbage_collect(self()),
+
+    {reply, Reply, NewState};
 
 
 handle_call({fetch, {AddrId, Key}, Fun, MaxKeys}, _From, #state{meta_db_id     = MetaDBId,
