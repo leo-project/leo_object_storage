@@ -71,7 +71,7 @@
           body_bin               :: binary(),
           next_offset            :: integer(),
           fun_has_charge_of_node :: function(),
-          num_of_active_object   :: integer(),
+          num_of_active_objects  :: integer(),
           size_of_active_object  :: integer()
          }).
 
@@ -671,8 +671,8 @@ compact_fun1({ok, #state{meta_db_id     = MetaDBId,
                           CompactParams = #compact_params{key_bin     = KeyValue,
                                                           body_bin    = BodyValue,
                                                           next_offset = NextOffset,
-                                                          num_of_active_object   = 0,
-                                                          size_of_active_object  = 0,
+                                                          num_of_active_objects = 0,
+                                                          size_of_active_object = 0,
                                                           fun_has_charge_of_node = FunHasChargeOfNode},
                           try do_compact(Metadata, CompactParams, State) of
                               Ret ->
@@ -850,12 +850,16 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
     end,
 
     %% retrieve value
-    FunHasChargeOfNode = CompactParams#compact_params.fun_has_charge_of_node,
-    NumActive          = CompactParams#compact_params.num_of_active_object,
-    SizeActive         = CompactParams#compact_params.size_of_active_object,
+    #compact_params{key_bin  = Key,
+                    body_bin = Body,
+                    fun_has_charge_of_node = FunHasChargeOfNode,
+                    num_of_active_objects  = NumOfActiveObjs,
+                    size_of_active_object  = SizeActive
+                   } = CompactParams,
 
     %% set a flag of object of compaction
-    HasChargeOfNode = FunHasChargeOfNode(Metadata),
+    NumOfReplicas = Metadata#?METADATA.num_of_replicas,
+    HasChargeOfNode = FunHasChargeOfNode(Key, NumOfReplicas),
 
     %% execute compaction
     case (is_deleted_rec(MetaDBId, StorageInfo, Metadata)
@@ -867,9 +871,8 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
             %%
             TmpWriteHandler = StorageInfo#backend_info.tmp_write_handler,
 
-            case leo_object_storage_haystack:compact_put(TmpWriteHandler, Metadata,
-                                                         CompactParams#compact_params.key_bin,
-                                                         CompactParams#compact_params.body_bin) of
+            case leo_object_storage_haystack:compact_put(
+                   TmpWriteHandler, Metadata, Key, Body) of
                 {ok, Offset} ->
                     NewMeta = Metadata#?METADATA{offset = Offset},
                     KeyOfMetadata = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
@@ -880,7 +883,7 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
 
                     ObjectSize = leo_object_storage_haystack:calc_obj_size(NewMeta),
                     NewCompactParams = CompactParams#compact_params{
-                                         num_of_active_object  = NumActive  + 1,
+                                         num_of_active_objects = NumOfActiveObjs  + 1,
                                          size_of_active_object = SizeActive + ObjectSize},
 
                     do_comapct_1(Ret, NewMeta, NewCompactParams, State);
@@ -903,7 +906,7 @@ do_comapct_1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} =
                                                     next_offset = NewNextOffset},
                        State);
         {error, eof} ->
-            NumOfAcriveObjs  = CompactParams#compact_params.num_of_active_object,
+            NumOfAcriveObjs  = CompactParams#compact_params.num_of_active_objects,
             SizeOfActiveObjs = CompactParams#compact_params.size_of_active_object,
             {ok, NumOfAcriveObjs, SizeOfActiveObjs};
         {error, Cause} when Cause =:= ?ERROR_INVALID_DATA orelse
