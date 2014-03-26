@@ -152,7 +152,7 @@ delete(Id, Object) ->
 head(Id, Key) ->
     gen_server:call(Id, {head, Key}, ?DEF_TIMEOUT).
 
-%% @doc Retrieve a metada/data from backend_db/object-storage 
+%% @doc Retrieve a metada/data from backend_db/object-storage
 %%      AND calc MD5 based on the body data
 %%
 -spec(head_with_calc_md5(atom(), tuple(), any()) ->
@@ -816,13 +816,18 @@ is_deleted_rec(MetaDBId, #backend_info{avs_version_bin_prv = AVSVsnBinPrv} = Sto
             false
     end.
 
+%% @private
 -spec(is_deleted_rec(atom(), #backend_info{}, #?METADATA{}, #?METADATA{}) ->
              boolean()).
-is_deleted_rec(_MetaDBId, _StorageInfo, _Meta0, Meta1) when Meta1#?METADATA.del =/= 0 ->
+is_deleted_rec(_MetaDBId,_StorageInfo,
+               _Meta,
+               #?METADATA{del = Del}) when Del /= 0 ->
     true;
-is_deleted_rec(_MetaDBId, _StorageInfo, Meta0, Meta1) when Meta0#?METADATA.offset =/= Meta1#?METADATA.offset ->
+is_deleted_rec(_MetaDBId,_StorageInfo,
+               #?METADATA{offset = Offset_1},
+               #?METADATA{offset = Offset_2}) when Offset_1 /= Offset_2 ->
     true;
-is_deleted_rec(_MetaDBId, _StorageInfo, _Meta0, _Meta1) ->
+is_deleted_rec(_MetaDBId,_StorageInfo,_Meta_1,_Meta_2) ->
     false.
 
 
@@ -832,11 +837,6 @@ is_deleted_rec(_MetaDBId, _StorageInfo, _Meta0, _Meta1) ->
              ok | {error, any()}).
 do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
                                            object_storage = StorageInfo} = State) ->
-    FunHasChargeOfNode = CompactParams#compact_params.fun_has_charge_of_node,
-    HasChargeOfNode    = FunHasChargeOfNode(CompactParams#compact_params.key_bin),
-    NumActive          = CompactParams#compact_params.num_of_active_object,
-    SizeActive         = CompactParams#compact_params.size_of_active_object,
-
     %% check mailbox regularly
     receive
         compact_suspend ->
@@ -848,6 +848,16 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
         0 ->
             void
     end,
+
+    %% retrieve value
+    FunHasChargeOfNode = CompactParams#compact_params.fun_has_charge_of_node,
+    NumActive          = CompactParams#compact_params.num_of_active_object,
+    SizeActive         = CompactParams#compact_params.size_of_active_object,
+
+    %% set a flag of object of compaction
+    HasChargeOfNode = FunHasChargeOfNode(Metadata),
+
+    %% execute compaction
     case (is_deleted_rec(MetaDBId, StorageInfo, Metadata)
           orelse HasChargeOfNode == false) of
         true ->
