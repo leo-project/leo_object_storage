@@ -71,7 +71,7 @@
           body_bin               :: binary(),
           next_offset            :: integer(),
           fun_has_charge_of_node :: function(),
-          num_of_active_object   :: integer(),
+          num_of_active_objects  :: integer(),
           size_of_active_object  :: integer()
          }).
 
@@ -152,7 +152,7 @@ delete(Id, Object) ->
 head(Id, Key) ->
     gen_server:call(Id, {head, Key}, ?DEF_TIMEOUT).
 
-%% @doc Retrieve a metada/data from backend_db/object-storage 
+%% @doc Retrieve a metada/data from backend_db/object-storage
 %%      AND calc MD5 based on the body data
 %%
 -spec(head_with_calc_md5(atom(), tuple(), any()) ->
@@ -671,8 +671,8 @@ compact_fun1({ok, #state{meta_db_id     = MetaDBId,
                           CompactParams = #compact_params{key_bin     = KeyValue,
                                                           body_bin    = BodyValue,
                                                           next_offset = NextOffset,
-                                                          num_of_active_object   = 0,
-                                                          size_of_active_object  = 0,
+                                                          num_of_active_objects = 0,
+                                                          size_of_active_object = 0,
                                                           fun_has_charge_of_node = FunHasChargeOfNode},
                           try do_compact(Metadata, CompactParams, State) of
                               Ret ->
@@ -816,13 +816,18 @@ is_deleted_rec(MetaDBId, #backend_info{avs_version_bin_prv = AVSVsnBinPrv} = Sto
             false
     end.
 
+%% @private
 -spec(is_deleted_rec(atom(), #backend_info{}, #?METADATA{}, #?METADATA{}) ->
              boolean()).
-is_deleted_rec(_MetaDBId, _StorageInfo, _Meta0, Meta1) when Meta1#?METADATA.del =/= 0 ->
+is_deleted_rec(_MetaDBId,_StorageInfo,
+               _Meta,
+               #?METADATA{del = Del}) when Del /= 0 ->
     true;
-is_deleted_rec(_MetaDBId, _StorageInfo, Meta0, Meta1) when Meta0#?METADATA.offset =/= Meta1#?METADATA.offset ->
+is_deleted_rec(_MetaDBId,_StorageInfo,
+               #?METADATA{offset = Offset_1},
+               #?METADATA{offset = Offset_2}) when Offset_1 /= Offset_2 ->
     true;
-is_deleted_rec(_MetaDBId, _StorageInfo, _Meta0, _Meta1) ->
+is_deleted_rec(_MetaDBId,_StorageInfo,_Meta_1,_Meta_2) ->
     false.
 
 
@@ -832,11 +837,6 @@ is_deleted_rec(_MetaDBId, _StorageInfo, _Meta0, _Meta1) ->
              ok | {error, any()}).
 do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
                                            object_storage = StorageInfo} = State) ->
-    FunHasChargeOfNode = CompactParams#compact_params.fun_has_charge_of_node,
-    HasChargeOfNode    = FunHasChargeOfNode(CompactParams#compact_params.key_bin),
-    NumActive          = CompactParams#compact_params.num_of_active_object,
-    SizeActive         = CompactParams#compact_params.size_of_active_object,
-
     %% check mailbox regularly
     receive
         compact_suspend ->
@@ -848,6 +848,20 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
         0 ->
             void
     end,
+
+    %% retrieve value
+    #compact_params{key_bin  = Key,
+                    body_bin = Body,
+                    fun_has_charge_of_node = FunHasChargeOfNode,
+                    num_of_active_objects  = NumOfActiveObjs,
+                    size_of_active_object  = SizeActive
+                   } = CompactParams,
+
+    %% set a flag of object of compaction
+    NumOfReplicas = Metadata#?METADATA.num_of_replicas,
+    HasChargeOfNode = FunHasChargeOfNode(Key, NumOfReplicas),
+
+    %% execute compaction
     case (is_deleted_rec(MetaDBId, StorageInfo, Metadata)
           orelse HasChargeOfNode == false) of
         true ->
@@ -857,9 +871,8 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
             %%
             TmpWriteHandler = StorageInfo#backend_info.tmp_write_handler,
 
-            case leo_object_storage_haystack:compact_put(TmpWriteHandler, Metadata,
-                                                         CompactParams#compact_params.key_bin,
-                                                         CompactParams#compact_params.body_bin) of
+            case leo_object_storage_haystack:compact_put(
+                   TmpWriteHandler, Metadata, Key, Body) of
                 {ok, Offset} ->
                     NewMeta = Metadata#?METADATA{offset = Offset},
                     KeyOfMetadata = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
@@ -870,7 +883,7 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
 
                     ObjectSize = leo_object_storage_haystack:calc_obj_size(NewMeta),
                     NewCompactParams = CompactParams#compact_params{
-                                         num_of_active_object  = NumActive  + 1,
+                                         num_of_active_objects = NumOfActiveObjs  + 1,
                                          size_of_active_object = SizeActive + ObjectSize},
 
                     do_comapct_1(Ret, NewMeta, NewCompactParams, State);
@@ -893,7 +906,7 @@ do_comapct_1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} =
                                                     next_offset = NewNextOffset},
                        State);
         {error, eof} ->
-            NumOfAcriveObjs  = CompactParams#compact_params.num_of_active_object,
+            NumOfAcriveObjs  = CompactParams#compact_params.num_of_active_objects,
             SizeOfActiveObjs = CompactParams#compact_params.size_of_active_object,
             {ok, NumOfAcriveObjs, SizeOfActiveObjs};
         {error, Cause} when Cause =:= ?ERROR_INVALID_DATA orelse
