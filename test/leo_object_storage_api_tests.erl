@@ -434,7 +434,8 @@ compact_test_() ->
              ?assertEqual(true, SumTotalSize1 > SumActiveSize1),
              timer:sleep(250),
 
-             FunHasChargeOfNode = fun(_Key_) ->
+             FunHasChargeOfNode = fun(_Key_,_NumOfReplicas_) ->
+                                          ?debugVal({_Key_,_NumOfReplicas_}),
                                           true
                                   end,
              TargetPids = leo_object_storage_api:get_object_storage_pid(all),
