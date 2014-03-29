@@ -285,12 +285,13 @@ do_request(get, [{AddrId, Key}, StartPos, EndPos]) ->
     KeyBin = term_to_binary({AddrId, Key}),
     ?SERVER_MODULE:get(get_object_storage_pid(KeyBin), {AddrId, Key}, StartPos, EndPos);
 do_request(store, [Metadata, Bin]) ->
+    Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
     #?METADATA{addr_id = AddrId,
-               key     = Key} = Metadata,
+               key     = Key} = Metadata_1,
     Id = get_object_storage_pid(term_to_binary({AddrId, Key})),
     case get_status_by_id(Id) of
         ?STATE_ACTIVE ->
-            ?SERVER_MODULE:store(Id, Metadata, Bin);
+            ?SERVER_MODULE:store(Id, Metadata_1, Bin);
         ?STATE_COMPACTING ->
             {error, doing_compaction}
     end;

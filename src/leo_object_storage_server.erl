@@ -307,13 +307,13 @@ handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
                            Object#?OBJECT.addr_id,
                            Object#?OBJECT.key),
     {DiffRec, Oldsize} =
-        case leo_object_storage_haystack:head(
-               MetaDBId, Key) of
+        case leo_object_storage_haystack:head(MetaDBId, Key) of
             not_found ->
                 {1, 0};
             {ok, MetaBin} ->
-                Meta = binary_to_term(MetaBin),
-                {0, leo_object_storage_haystack:calc_obj_size(Meta)};
+                Metadata_1 = binary_to_term(MetaBin),
+                Metadata_2 = leo_object_storage_transformer:transform_metadata(Metadata_1),
+                {0, leo_object_storage_haystack:calc_obj_size(Metadata_2)};
             _ ->
                 {1, 0}
         end,
@@ -406,23 +406,23 @@ handle_call({fetch, {AddrId, Key}, Fun, MaxKeys}, _From, #state{meta_db_id     =
 handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
                                                   object_storage = StorageInfo,
                                                   storage_stats  = StorageStats} = State) ->
+    Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
     BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
-                                  Metadata#?METADATA.addr_id,
-                                  Metadata#?METADATA.key),
+                                  Metadata_1#?METADATA.addr_id,
+                                  Metadata_1#?METADATA.key),
     {DiffRec, Oldsize} =
-        case leo_object_storage_haystack:head(
-               MetaDBId, BackendKey) of
+        case leo_object_storage_haystack:head(MetaDBId, BackendKey) of
             not_found ->
                 {1, 0};
             {ok, MetaBin} ->
-                Meta = binary_to_term(MetaBin),
-                {0, leo_object_storage_haystack:calc_obj_size(Meta)};
+                Metadata_2 = binary_to_term(MetaBin),
+                {0, leo_object_storage_haystack:calc_obj_size(Metadata_2)};
             _ ->
                 {1, 0}
         end,
 
-    NewSize = leo_object_storage_haystack:calc_obj_size(Metadata),
-    Reply   = leo_object_storage_haystack:store(MetaDBId, StorageInfo, Metadata, Bin),
+    NewSize = leo_object_storage_haystack:calc_obj_size(Metadata_1),
+    Reply   = leo_object_storage_haystack:store(MetaDBId, StorageInfo, Metadata_1, Bin),
     NewStorageStats =
         StorageStats#storage_stats{
           total_sizes  = StorageStats#storage_stats.total_sizes  + NewSize,
