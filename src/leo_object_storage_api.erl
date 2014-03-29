@@ -72,45 +72,45 @@ start(ObjectStorageInfo) ->
 %%
 -spec(put(tuple(), #?OBJECT{}) ->
              {ok, integer()} | {error, any()}).
-put(Key, Object) ->
-    do_request(put, [Key, Object]).
+put(AddrIdAndKey, Object) ->
+    do_request(put, [AddrIdAndKey, Object]).
 
 
 %% @doc Retrieve an object and a metadata from the object-storage
 %%
 -spec(get(tuple()) ->
              {ok, list()} | not_found | {error, any()}).
-get(Key) ->
-    get(Key, 0, 0).
+get(AddrIdAndKey) ->
+    get(AddrIdAndKey, 0, 0).
 
 -spec(get(tuple(), integer(), integer()) ->
              {ok, #?METADATA{}, #?OBJECT{}} | not_found | {error, any()}).
-get(Key, StartPos, EndPos) ->
-    do_request(get, [Key, StartPos, EndPos]).
+get(AddrIdAndKey, StartPos, EndPos) ->
+    do_request(get, [AddrIdAndKey, StartPos, EndPos]).
 
 
 %% @doc Remove an object from the object-storage
 %%
 -spec(delete(tuple(), #?OBJECT{}) ->
              ok | {error, any()}).
-delete(Key, Object) ->
-    do_request(delete, [Key, Object]).
+delete(AddrIdAndKey, Object) ->
+    do_request(delete, [AddrIdAndKey, Object]).
 
 
 %% @doc Retrieve a metadata from the object-storage
 %%
 -spec(head(tuple()) ->
              {ok, metadata} | {error, any()}).
-head(Key) ->
-    do_request(head, [Key]).
+head(AddrIdAndKey) ->
+    do_request(head, [AddrIdAndKey]).
 
 %% @doc Retrieve a metada/data from backend_db/object-storage
 %%      AND calc MD5 based on the body data
 %%
 -spec(head_with_calc_md5(tuple(), any()) ->
              {ok, metadata, any()} | {error, any()}).
-head_with_calc_md5(Key, MD5Context) ->
-    do_request(head_with_calc_md5, [Key, MD5Context]).
+head_with_calc_md5(AddrIdAndKey, MD5Context) ->
+    do_request(head_with_calc_md5, [AddrIdAndKey, MD5Context]).
 
 
 %% @doc Fetch objects by ring-address-id
