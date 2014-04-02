@@ -70,14 +70,14 @@ run(put, KeyGen, ValueGen, State) ->
     end.
 
 put_test_data(Key, Bin) ->
-    Object = #object{method    = put,
-                     addr_id   = 0,
-                     key       = Key,
-                     ksize     = byte_size(Key),
-                     data      = Bin,
-                     dsize     = byte_size(Bin),
-                     checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
-                     timestamp = leo_date:now(),
-                     clock     = leo_date:clock()
-                    },
+    Object = #?OBJECT{method    = put,
+                      addr_id   = 0,
+                      key       = Key,
+                      ksize     = byte_size(Key),
+                      data      = Bin,
+                      dsize     = byte_size(Bin),
+                      checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
+                      timestamp = leo_date:now(),
+                      clock     = leo_date:clock()
+                     },
     leo_object_storage_api:put({0, Key}, Object).

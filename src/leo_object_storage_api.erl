@@ -37,6 +37,8 @@
          stats/0
         ]).
 
+-export([head_with_calc_md5/2]).
+
 -export([get_object_storage_pid/1]).
 -export([get_object_storage_pid_first/0]).
 
@@ -68,39 +70,47 @@ start(ObjectStorageInfo) ->
 %% @doc Insert an object into the object-storage
 %% @param Key = {$VNODE_ID, $OBJ_KEY}
 %%
--spec(put(tuple(), #object{}) ->
+-spec(put(tuple(), #?OBJECT{}) ->
              {ok, integer()} | {error, any()}).
-put(Key, Object) ->
-    do_request(put, [Key, Object]).
+put(AddrIdAndKey, Object) ->
+    do_request(put, [AddrIdAndKey, Object]).
 
 
 %% @doc Retrieve an object and a metadata from the object-storage
 %%
 -spec(get(tuple()) ->
              {ok, list()} | not_found | {error, any()}).
-get(Key) ->
-    get(Key, 0, 0).
+get(AddrIdAndKey) ->
+    get(AddrIdAndKey, 0, 0).
 
 -spec(get(tuple(), integer(), integer()) ->
-             {ok, #metadata{}, #object{}} | not_found | {error, any()}).
-get(Key, StartPos, EndPos) ->
-    do_request(get, [Key, StartPos, EndPos]).
+             {ok, #?METADATA{}, #?OBJECT{}} | not_found | {error, any()}).
+get(AddrIdAndKey, StartPos, EndPos) ->
+    do_request(get, [AddrIdAndKey, StartPos, EndPos]).
 
 
 %% @doc Remove an object from the object-storage
 %%
--spec(delete(tuple(), #object{}) ->
+-spec(delete(tuple(), #?OBJECT{}) ->
              ok | {error, any()}).
-delete(Key, Object) ->
-    do_request(delete, [Key, Object]).
+delete(AddrIdAndKey, Object) ->
+    do_request(delete, [AddrIdAndKey, Object]).
 
 
 %% @doc Retrieve a metadata from the object-storage
 %%
 -spec(head(tuple()) ->
              {ok, metadata} | {error, any()}).
-head(Key) ->
-    do_request(head, [Key]).
+head(AddrIdAndKey) ->
+    do_request(head, [AddrIdAndKey]).
+
+%% @doc Retrieve a metada/data from backend_db/object-storage
+%%      AND calc MD5 based on the body data
+%%
+-spec(head_with_calc_md5(tuple(), any()) ->
+             {ok, metadata, any()} | {error, any()}).
+head_with_calc_md5(AddrIdAndKey, MD5Context) ->
+    do_request(head_with_calc_md5, [AddrIdAndKey, MD5Context]).
 
 
 %% @doc Fetch objects by ring-address-id
@@ -165,7 +175,7 @@ fetch_by_key(Key, Fun, MaxKeys) ->
 
 %% @doc Store metadata and data
 %%
--spec(store(#metadata{}, binary()) ->
+-spec(store(#?METADATA{}, binary()) ->
              ok | {error, any()}).
 store(Metadata, Bin) ->
     do_request(store, [Metadata, Bin]).
@@ -275,12 +285,13 @@ do_request(get, [{AddrId, Key}, StartPos, EndPos]) ->
     KeyBin = term_to_binary({AddrId, Key}),
     ?SERVER_MODULE:get(get_object_storage_pid(KeyBin), {AddrId, Key}, StartPos, EndPos);
 do_request(store, [Metadata, Bin]) ->
-    #metadata{addr_id = AddrId,
-              key     = Key} = Metadata,
+    Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
+    #?METADATA{addr_id = AddrId,
+               key     = Key} = Metadata_1,
     Id = get_object_storage_pid(term_to_binary({AddrId, Key})),
     case get_status_by_id(Id) of
         ?STATE_ACTIVE ->
-            ?SERVER_MODULE:store(Id, Metadata, Bin);
+            ?SERVER_MODULE:store(Id, Metadata_1, Bin);
         ?STATE_COMPACTING ->
             {error, doing_compaction}
     end;
@@ -306,4 +317,7 @@ do_request(delete, [Key, Object]) ->
     end;
 do_request(head, [{AddrId, Key}]) ->
     KeyBin = term_to_binary({AddrId, Key}),
-    ?SERVER_MODULE:head(get_object_storage_pid(KeyBin), {AddrId, Key}).
+    ?SERVER_MODULE:head(get_object_storage_pid(KeyBin), {AddrId, Key});
+do_request(head_with_calc_md5, [{AddrId, Key}, MD5Context]) ->
+    KeyBin = term_to_binary({AddrId, Key}),
+    ?SERVER_MODULE:head_with_calc_md5(get_object_storage_pid(KeyBin), {AddrId, Key}, MD5Context).

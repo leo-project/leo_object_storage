@@ -38,6 +38,7 @@
 -export([put/2, get/4, delete/2, head/2, fetch/4, store/3]).
 -export([compact/2, compact_suspend/1, compact_resume/1, stats/1]).
 -export([get_avs_version_bin/1]).
+-export([head_with_calc_md5/3]).
 
 -ifdef(TEST).
 -export([add_incorrect_data/2]).
@@ -70,7 +71,7 @@
           body_bin               :: binary(),
           next_offset            :: integer(),
           fun_has_charge_of_node :: function(),
-          num_of_active_object   :: integer(),
+          num_of_active_objects  :: integer(),
           size_of_active_object  :: integer()
          }).
 
@@ -122,7 +123,7 @@ get_avs_version_bin(Id) ->
 %%--------------------------------------------------------------------
 %% @doc Insert an object and an object's metadata into the object-storage
 %%
--spec(put(atom(), #object{}) ->
+-spec(put(atom(), #?OBJECT{}) ->
              ok | {error, any()}).
 put(Id, Object) ->
     gen_server:call(Id, {put, Object}, ?DEF_TIMEOUT).
@@ -131,14 +132,14 @@ put(Id, Object) ->
 %% @doc Retrieve an object from the object-storage
 %%
 -spec(get(atom(), tuple(), integer(), integer()) ->
-             {ok, #metadata{}, #object{}} | not_found | {error, any()}).
+             {ok, #?METADATA{}, #?OBJECT{}} | not_found | {error, any()}).
 get(Id, Key, StartPos, EndPos) ->
     gen_server:call(Id, {get, Key, StartPos, EndPos}, ?DEF_TIMEOUT).
 
 
 %% @doc Remove an object from the object-storage - (logical-delete)
 %%
--spec(delete(atom(), #object{}) ->
+-spec(delete(atom(), #?OBJECT{}) ->
              ok | {error, any()}).
 delete(Id, Object) ->
     gen_server:call(Id, {delete, Object}, ?DEF_TIMEOUT).
@@ -147,9 +148,17 @@ delete(Id, Object) ->
 %% @doc Retrieve an object's metadata from the object-storage
 %%
 -spec(head(atom(), tuple()) ->
-             {ok, #metadata{}} | {error, any()}).
+             {ok, #?METADATA{}} | {error, any()}).
 head(Id, Key) ->
     gen_server:call(Id, {head, Key}, ?DEF_TIMEOUT).
+
+%% @doc Retrieve a metada/data from backend_db/object-storage
+%%      AND calc MD5 based on the body data
+%%
+-spec(head_with_calc_md5(atom(), tuple(), any()) ->
+             {ok, #?METADATA{}, any()} | {error, any()}).
+head_with_calc_md5(Id, Key, MD5Context) ->
+    gen_server:call(Id, {head_with_calc_md5, Key, MD5Context}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve objects from the object-storage by Key and Function
@@ -162,7 +171,7 @@ fetch(Id, Key, Fun, MaxKeys) ->
 
 %% @doc Store metadata and data
 %%
--spec(store(atom(), #metadata{}, binary()) ->
+-spec(store(atom(), #?METADATA{}, binary()) ->
              ok | {error, any()}).
 store(Id, Metadata, Bin) ->
     gen_server:call(Id, {store, Metadata, Bin}, ?DEF_TIMEOUT).
@@ -295,16 +304,16 @@ handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
                                          object_storage = StorageInfo,
                                          storage_stats  = StorageStats} = State) ->
     Key = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
-                           Object#object.addr_id,
-                           Object#object.key),
+                           Object#?OBJECT.addr_id,
+                           Object#?OBJECT.key),
     {DiffRec, Oldsize} =
-        case leo_object_storage_haystack:head(
-               MetaDBId, Key) of
+        case leo_object_storage_haystack:head(MetaDBId, Key) of
             not_found ->
                 {1, 0};
             {ok, MetaBin} ->
-                Meta = binary_to_term(MetaBin),
-                {0, leo_object_storage_haystack:calc_obj_size(Meta)};
+                Metadata_1 = binary_to_term(MetaBin),
+                Metadata_2 = leo_object_storage_transformer:transform_metadata(Metadata_1),
+                {0, leo_object_storage_haystack:calc_obj_size(Metadata_2)};
             _ ->
                 {1, 0}
         end,
@@ -341,8 +350,8 @@ handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
                                             object_storage = StorageInfo,
                                             storage_stats  = StorageStats} = State) ->
     Key = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
-                           Object#object.addr_id,
-                           Object#object.key),
+                           Object#?OBJECT.addr_id,
+                           Object#?OBJECT.key),
     {DiffRec, Oldsize} =
         case leo_object_storage_haystack:head(
                MetaDBId, Key) of
@@ -373,6 +382,18 @@ handle_call({head, {AddrId, Key}}, _From, #state{meta_db_id = MetaDBId, object_s
     Reply = leo_object_storage_haystack:head(MetaDBId, BackendKey),
     {reply, Reply, State};
 
+handle_call({head_with_calc_md5, {AddrId, Key}, MD5Context}, _From, #state{meta_db_id      = MetaDBId,
+                                                                           object_storage  = StorageInfo} = State) ->
+    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
+                                  AddrId, Key),
+    Reply = leo_object_storage_haystack:head_with_calc_md5(
+              MetaDBId, StorageInfo, BackendKey, MD5Context),
+
+    NewState = after_proc(Reply, State),
+    erlang:garbage_collect(self()),
+
+    {reply, Reply, NewState};
+
 
 handle_call({fetch, {AddrId, Key}, Fun, MaxKeys}, _From, #state{meta_db_id     = MetaDBId,
                                                                 object_storage = StorageInfo} = State) ->
@@ -385,23 +406,23 @@ handle_call({fetch, {AddrId, Key}, Fun, MaxKeys}, _From, #state{meta_db_id     =
 handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
                                                   object_storage = StorageInfo,
                                                   storage_stats  = StorageStats} = State) ->
+    Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
     BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
-                                  Metadata#metadata.addr_id,
-                                  Metadata#metadata.key),
+                                  Metadata_1#?METADATA.addr_id,
+                                  Metadata_1#?METADATA.key),
     {DiffRec, Oldsize} =
-        case leo_object_storage_haystack:head(
-               MetaDBId, BackendKey) of
+        case leo_object_storage_haystack:head(MetaDBId, BackendKey) of
             not_found ->
                 {1, 0};
             {ok, MetaBin} ->
-                Meta = binary_to_term(MetaBin),
-                {0, leo_object_storage_haystack:calc_obj_size(Meta)};
+                Metadata_2 = binary_to_term(MetaBin),
+                {0, leo_object_storage_haystack:calc_obj_size(Metadata_2)};
             _ ->
                 {1, 0}
         end,
 
-    NewSize = leo_object_storage_haystack:calc_obj_size(Metadata),
-    Reply   = leo_object_storage_haystack:store(MetaDBId, StorageInfo, Metadata, Bin),
+    NewSize = leo_object_storage_haystack:calc_obj_size(Metadata_1),
+    Reply   = leo_object_storage_haystack:store(MetaDBId, StorageInfo, Metadata_1, Bin),
     NewStorageStats =
         StorageStats#storage_stats{
           total_sizes  = StorageStats#storage_stats.total_sizes  + NewSize,
@@ -650,15 +671,17 @@ compact_fun1({ok, #state{meta_db_id     = MetaDBId,
                           CompactParams = #compact_params{key_bin     = KeyValue,
                                                           body_bin    = BodyValue,
                                                           next_offset = NextOffset,
-                                                          num_of_active_object   = 0,
-                                                          size_of_active_object  = 0,
+                                                          num_of_active_objects = 0,
+                                                          size_of_active_object = 0,
                                                           fun_has_charge_of_node = FunHasChargeOfNode},
                           try do_compact(Metadata, CompactParams, State) of
                               Ret ->
                                   Ret
-                          catch _:Reason ->
+                          catch
+                              _:Reason ->
                                   error_logger:error_msg("~p,~p,~p,~p~n",
-                                                         [{module, ?MODULE_STRING}, {function, "compact_fun/2"},
+                                                         [{module, ?MODULE_STRING},
+                                                          {function, "compact_fun/2"},
                                                           {line, ?LINE},
                                                           {body, {MetaDBId, Reason}}]),
                                   {error, Reason}
@@ -669,8 +692,10 @@ compact_fun1({ok, #state{meta_db_id     = MetaDBId,
               Error1 ->
                   Error1
           end,
-    _ = leo_object_storage_haystack:close(WriteHandler,    ReadHandler),
-    _ = leo_object_storage_haystack:close(TmpWriteHandler, TmpReadHandler),
+
+    catch leo_object_storage_haystack:close(WriteHandler,    ReadHandler),
+    catch leo_object_storage_haystack:close(TmpWriteHandler, TmpReadHandler),
+
     %% @TODO add history(end datetime)
     NewHist2 = compact_add_history(finish, NewHist),
     NewState = State#state{storage_stats = StorageStats#storage_stats{compaction_histories = NewHist2},
@@ -773,13 +798,13 @@ calc_remain_disksize(MetaDBId, FilePath) ->
 
 %% @doc Is deleted a record ?
 %% @private
--spec(is_deleted_rec(atom(), #backend_info{}, #metadata{}) ->
+-spec(is_deleted_rec(atom(), #backend_info{}, #?METADATA{}) ->
              boolean()).
-is_deleted_rec(_MetaDBId, _StorageInfo, #metadata{del = Del}) when Del =/= ?DEL_FALSE ->
+is_deleted_rec(_MetaDBId, _StorageInfo, #?METADATA{del = Del}) when Del =/= ?DEL_FALSE ->
     true;
 is_deleted_rec(MetaDBId, #backend_info{avs_version_bin_prv = AVSVsnBinPrv} = StorageInfo,
-               #metadata{key      = Key,
-                         addr_id  = AddrId} = MetaFromAvs) ->
+               #?METADATA{key      = Key,
+                          addr_id  = AddrId} = MetaFromAvs) ->
     KeyOfMetadata = ?gen_backend_key(AVSVsnBinPrv, AddrId, Key),
     case leo_backend_db_api:get(MetaDBId, KeyOfMetadata) of
         {ok, MetaOrg} ->
@@ -791,27 +816,27 @@ is_deleted_rec(MetaDBId, #backend_info{avs_version_bin_prv = AVSVsnBinPrv} = Sto
             false
     end.
 
--spec(is_deleted_rec(atom(), #backend_info{}, #metadata{}, #metadata{}) ->
+%% @private
+-spec(is_deleted_rec(atom(), #backend_info{}, #?METADATA{}, #?METADATA{}) ->
              boolean()).
-is_deleted_rec(_MetaDBId, _StorageInfo, _Meta0, Meta1) when Meta1#metadata.del =/= 0 ->
+is_deleted_rec(_MetaDBId,_StorageInfo,
+               _Meta,
+               #?METADATA{del = Del}) when Del /= 0 ->
     true;
-is_deleted_rec(_MetaDBId, _StorageInfo, Meta0, Meta1) when Meta0#metadata.offset =/= Meta1#metadata.offset ->
+is_deleted_rec(_MetaDBId,_StorageInfo,
+               #?METADATA{offset = Offset_1},
+               #?METADATA{offset = Offset_2}) when Offset_1 /= Offset_2 ->
     true;
-is_deleted_rec(_MetaDBId, _StorageInfo, _Meta0, _Meta1) ->
+is_deleted_rec(_MetaDBId,_StorageInfo,_Meta_1,_Meta_2) ->
     false.
 
 
 %% @doc Reduce unnecessary objects from object-container.
 %% @private
--spec(do_compact(#metadata{}, #compact_params{}, #state{}) ->
+-spec(do_compact(#?METADATA{}, #compact_params{}, #state{}) ->
              ok | {error, any()}).
 do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
                                            object_storage = StorageInfo} = State) ->
-    FunHasChargeOfNode = CompactParams#compact_params.fun_has_charge_of_node,
-    HasChargeOfNode    = FunHasChargeOfNode(CompactParams#compact_params.key_bin),
-    NumActive          = CompactParams#compact_params.num_of_active_object,
-    SizeActive         = CompactParams#compact_params.size_of_active_object,
-
     %% check mailbox regularly
     receive
         compact_suspend ->
@@ -823,40 +848,54 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
         0 ->
             void
     end,
-    case (is_deleted_rec(MetaDBId, StorageInfo, Metadata) orelse HasChargeOfNode == false) of
+
+    %% retrieve value
+    #compact_params{key_bin  = Key,
+                    body_bin = Body,
+                    fun_has_charge_of_node = FunHasChargeOfNode,
+                    num_of_active_objects  = NumOfActiveObjs,
+                    size_of_active_object  = SizeActive
+                   } = CompactParams,
+
+    %% set a flag of object of compaction
+    NumOfReplicas = Metadata#?METADATA.num_of_replicas,
+    HasChargeOfNode = FunHasChargeOfNode(Key, NumOfReplicas),
+
+    %% execute compaction
+    case (is_deleted_rec(MetaDBId, StorageInfo, Metadata)
+          orelse HasChargeOfNode == false) of
         true ->
-            do_compact1(ok, Metadata, CompactParams, State);
+            do_comapct_1(ok, Metadata, CompactParams, State);
         false ->
             %% Insert into the temporary object-container.
             %%
             TmpWriteHandler = StorageInfo#backend_info.tmp_write_handler,
 
-            case leo_object_storage_haystack:compact_put(TmpWriteHandler, Metadata,
-                                                         CompactParams#compact_params.key_bin,
-                                                         CompactParams#compact_params.body_bin) of
+            case leo_object_storage_haystack:compact_put(
+                   TmpWriteHandler, Metadata, Key, Body) of
                 {ok, Offset} ->
-                    NewMeta = Metadata#metadata{offset = Offset},
+                    NewMeta = Metadata#?METADATA{offset = Offset},
                     KeyOfMetadata = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
-                                                     Metadata#metadata.addr_id,
-                                                     Metadata#metadata.key),
+                                                     Metadata#?METADATA.addr_id,
+                                                     Metadata#?METADATA.key),
                     Ret = leo_backend_db_api:compact_put(
                             MetaDBId, KeyOfMetadata, term_to_binary(NewMeta)),
 
                     ObjectSize = leo_object_storage_haystack:calc_obj_size(NewMeta),
                     NewCompactParams = CompactParams#compact_params{
-                                         num_of_active_object  = NumActive  + 1,
+                                         num_of_active_objects = NumOfActiveObjs  + 1,
                                          size_of_active_object = SizeActive + ObjectSize},
 
-                    do_compact1(Ret, NewMeta, NewCompactParams, State);
+                    do_comapct_1(Ret, NewMeta, NewCompactParams, State);
                 Error ->
-                    do_compact1(Error, Metadata, CompactParams, State)
+                    do_comapct_1(Error, Metadata, CompactParams, State)
             end
     end.
 
 
 %% @doc Reduce unnecessary objects from object-container.
 %% @private
-do_compact1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} = State) ->
+do_comapct_1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} = State) ->
     ReadHandler = StorageInfo#backend_info.read_handler,
 
     case leo_object_storage_haystack:compact_get(ReadHandler, CompactParams#compact_params.next_offset) of
@@ -867,20 +906,20 @@ do_compact1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} = 
                                                     next_offset = NewNextOffset},
                        State);
         {error, eof} ->
-            NumOfAcriveObjs  = CompactParams#compact_params.num_of_active_object,
+            NumOfAcriveObjs  = CompactParams#compact_params.num_of_active_objects,
             SizeOfActiveObjs = CompactParams#compact_params.size_of_active_object,
             {ok, NumOfAcriveObjs, SizeOfActiveObjs};
         {error, Cause} when Cause =:= ?ERROR_INVALID_DATA orelse
                             Cause =:= ?ERROR_DATA_SIZE_DID_NOT_MATCH ->
             %% retry until eof
             OldOffset = CompactParams#compact_params.next_offset,
-            do_compact1(ok, Metadata,
-                        CompactParams#compact_params{next_offset = OldOffset + 1},
-                        State);
+            do_comapct_1(ok, Metadata,
+                         CompactParams#compact_params{next_offset = OldOffset + 1},
+                         State);
         Error ->
             Error
     end;
-do_compact1(Error,_,_,_) ->
+do_comapct_1(Error,_,_,_) ->
     Error.
 
 
