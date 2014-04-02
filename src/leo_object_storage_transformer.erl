@@ -28,7 +28,8 @@
          object_to_metadata/1,
          transform_metadata/1,
          header_bin_to_metadata/1,
-         cmeta_bin_into_metadata/2
+         cmeta_bin_into_metadata/2,
+         list_to_cmeta_bin/1
         ]).
 
 
@@ -265,9 +266,21 @@ cmeta_bin_into_metadata(<<>>, Metadata) ->
     Metadata;
 cmeta_bin_into_metadata(CustomMetaBin, Metadata) ->
     CustomeMeta = binary_to_term(CustomMetaBin),
-    ClusterId     = leo_misc:get_value('cluster_id',      CustomeMeta, []),
-    NumOfReplicas = leo_misc:get_value('num_of_replicas', CustomeMeta, 0),
-    Version       = leo_misc:get_value('ver',             CustomeMeta, 0),
+    ClusterId     = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID,      CustomeMeta, []),
+    NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomeMeta, 0),
+    Version       = leo_misc:get_value(?PROP_CMETA_VER,             CustomeMeta, 0),
     Metadata#?METADATA{cluster_id = ClusterId,
                        num_of_replicas = NumOfReplicas,
                        ver = Version}.
+
+%% @doc List to a custome-metadata(binary)
+-spec(list_to_cmeta_bin(list(tuple())) ->
+             binary()).
+list_to_cmeta_bin(CustomeMeta) ->
+    ClusterId     = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID,      CustomeMeta, []),
+    NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomeMeta, 0),
+    Version       = leo_misc:get_value(?PROP_CMETA_VER,             CustomeMeta, 0),
+    term_to_binary([{?PROP_CMETA_CLUSTER_ID, ClusterId},
+                    {?PROP_CMETA_NUM_OF_REPLICAS, NumOfReplicas},
+                    {?PROP_CMETA_VER, Version}
+                   ]).
