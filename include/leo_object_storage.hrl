@@ -164,7 +164,7 @@
           checksum   = 0      :: pos_integer(), %% checksum (MD5 > hex-to-integer)
           ring_hash  = 0      :: pos_integer(), %% RING's Hash(CRC32) when write an object.
 
-          cluster_id = []     :: string(),      %% cluster-id for the mdc-replication
+          cluster_id          :: atom(),        %% cluster-id for the mdc-replication
           num_of_replicas = 0 :: pos_integer(), %% # of replicas for the mdc-replication
           ver = 0             :: pos_integer(), %% version number
 
