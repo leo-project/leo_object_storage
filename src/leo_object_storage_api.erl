@@ -32,7 +32,8 @@
 
 -export([start/1,
          put/2, get/1, get/3, delete/2, head/1,
-         fetch_by_addr_id/2, fetch_by_addr_id/3, fetch_by_key/2, fetch_by_key/3,
+         fetch_by_addr_id/2, fetch_by_addr_id/3,
+         fetch_by_key/2, fetch_by_key/3,
          store/2,
          stats/0
         ]).
@@ -126,7 +127,8 @@ fetch_by_addr_id(AddrId, Fun, MaxKeys) ->
         List ->
             Res = lists:foldl(
                     fun(Id, Acc) ->
-                            case ?SERVER_MODULE:fetch(Id, {AddrId, <<>>}, Fun, MaxKeys) of
+                            case ?SERVER_MODULE:fetch(Id, {AddrId, <<>>},
+                                                      Fun, MaxKeys) of
                                 {ok, Values} ->
                                     [Values|Acc];
                                 _ ->
