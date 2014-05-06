@@ -477,11 +477,12 @@ handle_call({head_with_calc_md5, {AddrId, Key}, MD5Context},
 
 handle_call(close, _From,
             #state{id = Id,
+                   meta_db_id = MetaDBId,
                    state_filepath = StateFilePath,
                    storage_stats  = StorageStats,
                    object_storage = #backend_info{write_handler = WriteHandler,
                                                   read_handler  = ReadHandler}} = State) ->
-    ok = close_storage(Id, StateFilePath,
+    ok = close_storage(Id, MetaDBId, StateFilePath,
                        StorageStats, WriteHandler, ReadHandler),
     {reply, ok, State};
 
@@ -532,6 +533,7 @@ handle_info(_Info, State) ->
 %% cleaning up. When it returns, the gen_server terminates with Reason.
 %% The return value is ignored.
 terminate(_Reason, #state{id = Id,
+                          meta_db_id = MetaDBId,
                           state_filepath = StateFilePath,
                           storage_stats  = StorageStats,
                           object_storage = #backend_info{write_handler = WriteHandler,
@@ -539,7 +541,7 @@ terminate(_Reason, #state{id = Id,
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "terminate/2"},
                            {line, ?LINE}, {body, Id}]),
-    ok = close_storage(Id, StateFilePath,
+    ok = close_storage(Id, MetaDBId, StateFilePath,
                        StorageStats, WriteHandler, ReadHandler),
     ok.
 
@@ -970,7 +972,8 @@ gen_raw_file_path(FilePath) ->
 
 %% @doc Close a storage
 %% @private
-close_storage(Id, StateFilePath, StorageStats, WriteHandler, ReadHandler) ->
+close_storage(Id, MetaDBId, StateFilePath, StorageStats, WriteHandler, ReadHandler) ->
+    ?debugVal(MetaDBId),
     _ = filelib:ensure_dir(StateFilePath),
     _ = leo_file:file_unconsult(
           StateFilePath,
@@ -982,4 +985,5 @@ close_storage(Id, StateFilePath, StorageStats, WriteHandler, ReadHandler) ->
            {compaction_histories, StorageStats#storage_stats.compaction_histories},
            {has_error,            StorageStats#storage_stats.has_error}]),
     ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
+    ok = leo_backend_db_server:close(MetaDBId),
     ok.
