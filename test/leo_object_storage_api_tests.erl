@@ -77,7 +77,6 @@ new_([Path1, _]) ->
     application:stop(bitcask),
     application:stop(leo_object_storage),
 
-
     %% 2. Exception
     Res0 = leo_object_storage_api:start([]),
     ?assertEqual({error, badarg}, Res0),

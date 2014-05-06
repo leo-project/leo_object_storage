@@ -67,11 +67,7 @@ stop() ->
     case whereis(?MODULE) of
         Pid when is_pid(Pid) == true ->
             List = supervisor:which_children(Pid),
-            Len  = length(List),
-
-            ok = terminate_children(List),
-            timer:sleep(Len * 100),
-            exit(Pid, shutdown),
+            ok = close_storage(List),
             ok;
         _ ->
             not_started
@@ -192,29 +188,15 @@ start_child(ObjectStorageInfo) ->
 %% ---------------------------------------------------------------------
 %% @doc Terminate children
 %% @private
--spec(terminate_children(list()) ->
+-spec(close_storage(list()) ->
              ok).
-terminate_children([]) ->
+close_storage([]) ->
     ok;
-terminate_children([{Id, Pid, worker, [Mod|_]}|T]) ->
-    case Mod of
-        leo_backend_db_sup ->
-            Mod:stop(Pid),
-            wait_process(Pid);
-        _ ->
-            Mod:stop(Id)
-    end,
-    terminate_children(T);
-terminate_children([_|T]) ->
-    terminate_children(T).
-
-wait_process(Pid) ->
-    case erlang:is_process_alive(Pid) of
-        false -> void;
-        true ->
-            timer:sleep(100),
-            wait_process(Pid)
-    end.
+close_storage([{Id,_Pid, worker, ['leo_object_storage_server' = Mod|_]}|T]) ->
+    _ = Mod:close(Id),
+    close_storage(T);
+close_storage([_|T]) ->
+    close_storage(T).
 
 
 %% %% @doc Retrieve object-store directory

@@ -35,14 +35,12 @@
 
 %% API
 -export([start_link/4, start_link/5, stop/1]).
--export([put/2, get/4, delete/2, head/2, fetch/4, store/3]).
--export([compact/2, compact_suspend/1, compact_resume/1, stats/1]).
--export([get_avs_version_bin/1]).
--export([head_with_calc_md5/3]).
-
--ifdef(TEST).
--export([add_incorrect_data/2]).
--endif.
+-export([put/2, get/4, delete/2, head/2, fetch/4, store/3,
+         compact/2, compact_suspend/1, compact_resume/1, stats/1,
+         get_avs_version_bin/1,
+         head_with_calc_md5/3,
+         close/1
+        ]).
 
 %% To be passed to spawn_link
 -export([compact_fun/2]).
@@ -54,6 +52,10 @@
          handle_info/2,
          terminate/2,
          code_change/3]).
+
+-ifdef(TEST).
+-export([add_incorrect_data/2]).
+-endif.
 
 -record(state, {
           id                  :: atom(),
@@ -113,10 +115,6 @@ stop(Id) ->
                            {line, ?LINE}, {body, Id}]),
     gen_server:call(Id, stop, ?DEF_TIMEOUT).
 
-%% @doc Get AVS format version binary like <<"LeoFS AVS-2.2">>
--spec(get_avs_version_bin(atom()) -> ok).
-get_avs_version_bin(Id) ->
-    gen_server:call(Id, get_avs_version_bin, ?DEF_TIMEOUT).
 
 %%--------------------------------------------------------------------
 %% API - object operations.
@@ -152,14 +150,6 @@ delete(Id, Object) ->
 head(Id, Key) ->
     gen_server:call(Id, {head, Key}, ?DEF_TIMEOUT).
 
-%% @doc Retrieve a metada/data from backend_db/object-storage
-%%      AND calc MD5 based on the body data
-%%
--spec(head_with_calc_md5(atom(), tuple(), any()) ->
-             {ok, #?METADATA{}, any()} | {error, any()}).
-head_with_calc_md5(Id, Key, MD5Context) ->
-    gen_server:call(Id, {head_with_calc_md5, Key, MD5Context}, ?DEF_TIMEOUT).
-
 
 %% @doc Retrieve objects from the object-storage by Key and Function
 %%
@@ -177,19 +167,6 @@ store(Id, Metadata, Bin) ->
     gen_server:call(Id, {store, Metadata, Bin}, ?DEF_TIMEOUT).
 
 
--ifdef(TEST).
-%% @doc Store metadata and data
-%%
--spec(add_incorrect_data(atom(), binary()) ->
-             ok | {error, any()}).
-add_incorrect_data(Id, Bin) ->
-    gen_server:call(Id, {add_incorrect_data, Bin}, ?DEF_TIMEOUT).
--endif.
-
-
-%%--------------------------------------------------------------------
-%% API - data-compaction.
-%%--------------------------------------------------------------------
 %% @doc compaction/start prepare(check disk usage, mk temporary file...)
 %%
 -spec(compact(atom(), function()) ->
@@ -197,9 +174,7 @@ add_incorrect_data(Id, Bin) ->
 compact(Id, FunHasChargeOfNode) ->
     gen_server:call(Id, {compact, FunHasChargeOfNode}, infinity).
 
-%%--------------------------------------------------------------------
-%% API - suspend data-compaction.
-%%--------------------------------------------------------------------
+
 %% @doc compaction/suspend
 %%
 -spec(compact_suspend(atom()) ->
@@ -210,9 +185,7 @@ compact_suspend(Id) ->
 compact_done(#state{id = Id} = NewState) ->
     gen_server:cast(Id, {compact_done, NewState}).
 
-%%--------------------------------------------------------------------
-%% API - resume data-compaction.
-%%--------------------------------------------------------------------
+
 %% @doc compaction/resume
 %%
 -spec(compact_resume(atom()) ->
@@ -220,16 +193,46 @@ compact_done(#state{id = Id} = NewState) ->
 compact_resume(Id) ->
     gen_server:call(Id, compact_resume, infinity).
 
-%%--------------------------------------------------------------------
-%% API - get the storage stats
-%%--------------------------------------------------------------------
-%% @doc get the storage stats specfied by Id which contains number of (active)object and so on.
+
+%% @doc Retrieve the storage stats specfied by Id
+%%      which contains number of objects and so on.
 %%
 -spec(stats(atom()) ->
              {ok, #storage_stats{}} |
              {error, any()}).
 stats(Id) ->
     gen_server:call(Id, stats, ?DEF_TIMEOUT).
+
+
+%% @doc Get AVS format version binary like <<"LeoFS AVS-2.2">>
+-spec(get_avs_version_bin(atom()) -> ok).
+get_avs_version_bin(Id) ->
+    gen_server:call(Id, get_avs_version_bin, ?DEF_TIMEOUT).
+
+
+%% @doc Retrieve a metada/data from backend_db/object-storage
+%%      AND calc MD5 based on the body data
+%%
+-spec(head_with_calc_md5(atom(), tuple(), any()) ->
+             {ok, #?METADATA{}, any()} | {error, any()}).
+head_with_calc_md5(Id, Key, MD5Context) ->
+    gen_server:call(Id, {head_with_calc_md5, Key, MD5Context}, ?DEF_TIMEOUT).
+
+
+%% @doc Close a storage
+%%
+close(Id) ->
+    gen_server:call(Id, close, ?DEF_TIMEOUT).
+
+
+-ifdef(TEST).
+%% @doc Store metadata and data
+%%
+-spec(add_incorrect_data(atom(), binary()) ->
+             ok | {error, any()}).
+add_incorrect_data(Id, Bin) ->
+    gen_server:call(Id, {add_incorrect_data, Bin}, ?DEF_TIMEOUT).
+-endif.
 
 
 %%====================================================================
@@ -298,9 +301,6 @@ init([Id, SeqNo, MetaDBId, RootPath, IsStrictCheck]) ->
 handle_call(stop, _From, State) ->
     {stop, shutdown, ok, State};
 
-handle_call(get_avs_version_bin, _From, #state{object_storage = StorageInfo} = State) ->
-    Reply = {ok, StorageInfo#backend_info.avs_version_bin_cur},
-    {reply, Reply, State};
 
 handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
                                          object_storage = StorageInfo,
@@ -389,20 +389,6 @@ handle_call({head, {AddrId, Key}},
     Reply = leo_object_storage_haystack:head(MetaDBId, BackendKey),
     {reply, Reply, State};
 
-handle_call({head_with_calc_md5, {AddrId, Key}, MD5Context},
-            _From, #state{meta_db_id      = MetaDBId,
-                          object_storage  = StorageInfo} = State) ->
-    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
-                                  AddrId, Key),
-    Reply = leo_object_storage_haystack:head_with_calc_md5(
-              MetaDBId, StorageInfo, BackendKey, MD5Context),
-
-    NewState = after_proc(Reply, State),
-    erlang:garbage_collect(self()),
-
-    {reply, Reply, NewState};
-
-
 handle_call({fetch, {AddrId, Key}, Fun, MaxKeys},
             _From, #state{meta_db_id     = MetaDBId,
                           object_storage = StorageInfo} = State) ->
@@ -473,6 +459,32 @@ handle_call({compact, FunHasChargeOfNode}, {FromPid, _FromRef},
                       FunHasChargeOfNode]),
     {reply, ok, State1#state{compaction_exec_pid = Pid}};
 
+handle_call(get_avs_version_bin, _From, #state{object_storage = StorageInfo} = State) ->
+    Reply = {ok, StorageInfo#backend_info.avs_version_bin_cur},
+    {reply, Reply, State};
+
+handle_call({head_with_calc_md5, {AddrId, Key}, MD5Context},
+            _From, #state{meta_db_id      = MetaDBId,
+                          object_storage  = StorageInfo} = State) ->
+    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
+                                  AddrId, Key),
+    Reply = leo_object_storage_haystack:head_with_calc_md5(
+              MetaDBId, StorageInfo, BackendKey, MD5Context),
+
+    NewState = after_proc(Reply, State),
+    erlang:garbage_collect(self()),
+    {reply, Reply, NewState};
+
+handle_call(close, _From,
+            #state{id = Id,
+                   state_filepath = StateFilePath,
+                   storage_stats  = StorageStats,
+                   object_storage = #backend_info{write_handler = WriteHandler,
+                                                  read_handler  = ReadHandler}} = State) ->
+    ok = close_storage(Id, StateFilePath,
+                       StorageStats, WriteHandler, ReadHandler),
+    {reply, ok, State};
+
 handle_call({add_incorrect_data,_Bin},
             _From, #state{object_storage =_StorageInfo} = State) ->
     ?add_incorrect_data(_StorageInfo,_Bin),
@@ -527,18 +539,8 @@ terminate(_Reason, #state{id = Id,
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "terminate/2"},
                            {line, ?LINE}, {body, Id}]),
-
-    _ = filelib:ensure_dir(StateFilePath),
-    _ = leo_file:file_unconsult(
-          StateFilePath,
-          [{id, Id},
-           {total_sizes,  StorageStats#storage_stats.total_sizes},
-           {active_sizes, StorageStats#storage_stats.active_sizes},
-           {total_num,    StorageStats#storage_stats.total_num},
-           {active_num,   StorageStats#storage_stats.active_num},
-           {compaction_histories, StorageStats#storage_stats.compaction_histories},
-           {has_error,            StorageStats#storage_stats.has_error}]),
-    ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
+    ok = close_storage(Id, StateFilePath,
+                       StorageStats, WriteHandler, ReadHandler),
     ok.
 
 %% Func: code_change(OldVsn, State, Extra) -> {ok, NewState}
@@ -964,3 +966,20 @@ do_comapct_1(Error,_,_,_) ->
              string()).
 gen_raw_file_path(FilePath) ->
     lists:append([FilePath, "_", integer_to_list(leo_date:now())]).
+
+
+%% @doc Close a storage
+%% @private
+close_storage(Id, StateFilePath, StorageStats, WriteHandler, ReadHandler) ->
+    _ = filelib:ensure_dir(StateFilePath),
+    _ = leo_file:file_unconsult(
+          StateFilePath,
+          [{id, Id},
+           {total_sizes,  StorageStats#storage_stats.total_sizes},
+           {active_sizes, StorageStats#storage_stats.active_sizes},
+           {total_num,    StorageStats#storage_stats.total_num},
+           {active_num,   StorageStats#storage_stats.active_num},
+           {compaction_histories, StorageStats#storage_stats.compaction_histories},
+           {has_error,            StorageStats#storage_stats.has_error}]),
+    ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
+    ok.
