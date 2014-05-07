@@ -43,7 +43,7 @@ start(_Type, _Args) ->
     leo_object_storage_sup:start_link().
 
 prep_stop(_State) ->
-    ok = leo_backend_db_sup:stop(),
+    ok = leo_object_storage_sup:stop(),
     ok.
 
 stop(_State) ->

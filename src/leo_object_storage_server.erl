@@ -972,8 +972,8 @@ gen_raw_file_path(FilePath) ->
 
 %% @doc Close a storage
 %% @private
-close_storage(Id, MetaDBId, StateFilePath, StorageStats, WriteHandler, ReadHandler) ->
-    ?debugVal(MetaDBId),
+close_storage(Id, MetaDBId, StateFilePath,
+              StorageStats, WriteHandler, ReadHandler) ->
     _ = filelib:ensure_dir(StateFilePath),
     _ = leo_file:file_unconsult(
           StateFilePath,
