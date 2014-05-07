@@ -33,7 +33,8 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([open/1, close/2,
-         put/3, get/3, get/6, delete/3, head/2, fetch/4, store/4]).
+         put/3, get/3, get/6, delete/3, head/2,
+         fetch/4, store/4]).
 
 -export([head_with_calc_md5/4]).
 
@@ -77,7 +78,8 @@ open(FilePath) ->
                 {ok, ReadHandler} ->
                     case file:read_line(ReadHandler) of
                         {ok, Bin} ->
-                            {ok, [WriteHandler, ReadHandler, binary:part(Bin, 0, size(Bin) - 1)]};
+                            {ok, [WriteHandler, ReadHandler,
+                                  binary:part(Bin, 0, size(Bin) - 1)]};
                         Error ->
                             Error
                     end;
@@ -151,6 +153,7 @@ head(MetaDBId, Key) ->
             {error, Cause}
     end.
 
+
 %% @doc Retrieve a metada/data from backend_db/object-storage
 %%      AND calc MD5 based on the body data
 %%
@@ -159,13 +162,14 @@ head(MetaDBId, Key) ->
 head_with_calc_md5(MetaDBId, StorageInfo, Key, MD5Context) ->
     case get_fun(MetaDBId, StorageInfo, Key, 0, 0, false) of
         {ok, #?METADATA{cnumber = 0} = Meta, #?OBJECT{data = Bin}} ->
-            % calc MD5
+            %% calc MD5
             {ok, Meta, crypto:hash_update(MD5Context, Bin)};
         {ok, #?METADATA{cnumber = _N} = Meta, _Object} ->
-            % Not calc due to existing some grand childs
+            %% Not calc due to existing some grand childs
             {ok, Meta, MD5Context};
         Other -> Other
     end.
+
 
 %% @doc Fetch objects from the object-storage
 %%
@@ -175,6 +179,7 @@ fetch(MetaDBId, Key, Fun, undefined) ->
     leo_backend_db_api:fetch(MetaDBId, Key, Fun);
 fetch(MetaDBId, Key, Fun, MaxKeys) ->
     leo_backend_db_api:fetch(MetaDBId, Key, Fun, MaxKeys).
+
 
 %% @doc Store metadata and binary
 %%
@@ -208,7 +213,8 @@ add_incorrect_data(StorageInfo, Data) ->
             add_incorrect_data(WriteHandler, Offset, Data);
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "add_incorrect_data/2"},
+                                   [{module, ?MODULE_STRING},
+                                    {function, "add_incorrect_data/2"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
@@ -220,7 +226,8 @@ add_incorrect_data(WriteHandler, Offset, Data) ->
             ok;
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "add_incorrect_data/2"},
+                                   [{module, ?MODULE_STRING},
+                                    {function, "add_incorrect_data/2"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
@@ -242,18 +249,21 @@ create_file(FilePath) ->
                     {ok, PutFileHandler};
                 {error, Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING}, {function, "create_file/1"},
+                                           [{module, ?MODULE_STRING},
+                                            {function, "create_file/1"},
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause}
             end;
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "create_file/1"},
+                                   [{module, ?MODULE_STRING},
+                                    {function, "create_file/1"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause};
         {'EXIT', Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "create_file/1"},
+                                   [{module, ?MODULE_STRING},
+                                    {function, "create_file/1"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
@@ -362,12 +372,14 @@ get_fun_1(_MetaDBId, StorageInfo, #?METADATA{ksize    = KSize,
             {error, Cause};
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "get_fun/1"},
+                                   [{module, ?MODULE_STRING},
+                                    {function, "get_fun/1"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end;
 
-%% For parent of chunked object
+%% @doc For parent of chunked object
+%% @private
 get_fun_1(_MetaDBId,_StorageInfo, #?METADATA{} = Metadata, _,_,_) ->
     Object = leo_object_storage_transformer:metadata_to_object(Metadata),
     {ok, Metadata, Object#?OBJECT{data  = <<>>,
@@ -394,7 +406,8 @@ put_super_block(ObjectStorageWriteHandler) ->
             {ok, ObjectStorageWriteHandler};
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "put_super_block/1"},
+                                   [{module, ?MODULE_STRING},
+                                    {function, "put_super_block/1"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
@@ -446,7 +459,6 @@ create_needle(#?OBJECT{addr_id    = AddrId,
     Needle.
 
 
-
 %% @doc Insert an object into the object-storage
 %% @private
 put_fun_1(MetaDBId, StorageInfo, Object) ->
@@ -457,11 +469,13 @@ put_fun_1(MetaDBId, StorageInfo, Object) ->
             put_fun_2(MetaDBId, StorageInfo, Object#?OBJECT{offset = Offset});
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "put_fun_1/1"},
+                                   [{module, ?MODULE_STRING},
+                                    {function, "put_fun_1/1"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
 
+%% @private
 put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key      = Key,
                                           data     = Bin,
                                           checksum = Checksum} = Object) ->
@@ -475,6 +489,7 @@ put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key      = Key,
     Metadata = leo_object_storage_transformer:object_to_metadata(Object_1),
     put_fun_3(MetaDBId, StorageInfo, Needle, Metadata).
 
+%% @private
 put_fun_3(MetaDBId, StorageInfo, Needle, #?METADATA{key      = Key,
                                                     addr_id  = AddrId,
                                                     offset   = Offset,
@@ -492,18 +507,21 @@ put_fun_3(MetaDBId, StorageInfo, Needle, #?METADATA{key      = Key,
                     {ok, Checksum};
                 {'EXIT', Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING}, {function, "put_fun_3/2"},
+                                           [{module, ?MODULE_STRING},
+                                            {function, "put_fun_3/2"},
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause};
                 {error, Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING}, {function, "put_fun_3/2"},
+                                           [{module, ?MODULE_STRING},
+                                            {function, "put_fun_3/2"},
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause}
             end;
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "put_fun_3/2"},
+                                   [{module, ?MODULE_STRING},
+                                    {function, "put_fun_3/2"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
@@ -512,7 +530,7 @@ put_fun_3(MetaDBId, StorageInfo, Needle, #?METADATA{key      = Key,
 %% COMPACTION FUNCTIONS
 %%--------------------------------------------------------------------
 %% @doc Insert an object into the object-container when compacting
-%% @private
+%%
 -spec(compact_put(pid(), #?METADATA{}, binary(), binary()) ->
              ok | {error, any()}).
 compact_put(WriteHandler, Metadata, KeyBin, BodyBin) ->
@@ -548,7 +566,7 @@ compact_put(WriteHandler, Metadata, KeyBin, BodyBin) ->
 
 
 %% @doc Retrieve a file from object-container when compacting.
-%% @private
+%%
 -spec(compact_get(pid()) ->
              ok | {error, any()}).
 compact_get(ReadHandler) ->
@@ -567,7 +585,8 @@ compact_get(ReadHandler, Offset) ->
                 _ ->
                     Cause = ?ERROR_DATA_SIZE_DID_NOT_MATCH,
                     error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING}, {function, "compact_get/2"},
+                                           [{module, ?MODULE_STRING},
+                                            {function, "compact_get/2"},
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause}
             end;
