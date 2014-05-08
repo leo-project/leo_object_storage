@@ -320,9 +320,8 @@ handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
                 {1, 0}
         end,
 
-    NewSize = leo_object_storage_haystack:calc_obj_size(Object),
-    Reply   = leo_object_storage_haystack:put(MetaDBId, StorageInfo, Object),
-
+    NewSize  = leo_object_storage_haystack:calc_obj_size(Object),
+    Reply    = leo_object_storage_haystack:put(MetaDBId, StorageInfo, Object),
     NewState = after_proc(Reply, State),
     _ = erlang:garbage_collect(self()),
 
