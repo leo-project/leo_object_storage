@@ -479,12 +479,12 @@ put_fun_1(MetaDBId, StorageInfo, Object) ->
 put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key      = Key,
                                           data     = Bin,
                                           checksum = Checksum} = Object) ->
-    Checksum1 = case Checksum of
+    Checksum_1 = case Checksum of
                     0 -> leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin));
                     _ -> Checksum
                 end,
     Object_1 = Object#?OBJECT{ksize    = byte_size(Key),
-                              checksum = Checksum1},
+                              checksum = Checksum_1},
     Needle = create_needle(Object_1),
     Metadata = leo_object_storage_transformer:object_to_metadata(Object_1),
     put_fun_3(MetaDBId, StorageInfo, Needle, Metadata).
@@ -673,15 +673,15 @@ compact_get(#?METADATA{ksize = KSize,
 compact_get_1(_HeaderBin, #?METADATA{ksize = 0},_DSize,_Bin,_TotalSize) ->
     {error, ?ERROR_DATA_SIZE_DID_NOT_MATCH};
 compact_get_1(HeaderBin, #?METADATA{ksize = KSize,
-                                    msize = 0
-                                   } = Metadata, DSize, Bin, TotalSize) ->
+                                    msize = 0} = Metadata,
+              DSize, Bin, TotalSize) ->
     << KeyBin:KSize/binary,
        BodyBin:DSize/binary,
        _Footer/binary>> = Bin,
     compact_get_2(HeaderBin, Metadata, KeyBin, BodyBin, <<>>, TotalSize);
 compact_get_1(HeaderBin, #?METADATA{ksize = KSize,
-                                    msize = MSize
-                                   } = Metadata, DSize, Bin, TotalSize) ->
+                                    msize = MSize} = Metadata,
+              DSize, Bin, TotalSize) ->
     << KeyBin:KSize/binary,
        BodyBin:DSize/binary,
        CMetaBin:MSize/binary,
@@ -693,11 +693,14 @@ compact_get_2(HeaderBin, Metadata, KeyBin, BodyBin, CMetaBin, TotalSize) ->
     Checksum = Metadata#?METADATA.checksum,
     Metadata_1 = leo_object_storage_transformer:cmeta_bin_into_metadata(
                    CMetaBin, Metadata),
-    case leo_hex:raw_binary_to_integer(crypto:hash(md5, BodyBin)) of
-        Checksum ->
+    Checksum_1 = leo_hex:raw_binary_to_integer(crypto:hash(md5, BodyBin)),
+
+    case (Checksum == Checksum_1
+          orelse Checksum_1 == ?MD5_EMPTY_BIN) of
+        true ->
             {ok, Metadata_1#?METADATA{key = KeyBin},
              [HeaderBin, KeyBin, BodyBin, TotalSize]};
-        _Other ->
+        false ->
             Cause = ?ERROR_INVALID_DATA,
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
