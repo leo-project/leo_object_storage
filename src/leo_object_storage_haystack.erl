@@ -536,7 +536,7 @@ put_fun_3(MetaDBId, StorageInfo, Needle, #?METADATA{key      = Key,
 compact_put(WriteHandler, Metadata, KeyBin, BodyBin) ->
     case file:position(WriteHandler, eof) of
         {ok, Offset} ->
-            Metadata_1 = leo_object_storage_transformer: transform_metadata(Metadata),
+            Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
             Object = leo_object_storage_transformer:metadata_to_object(Metadata_1),
             Needle = create_needle(Object#?OBJECT{key  = KeyBin,
                                                   data = BodyBin}),
