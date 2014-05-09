@@ -308,7 +308,7 @@ handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
     Key = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
                            Object#?OBJECT.addr_id,
                            Object#?OBJECT.key),
-    {DiffRec, Oldsize} =
+    {DiffRec, OldSize} =
         case leo_object_storage_haystack:head(MetaDBId, Key) of
             not_found ->
                 {1, 0};
@@ -328,7 +328,7 @@ handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
     NewStorageStats =
         StorageStats#storage_stats{
           total_sizes  = StorageStats#storage_stats.total_sizes  + NewSize,
-          active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - Oldsize),
+          active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - OldSize),
           total_num    = StorageStats#storage_stats.total_num    + 1,
           active_num   = StorageStats#storage_stats.active_num   + DiffRec},
     {reply, Reply, NewState#state{storage_stats = NewStorageStats}};
@@ -355,7 +355,7 @@ handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
     Key = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
                            Object#?OBJECT.addr_id,
                            Object#?OBJECT.key),
-    {DiffRec, Oldsize} =
+    {DiffRec, OldSize} =
         case leo_object_storage_haystack:head(
                MetaDBId, Key) of
             not_found ->
@@ -374,7 +374,7 @@ handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
     NewStorageStats =
         StorageStats#storage_stats{
           total_sizes  = StorageStats#storage_stats.total_sizes  + NewSize,
-          active_sizes = StorageStats#storage_stats.active_sizes - (NewSize - Oldsize),
+          active_sizes = StorageStats#storage_stats.active_sizes - (NewSize - OldSize),
           total_num    = StorageStats#storage_stats.total_num    + 1,
           active_num   = StorageStats#storage_stats.active_num   + DiffRec},
     {reply, Reply, NewState#state{storage_stats = NewStorageStats}};
@@ -404,7 +404,7 @@ handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
     BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
                                   Metadata_1#?METADATA.addr_id,
                                   Metadata_1#?METADATA.key),
-    {DiffRec, Oldsize} =
+    {DiffRec, OldSize} =
         case leo_object_storage_haystack:head(MetaDBId, BackendKey) of
             not_found ->
                 {1, 0};
@@ -420,7 +420,7 @@ handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
     NewStorageStats =
         StorageStats#storage_stats{
           total_sizes  = StorageStats#storage_stats.total_sizes  + NewSize,
-          active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - Oldsize),
+          active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - OldSize),
           total_num    = StorageStats#storage_stats.total_num    + 1,
           active_num   = StorageStats#storage_stats.active_num   + DiffRec},
     {reply, Reply, State#state{storage_stats = NewStorageStats}};
