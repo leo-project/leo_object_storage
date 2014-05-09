@@ -416,18 +416,7 @@ compact_test_() ->
              %% inspect for compaction
              {ok, Res1} = leo_object_storage_api:stats(),
              {SumTotal1, SumActive1, SumTotalSize1, SumActiveSize1}
-                 = lists:foldl(
-                     fun({ok, #storage_stats{file_path  = _ObjPath,
-                                             total_sizes = TotalSize,
-                                             active_sizes = ActiveSize,
-                                             total_num  = Total,
-                                             active_num = Active}},
-                         {SumTotal, SumActive, SumTotalSize, SumActiveSize}) ->
-                             {SumTotal + Total,
-                              SumActive + Active,
-                              SumTotalSize + TotalSize,
-                              SumActiveSize + ActiveSize}
-                     end, {0, 0, 0, 0}, Res1),
+                 = get_avs_stats_summary(Res1),
              ?assertEqual(18, SumTotal1),
              ?assertEqual(13, SumActive1),
              ?assertEqual(true, SumTotalSize1 > SumActiveSize1),
@@ -470,30 +459,20 @@ compact_test_() ->
 
              timer:sleep(3000),
              {ok, Res2} = leo_object_storage_api:stats(),
-             {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2}
-                 = lists:foldl(
-                     fun({ok, #storage_stats{file_path  = _ObjPath,
-                                             compaction_histories = [{Start, End}|_Rest],
-                                             total_sizes = TotalSize,
-                                             active_sizes = ActiveSize,
-                                             has_error = HasError,
-                                             total_num  = Total,
-                                             active_num = Active} = SS},
-                         {SumTotal, SumActive, SumTotalSize, SumActiveSize}) ->
-                             io:format(user, "[debug]ss:~p~n",[SS]),
-                             case TotalSize of
-                                 0 -> void;
-                                 _ -> ?assertEqual(false, HasError)
-                             end,
-                             ?assertEqual(true, Start =< End),
-                             {SumTotal + Total,
-                              SumActive + Active,
-                              SumTotalSize + TotalSize,
-                              SumActiveSize + ActiveSize}
-                     end, {0, 0, 0, 0}, Res2),
+             {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2} 
+                 = get_avs_stats_summary(Res2),
+             io:format(user, "[debug] summary1:~p~n", [{SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2}]),
              ?assertEqual(13, SumTotal2),
              ?assertEqual(13, SumActive2),
              ?assertEqual(true, SumTotalSize2 =:= SumActiveSize2),
+
+             %% confirm whether first compaction have broken avs files or not
+             ok = leo_compaction_manager_fsm:start(TargetPids, 2, FunHasChargeOfNode),
+             timer:sleep(5000),
+             %% must be equal the previous stats
+             {ok, Res3} = leo_object_storage_api:stats(),
+             {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2}
+                 = get_avs_stats_summary(Res3),
 
              %% inspect for after compaction
              TestAddrId0 = 0,
@@ -542,6 +521,27 @@ compact_test_() ->
 %%--------------------------------------------------------------------
 %% INNER FUNCTIONS
 %%--------------------------------------------------------------------
+get_avs_stats_summary(ResStats) ->
+    lists:foldl(
+        fun({ok, #storage_stats{file_path  = _ObjPath,
+                                total_sizes = TotalSize,
+                                active_sizes = ActiveSize,
+                                has_error = HasError,
+                                total_num  = Total,
+                                active_num = Active} = SS},
+            {SumTotal, SumActive, SumTotalSize, SumActiveSize}) ->
+                io:format(user, "[debug]ss:~p~n",[SS]),
+                case TotalSize of
+                    0 -> void;
+                    _ -> ?assertEqual(false, HasError)
+                end,
+                {SumTotal + Total,
+                 SumActive + Active,
+                 SumTotalSize + TotalSize,
+                 SumActiveSize + ActiveSize}
+        end, {0, 0, 0, 0}, ResStats).
+
+
 put_test_data(AddrId, Key, Bin) ->
     Object = #?OBJECT{method    = put,
                       addr_id   = AddrId,
