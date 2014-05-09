@@ -539,7 +539,8 @@ compact_put(WriteHandler, Metadata, KeyBin, BodyBin) ->
             Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
             Object = leo_object_storage_transformer:metadata_to_object(Metadata_1),
             Needle = create_needle(Object#?OBJECT{key  = KeyBin,
-                                                  data = BodyBin}),
+                                                  data = BodyBin,
+                                                  offset = Offset}),
             case catch file:pwrite(WriteHandler, Offset, Needle) of
                 ok ->
                     {ok, Offset};

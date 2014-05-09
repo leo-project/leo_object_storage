@@ -834,13 +834,15 @@ calc_remain_disksize(MetaDBId, FilePath) ->
 %% @private
 -spec(is_deleted_rec(atom(), #backend_info{}, #?METADATA{}) ->
              boolean()).
-is_deleted_rec(_MetaDBId, _StorageInfo, #?METADATA{del = Del}) when Del =/= ?DEL_FALSE ->
+is_deleted_rec(_MetaDBId, _StorageInfo, #?METADATA{del = ?DEL_TRUE}) ->
     true;
 is_deleted_rec(MetaDBId, #backend_info{avs_version_bin_prv = AVSVsnBinPrv} = StorageInfo,
                #?METADATA{key      = Key,
                           addr_id  = AddrId} = MetaFromAvs) ->
     KeyOfMetadata = ?gen_backend_key(AVSVsnBinPrv, AddrId, Key),
     case leo_backend_db_api:get(MetaDBId, KeyOfMetadata) of
+        {ok, #?METADATA{del = ?DEL_TRUE}} ->
+            true;
         {ok, MetaOrg} ->
             MetaOrgTerm = binary_to_term(MetaOrg),
             is_deleted_rec(MetaDBId, StorageInfo, MetaFromAvs, MetaOrgTerm);
@@ -853,10 +855,6 @@ is_deleted_rec(MetaDBId, #backend_info{avs_version_bin_prv = AVSVsnBinPrv} = Sto
 %% @private
 -spec(is_deleted_rec(atom(), #backend_info{}, #?METADATA{}, #?METADATA{}) ->
              boolean()).
-is_deleted_rec(_MetaDBId,_StorageInfo,
-               _Meta,
-               #?METADATA{del = Del}) when Del /= 0 ->
-    true;
 is_deleted_rec(_MetaDBId,_StorageInfo,
                #?METADATA{offset = Offset_1},
                #?METADATA{offset = Offset_2}) when Offset_1 /= Offset_2 ->
