@@ -308,7 +308,7 @@ handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
     Key = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
                            Object#?OBJECT.addr_id,
                            Object#?OBJECT.key),
-    {DiffRec, Oldsize} =
+    {DiffRec, OldSize} =
         case leo_object_storage_haystack:head(MetaDBId, Key) of
             not_found ->
                 {1, 0};
@@ -328,7 +328,7 @@ handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
     NewStorageStats =
         StorageStats#storage_stats{
           total_sizes  = StorageStats#storage_stats.total_sizes  + NewSize,
-          active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - Oldsize),
+          active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - OldSize),
           total_num    = StorageStats#storage_stats.total_num    + 1,
           active_num   = StorageStats#storage_stats.active_num   + DiffRec},
     {reply, Reply, NewState#state{storage_stats = NewStorageStats}};
@@ -355,7 +355,7 @@ handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
     Key = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
                            Object#?OBJECT.addr_id,
                            Object#?OBJECT.key),
-    {DiffRec, Oldsize} =
+    {DiffRec, OldSize} =
         case leo_object_storage_haystack:head(
                MetaDBId, Key) of
             not_found ->
@@ -374,7 +374,7 @@ handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
     NewStorageStats =
         StorageStats#storage_stats{
           total_sizes  = StorageStats#storage_stats.total_sizes  + NewSize,
-          active_sizes = StorageStats#storage_stats.active_sizes - (NewSize - Oldsize),
+          active_sizes = StorageStats#storage_stats.active_sizes - (NewSize - OldSize),
           total_num    = StorageStats#storage_stats.total_num    + 1,
           active_num   = StorageStats#storage_stats.active_num   + DiffRec},
     {reply, Reply, NewState#state{storage_stats = NewStorageStats}};
@@ -404,7 +404,7 @@ handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
     BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
                                   Metadata_1#?METADATA.addr_id,
                                   Metadata_1#?METADATA.key),
-    {DiffRec, Oldsize} =
+    {DiffRec, OldSize} =
         case leo_object_storage_haystack:head(MetaDBId, BackendKey) of
             not_found ->
                 {1, 0};
@@ -420,7 +420,7 @@ handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
     NewStorageStats =
         StorageStats#storage_stats{
           total_sizes  = StorageStats#storage_stats.total_sizes  + NewSize,
-          active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - Oldsize),
+          active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - OldSize),
           total_num    = StorageStats#storage_stats.total_num    + 1,
           active_num   = StorageStats#storage_stats.active_num   + DiffRec},
     {reply, Reply, State#state{storage_stats = NewStorageStats}};
@@ -834,13 +834,15 @@ calc_remain_disksize(MetaDBId, FilePath) ->
 %% @private
 -spec(is_deleted_rec(atom(), #backend_info{}, #?METADATA{}) ->
              boolean()).
-is_deleted_rec(_MetaDBId, _StorageInfo, #?METADATA{del = Del}) when Del =/= ?DEL_FALSE ->
+is_deleted_rec(_MetaDBId, _StorageInfo, #?METADATA{del = ?DEL_TRUE}) ->
     true;
 is_deleted_rec(MetaDBId, #backend_info{avs_version_bin_prv = AVSVsnBinPrv} = StorageInfo,
                #?METADATA{key      = Key,
                           addr_id  = AddrId} = MetaFromAvs) ->
     KeyOfMetadata = ?gen_backend_key(AVSVsnBinPrv, AddrId, Key),
     case leo_backend_db_api:get(MetaDBId, KeyOfMetadata) of
+        {ok, #?METADATA{del = ?DEL_TRUE}} ->
+            true;
         {ok, MetaOrg} ->
             MetaOrgTerm = binary_to_term(MetaOrg),
             is_deleted_rec(MetaDBId, StorageInfo, MetaFromAvs, MetaOrgTerm);
@@ -853,10 +855,6 @@ is_deleted_rec(MetaDBId, #backend_info{avs_version_bin_prv = AVSVsnBinPrv} = Sto
 %% @private
 -spec(is_deleted_rec(atom(), #backend_info{}, #?METADATA{}, #?METADATA{}) ->
              boolean()).
-is_deleted_rec(_MetaDBId,_StorageInfo,
-               _Meta,
-               #?METADATA{del = Del}) when Del /= 0 ->
-    true;
 is_deleted_rec(_MetaDBId,_StorageInfo,
                #?METADATA{offset = Offset_1},
                #?METADATA{offset = Offset_2}) when Offset_1 /= Offset_2 ->

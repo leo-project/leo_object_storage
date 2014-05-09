@@ -58,16 +58,26 @@
 %% @doc Open and clreate a file.
 %%
 -spec(calc_obj_size(#?METADATA{}|#?OBJECT{}) -> integer()).
-calc_obj_size(#?METADATA{ksize = KSize, dsize = DSize}) ->
+calc_obj_size(#?METADATA{ksize = KSize,
+                         dsize = DSize,
+                         cnumber = 0}) ->
     calc_obj_size(KSize, DSize);
-calc_obj_size(#?OBJECT{key = Key, dsize = DSize}) ->
+calc_obj_size(#?METADATA{ksize = KSize}) ->
+    calc_obj_size(KSize, 0);
+
+calc_obj_size(#?OBJECT{key  = Key,
+                       dsize = DSize,
+                       cnumber = 0}) ->
     KSize = byte_size(Key),
-    calc_obj_size(KSize, DSize).
+    calc_obj_size(KSize, DSize);
+calc_obj_size(#?OBJECT{key  = Key}) ->
+    KSize = byte_size(Key),
+    calc_obj_size(KSize, 0).
+
 -spec(calc_obj_size(integer(), integer()) -> integer()).
 calc_obj_size(KSize, DSize) ->
-    %% header + footer(padding) + ksize +dsize
-    %%        + binary_to_term(Key, AddrId) + binary_to_term(Metadata)
-    ?BLEN_HEADER/8 + KSize*3 + DSize + ?LEN_PADDING + 58.
+    ?BLEN_HEADER/8 + KSize + DSize + ?LEN_PADDING.
+
 
 -spec(open(FilePath::string) ->
              {ok, port(), port(), binary()} | {error, any()}).
@@ -536,10 +546,11 @@ put_fun_3(MetaDBId, StorageInfo, Needle, #?METADATA{key      = Key,
 compact_put(WriteHandler, Metadata, KeyBin, BodyBin) ->
     case file:position(WriteHandler, eof) of
         {ok, Offset} ->
-            Metadata_1 = leo_object_storage_transformer: transform_metadata(Metadata),
+            Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
             Object = leo_object_storage_transformer:metadata_to_object(Metadata_1),
             Needle = create_needle(Object#?OBJECT{key  = KeyBin,
-                                                  data = BodyBin}),
+                                                  data = BodyBin,
+                                                  offset = Offset}),
             case catch file:pwrite(WriteHandler, Offset, Needle) of
                 ok ->
                     {ok, Offset};
