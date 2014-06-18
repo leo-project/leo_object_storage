@@ -57,7 +57,8 @@
 %%--------------------------------------------------------------------
 %% @doc Open and clreate a file.
 %%
--spec(calc_obj_size(#?METADATA{}|#?OBJECT{}) -> integer()).
+-spec(calc_obj_size(#?METADATA{}|#?OBJECT{}) ->
+             non_neg_integer()).
 calc_obj_size(#?METADATA{ksize = KSize,
                          dsize = DSize,
                          cnumber = 0}) ->
@@ -74,9 +75,10 @@ calc_obj_size(#?OBJECT{key  = Key}) ->
     KSize = byte_size(Key),
     calc_obj_size(KSize, 0).
 
--spec(calc_obj_size(integer(), integer()) -> integer()).
+-spec(calc_obj_size(non_neg_integer(), non_neg_integer()) ->
+             integer()).
 calc_obj_size(KSize, DSize) ->
-    ?BLEN_HEADER/8 + KSize + DSize + ?LEN_PADDING.
+    erlang:round(?BLEN_HEADER/8 + KSize + DSize + ?LEN_PADDING).
 
 
 -spec(open(FilePath::string) ->
@@ -103,7 +105,7 @@ open(FilePath) ->
 
 %% @doc Close file handlers.
 %%
--spec(close(Writehandler::port(), ReadHandler::port()) ->
+-spec(close(port()|_, port()|_) ->
              ok).
 close(WriteHandler, ReadHandler) ->
     catch file:close(WriteHandler),
@@ -184,7 +186,7 @@ head_with_calc_md5(MetaDBId, StorageInfo, Key, MD5Context) ->
 %% @doc Fetch objects from the object-storage
 %%
 -spec(fetch(atom(), binary(), function(), pos_integer()|undefined) ->
-             ok | {error, any()}).
+             {ok, list()} | not_found | {error, any()}).
 fetch(MetaDBId, Key, Fun, undefined) ->
     leo_backend_db_api:fetch(MetaDBId, Key, Fun);
 fetch(MetaDBId, Key, Fun, MaxKeys) ->

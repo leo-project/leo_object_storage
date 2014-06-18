@@ -36,6 +36,8 @@
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
+-spec(metadata_to_object(#metadata{} | #?METADATA{}) ->
+             #?OBJECT{} | {error, invaid_record}).         
 metadata_to_object(#metadata{key     = Key,
                              addr_id = AddrId,
                              ksize   = KSize,
@@ -174,7 +176,7 @@ object_to_metadata(_) ->
 
 %% @doc Transform old-type metadata to current-type
 -spec(transform_metadata(#metadata{} | #metadata_1{}) ->
-             #metadata_1{}).
+             #metadata_1{} | {error, invaid_record}).
 transform_metadata(#metadata{key     = Key,
                              addr_id = AddrId,
                              ksize   = KSize,
@@ -211,7 +213,7 @@ transform_metadata(_) ->
 
 %% @doc Transport a header-bin to a metadata
 -spec(header_bin_to_metadata(binary()) ->
-             #?METADATA{}).
+             #?METADATA{} | {error, invaid_record}).
 header_bin_to_metadata(Bin) ->
     try
         << Checksum:?BLEN_CHKSUM,

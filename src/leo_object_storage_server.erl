@@ -95,13 +95,13 @@
 %%====================================================================
 %% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
 %% Description: Starts the server
--spec(start_link(atom(), integer(), atom(), string()) ->
-             ok | {error, any()}).
+-spec(start_link(atom(), non_neg_integer(), atom(), string()) ->
+             {ok, pid()} | {error, any()}).
 start_link(Id, SeqNo, MetaDBId, RootPath) ->
     start_link(Id, SeqNo, MetaDBId, RootPath, false).
 
--spec(start_link(atom(), integer(), atom(), string(), boolean()) ->
-             ok | {error, any()}).
+-spec(start_link(atom(), non_neg_integer(), atom(), string(), boolean()) ->
+             {ok, pid()} | {error, any()}).
 start_link(Id, SeqNo, MetaDBId, RootPath, IsStrictCheck) ->
     gen_server:start_link({local, Id}, ?MODULE,
                           [Id, SeqNo, MetaDBId, RootPath, IsStrictCheck], []).
@@ -153,7 +153,7 @@ head(Id, Key) ->
 
 %% @doc Retrieve objects from the object-storage by Key and Function
 %%
--spec(fetch(atom(), binary(), function(), pos_integer()|undefined) ->
+-spec(fetch(atom(), any(), fun(), non_neg_integer()|undefined) ->
              {ok, list()} | {error, any()}).
 fetch(Id, Key, Fun, MaxKeys) ->
     gen_server:call(Id, {fetch, Key, Fun, MaxKeys}, ?DEF_TIMEOUT).
@@ -634,10 +634,8 @@ compact_fun(State, FunHasChargeOfNode) ->
           end,
 
     NewState = try compact_fun_2(Res, FunHasChargeOfNode) of
-                   {_,State_1} ->
-                       State_1;
-                   _Other ->
-                       State
+                   {_, #state{} = State_1} ->
+                       State_1
                catch _:Reason ->
                        error_logger:error_msg(
                          "~p,~p,~p,~p~n",
@@ -815,15 +813,18 @@ compact_add_history(finish, [{Start, _}|Histories]) ->
 calc_remain_disksize(MetaDBId, FilePath) ->
     case leo_file:file_get_mount_path(FilePath) of
         {ok, MountPath} ->
-            {ok, MetaDir} = leo_backend_db_api:get_db_raw_filepath(MetaDBId),
-
-            case catch leo_file:file_get_total_size(MetaDir) of
-                {'EXIT', Reason} ->
-                    {error, Reason};
-                MetaSize ->
-                    AvsSize = filelib:file_size(FilePath),
-                    Remain  = leo_file:file_get_remain_disk(MountPath),
-                    {ok, Remain - (AvsSize + MetaSize) * 1.5}
+            case leo_backend_db_api:get_db_raw_filepath(MetaDBId) of
+                {ok, MetaDir} ->
+                    case catch leo_file:file_get_total_size(MetaDir) of
+                        {'EXIT', Reason} ->
+                            {error, Reason};
+                        MetaSize ->
+                            AvsSize = filelib:file_size(FilePath),
+                            Remain  = leo_file:file_get_remain_disk(MountPath),
+                            {ok, erlang:round(Remain - (AvsSize + MetaSize))}
+                    end;
+                _ ->
+                    {error, ?ERROR_COULD_NOT_GET_MOUNT_PATH}
             end;
         Error ->
             Error
@@ -841,11 +842,13 @@ is_deleted_rec(MetaDBId, #backend_info{avs_version_bin_prv = AVSVsnBinPrv} = Sto
                           addr_id  = AddrId} = MetaFromAvs) ->
     KeyOfMetadata = ?gen_backend_key(AVSVsnBinPrv, AddrId, Key),
     case leo_backend_db_api:get(MetaDBId, KeyOfMetadata) of
-        {ok, #?METADATA{del = ?DEL_TRUE}} ->
-            true;
-        {ok, MetaOrg} ->
-            MetaOrgTerm = binary_to_term(MetaOrg),
-            is_deleted_rec(MetaDBId, StorageInfo, MetaFromAvs, MetaOrgTerm);
+        {ok, MetaBin} ->
+            case binary_to_term(MetaBin) of
+                #?METADATA{del = ?DEL_TRUE} ->
+                    true;
+                Metadata ->
+                    is_deleted_rec(MetaDBId, StorageInfo, MetaFromAvs, Metadata)
+            end;
         not_found ->
             true;
         _Other ->
@@ -970,7 +973,7 @@ gen_raw_file_path(FilePath) ->
 %% @doc Close a storage
 %% @private
 close_storage(Id, MetaDBId, StateFilePath,
-              StorageStats, WriteHandler, ReadHandler) ->
+              StorageStats, WriteHandler, ReadHandler) when is_list(StateFilePath) ->
     _ = filelib:ensure_dir(StateFilePath),
     _ = leo_file:file_unconsult(
           StateFilePath,
@@ -983,4 +986,6 @@ close_storage(Id, MetaDBId, StateFilePath,
            {has_error,            StorageStats#storage_stats.has_error}]),
     ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
     ok = leo_backend_db_server:close(MetaDBId),
+    ok;
+close_storage(_,_,_,_,_,_) ->
     ok.

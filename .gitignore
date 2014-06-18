@@ -1,3 +1,6 @@
 deps/
 ebin/
 .eunit/
+.leo_object_storage_dialyzer_plt
+leo_object_storage.dot
+leo_object_storage.png

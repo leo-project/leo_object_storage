@@ -54,11 +54,10 @@
 %%--------------------------------------------------------------------
 %% @doc Create object-storage processes
 %%
--spec(start(list()) ->
+-spec(start([tuple()]) ->
              ok | {error, any()}).
 start([]) ->
     {error, badarg};
-
 start(ObjectStorageInfo) ->
     case start_app() of
         ok ->
@@ -116,33 +115,37 @@ head_with_calc_md5(AddrIdAndKey, MD5Context) ->
 
 %% @doc Fetch objects by ring-address-id
 %%
--spec(fetch_by_addr_id(integer(), function()) ->
-             {ok, list()} | not_found).
+-spec(fetch_by_addr_id(_, fun()) ->
+             {ok, []} | not_found).
 fetch_by_addr_id(AddrId, Fun) ->
     fetch_by_addr_id(AddrId, Fun, undefined).
 fetch_by_addr_id(AddrId, Fun, MaxKeys) ->
     case get_object_storage_pid(all) of
-        undefined ->
+        [] ->
             not_found;
         List ->
-            Res = lists:foldl(
-                    fun(Id, Acc) ->
-                            case ?SERVER_MODULE:fetch(Id, {AddrId, <<>>},
-                                                      Fun, MaxKeys) of
-                                {ok, Values} ->
-                                    [Values|Acc];
-                                _ ->
-                                    Acc
-                            end
-                    end, [], List),
-            case MaxKeys of
-                undefined ->
-                    {ok, lists:reverse(lists:flatten(Res))};
-                _ ->
-                    {ok, lists:sublist(lists:reverse(lists:flatten(Res)), MaxKeys)}
+            case fetch_by_addr_id_1(List, AddrId, Fun, MaxKeys, []) of
+                Res ->
+                    case MaxKeys of
+                        undefined ->
+                            {ok, Res};
+                        _ ->
+                            {ok, lists:sublist(Res, MaxKeys)}
+                    end
             end
     end.
 
+fetch_by_addr_id_1([],_,_,_,Acc) ->
+    lists:reverse(lists:flatten(Acc));
+fetch_by_addr_id_1([H|T], AddrId, Fun, MaxKeys, Acc) ->
+    Acc_1 = case ?SERVER_MODULE:fetch(
+                          H, {AddrId, <<>>}, Fun, MaxKeys) of
+                {ok, Val} ->
+                    [Val|Acc];
+                _ ->
+                    Acc
+            end,
+    fetch_by_addr_id_1(T, AddrId, Fun, MaxKeys, Acc_1).
 
 %% @doc Fetch objects by key (object-name)
 %%
@@ -154,7 +157,7 @@ fetch_by_key(Key, Fun) ->
              {ok, list()} | not_found).
 fetch_by_key(Key, Fun, MaxKeys) ->
     case get_object_storage_pid(all) of
-        undefined ->
+        [] ->
             not_found;
         List ->
             Res = lists:foldl(
@@ -189,7 +192,7 @@ store(Metadata, Bin) ->
              {ok, list()} | not_found).
 stats() ->
     case get_object_storage_pid(all) of
-        undefined ->
+        [] ->
             not_found;
         List ->
             {ok, lists:reverse(
@@ -204,7 +207,8 @@ stats() ->
 -spec(add_incorrect_data(binary()) ->
              ok | {error, any()}).
 add_incorrect_data(Bin) ->
-    ?SERVER_MODULE:add_incorrect_data(get_object_storage_pid(Bin), Bin).
+    [Pid|_] = get_object_storage_pid(Bin),
+    ?SERVER_MODULE:add_incorrect_data(Pid, Bin).
 -endif.
 
 
@@ -232,44 +236,46 @@ start_app() ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING}, {function, "start_app/0"},
                                     {line, ?LINE}, {body, Cause}]),
-            {exit, Cause}
+            {error, Cause}
     end.
 
 
 
 %% @doc Retrieve an object storage process-id
 %% @private
--spec(get_object_storage_pid(all | integer()) ->
-             atom()).
+-spec(get_object_storage_pid(all | any()) ->
+             [atom()]).
 get_object_storage_pid(Arg) ->
     Ret = ets:tab2list(?ETS_CONTAINERS_TABLE),
     get_object_storage_pid(Ret, Arg).
 
+%% @private
 get_object_storage_pid([], _) ->
-    undefined;
-
+    [];
 get_object_storage_pid(List, all) ->
     lists:map(fun({_, Value}) ->
-                      Id = leo_misc:get_value(obj_storage, Value),
-                      Id
+                      leo_misc:get_value(obj_storage, Value)
               end, List);
-
 get_object_storage_pid(List, Arg) ->
     Index = (erlang:crc32(Arg) rem erlang:length(List)) + 1,
     {_, Value} = lists:nth(Index, List),
     Id = leo_misc:get_value(obj_storage, Value),
-    Id.
+    [Id].
+
 
 %% @doc for debug purpose
+%% @private
 get_object_storage_pid_first() ->
     Key = ets:first(?ETS_CONTAINERS_TABLE),
     [{Key, First}|_] = ets:lookup(?ETS_CONTAINERS_TABLE, Key),
     Id = leo_misc:get_value(obj_storage, First),
     Id.
 
+
 %% @doc Retrieve the status of object of pid
 %% @private
--spec(get_status_by_id(pid()) -> storage_status()).
+-spec(get_status_by_id(atom()) ->
+             storage_status()).
 get_status_by_id(Pid) ->
     case leo_misc:get_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Pid}) of
         {ok, Status} ->
@@ -281,45 +287,73 @@ get_status_by_id(Pid) ->
 
 %% @doc Request an operation
 %% @private
--spec(do_request(type_of_method(), list()) ->
-             ok | {ok, list()} | {error, any()}).
+-spec(do_request(type_of_method(), list(_)) ->
+             ok |
+             {ok, #?METADATA{}, #?OBJECT{}} |
+             not_found |
+             {error, any()}).
 do_request(get, [{AddrId, Key}, StartPos, EndPos]) ->
     KeyBin = term_to_binary({AddrId, Key}),
-    ?SERVER_MODULE:get(get_object_storage_pid(KeyBin), {AddrId, Key}, StartPos, EndPos);
+    case get_object_storage_pid(KeyBin) of
+        [Pid|_] ->
+            ?SERVER_MODULE:get(Pid, {AddrId, Key}, StartPos, EndPos);
+        _ ->
+            {error, ?ERROR_PROCESS_NOT_FOUND}
+    end;
 do_request(store, [Metadata, Bin]) ->
     Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
     #?METADATA{addr_id = AddrId,
                key     = Key} = Metadata_1,
-    Id = get_object_storage_pid(term_to_binary({AddrId, Key})),
-    case get_status_by_id(Id) of
-        ?STATE_ACTIVE ->
-            ?SERVER_MODULE:store(Id, Metadata_1, Bin);
-        ?STATE_COMPACTING ->
-            {error, doing_compaction}
+    case get_object_storage_pid(term_to_binary({AddrId, Key})) of
+        [Pid|_] ->
+            case get_status_by_id(Pid) of
+                ?STATE_ACTIVE ->
+                    ?SERVER_MODULE:store(Pid, Metadata_1, Bin);
+                ?STATE_COMPACTING ->
+                    {error, doing_compaction}
+            end;
+        _ ->
+            {error, ?ERROR_PROCESS_NOT_FOUND}
     end;
 do_request(put, [Key, Object]) ->
     KeyBin = term_to_binary(Key),
-    Id = get_object_storage_pid(KeyBin),
-
-    case get_status_by_id(Id) of
-        ?STATE_ACTIVE ->
-            ?SERVER_MODULE:put(get_object_storage_pid(KeyBin), Object);
-        ?STATE_COMPACTING ->
-            {error, doing_compaction}
+    case get_object_storage_pid(KeyBin) of
+        [Pid|_] ->
+            case get_status_by_id(Pid) of
+                ?STATE_ACTIVE ->
+                    ?SERVER_MODULE:put(Pid, Object);
+                ?STATE_COMPACTING ->
+                    {error, doing_compaction}
+            end;
+        _ ->
+            {error, ?ERROR_PROCESS_NOT_FOUND}
     end;
 do_request(delete, [Key, Object]) ->
     KeyBin = term_to_binary(Key),
-    Id = get_object_storage_pid(KeyBin),
-
-    case get_status_by_id(Id) of
-        ?STATE_ACTIVE ->
-            ?SERVER_MODULE:delete(get_object_storage_pid(KeyBin), Object);
-        ?STATE_COMPACTING ->
-            {error, doing_compaction}
+    case get_object_storage_pid(KeyBin) of
+    [Pid|_] ->
+            case get_status_by_id(Pid) of
+                ?STATE_ACTIVE ->
+                    ?SERVER_MODULE:delete(Pid, Object);
+                ?STATE_COMPACTING ->
+                    {error, doing_compaction}
+            end;
+        _ ->
+            {error, ?ERROR_PROCESS_NOT_FOUND}
     end;
 do_request(head, [{AddrId, Key}]) ->
     KeyBin = term_to_binary({AddrId, Key}),
-    ?SERVER_MODULE:head(get_object_storage_pid(KeyBin), {AddrId, Key});
+    case get_object_storage_pid(KeyBin) of
+        [Pid|_] ->
+            ?SERVER_MODULE:head(Pid, {AddrId, Key});
+        _ ->
+            {error, ?ERROR_PROCESS_NOT_FOUND}
+    end;
 do_request(head_with_calc_md5, [{AddrId, Key}, MD5Context]) ->
     KeyBin = term_to_binary({AddrId, Key}),
-    ?SERVER_MODULE:head_with_calc_md5(get_object_storage_pid(KeyBin), {AddrId, Key}, MD5Context).
+    case get_object_storage_pid(KeyBin) of
+        [Pid|_] ->
+            ?SERVER_MODULE:head_with_calc_md5(Pid, {AddrId, Key}, MD5Context);
+        _ ->
+            {error, ?ERROR_PROCESS_NOT_FOUND}
+    end.

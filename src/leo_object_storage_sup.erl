@@ -45,9 +45,13 @@
 %% @spec () -> ok
 %% @doc start link...
 %% @end
+-spec(start_link() ->
+             {ok, pid()} | {error, any()}).
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
+-spec(start_link([tuple()]) ->
+             {ok, pid()} | {error, any()}).
 start_link(ObjectStorageInfo) ->
     Res = case whereis(?MODULE) of
               undefined ->
@@ -63,6 +67,8 @@ start_link(ObjectStorageInfo) ->
 %%             not_started
 %% @doc stop process.
 %% @end
+-spec(stop() ->
+             ok | not_started).
 stop() ->
     case whereis(?MODULE) of
         Pid when is_pid(Pid) == true ->
@@ -88,8 +94,8 @@ init([]) ->
 %% ---------------------------------------------------------------------
 %% API-2
 %% ---------------------------------------------------------------------
--spec(start_child(list(tuple())) ->
-             ok | true).
+-spec(start_child([tuple()]) ->
+             ok | no_return()).
 start_child(ObjectStorageInfo) ->
     %% initialize ets-tables
     ok = leo_misc:init_env(),
@@ -148,7 +154,7 @@ start_child(ObjectStorageInfo) ->
                   permanent, 2000, worker, [leo_compaction_manager_fsm]},
     case supervisor:start_child(?MODULE, ChildSpec1) of
         {ok, _Pid} ->
-            void;
+            ok;
         {error, Cause1} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING}, {function, "start_child/2"},
@@ -257,12 +263,8 @@ add_container(BackendDBSupPid, Id0, Props) ->
                                             {body, Cause}]),
                     {error, Cause}
             end;
-        {error, Cause} ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "add_container/3"},
-                                    {line, ?LINE},
-                                    {body, Cause}]),
-            {error, Cause}
+        _ ->
+            {error, "Could NOT start worker processes"}
     end.
 
 

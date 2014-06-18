@@ -35,7 +35,8 @@
 
 %% API
 -export([start_link/0]).
--export([start/3, suspend/0, resume/0, status/0, stop/1]).
+-export([start/3, stop/1,
+         suspend/0, resume/0, status/0, done_child/2]).
 
 -export([init/1,
          handle_event/3,
@@ -52,14 +53,14 @@
          suspend/2,
          suspend/3]).
 
--record(state, {max_num_of_concurrent = 1  :: pos_integer(),
-                inspect_fun                :: function(),
-                total_num_of_targets = 0   :: pos_integer(),
-                reserved_targets = []      :: list(),
-                pending_targets  = []      :: list(),
-                ongoing_targets  = []      :: list(),
-                child_pids       = []      :: orddict:orddict(), %% {Chid :: pid(), hasJob :: boolean()}
-                start_datetime   = 0       :: pos_integer(), %% gregory-sec
+-record(state, {max_num_of_concurrent = 1 :: non_neg_integer(),
+                inspect_fun               :: function() | undefined,
+                total_num_of_targets = 0  :: non_neg_integer(),
+                reserved_targets = []     :: list(),
+                pending_targets  = []     :: list(),
+                ongoing_targets  = []     :: list(),
+                child_pids       = []     :: orddict:orddict(), %% {Chid :: pid(), hasJob :: boolean()}
+                start_datetime   = 0      :: non_neg_integer(), %% gregory-sec
                 status = ?COMPACTION_STATUS_IDLE :: compaction_status()
                }).
 
@@ -73,21 +74,23 @@
 -spec(start_link() ->
              {ok, pid()} | ignore | {error, any()}).
 start_link() ->
-    gen_fsm:start_link({local, ?MODULE}, ?MODULE,
-                       [], []).
+    gen_fsm:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 %%--------------------------------------------------------------------
 %% API - object operations.
 %%--------------------------------------------------------------------
 %% @doc start compaction
--spec(start(list(string() | atom()), integer(), fun()) ->
-             ok | {error, any()}).
+-spec(start([string()|atom()], non_neg_integer(), function()) ->
+             term()).
 start(TargetPids, MaxConNum, InspectFun) ->
     gen_fsm:sync_send_event(
       ?MODULE, {start, TargetPids, MaxConNum, InspectFun}, ?DEF_TIMEOUT).
 
+-spec(stop(_) ->
+             term()).
 stop(_Id) ->
     gen_fsm:sync_send_all_state_event(?MODULE, stop, ?DEF_TIMEOUT).
+
 
 %% @doc Suspend compaction
 -spec(suspend() ->
@@ -120,10 +123,10 @@ done_child(Pid, Id) ->
 %%====================================================================
 %% GEN_SERVER CALLBACKS
 %%====================================================================
-% Description: Initiates the server
+                                                % Description: Initiates the server
 init([]) ->
     AllTargets = leo_object_storage_api:get_object_storage_pid('all'),
-    TotalNumOfTargets = length(AllTargets),
+    TotalNumOfTargets = erlang:length(AllTargets),
 
     {ok, idle, #state{status = ?COMPACTION_STATUS_IDLE,
                       total_num_of_targets = TotalNumOfTargets,
@@ -132,21 +135,21 @@ init([]) ->
 
 %% @doc State of 'idle'
 %%
--spec(idle({start, list(), pos_integer(), function()} | suspend | resume,
-                 From::pid(), State::#state{}) ->
-             {next_state, running | idle, #state{}}).
+-spec(idle({'start', [], non_neg_integer(), function()}
+           | 'suspend' | 'resume', {_,_}, #state{}) ->
+             {next_state, compaction_status(), #state{}}).
 idle({start, TargetPids, MaxConNum, InspectFun}, From, State) ->
     AllTargets     = leo_object_storage_api:get_object_storage_pid('all'),
     PendingTargets = State#state.pending_targets,
 
     ReservedTargets = case (length(TargetPids) == length(AllTargets)) of
-                       true  ->
-                           [];
-                       false when PendingTargets == [] ->
-                           lists:subtract(AllTargets, TargetPids);
-                       false when PendingTargets /= [] ->
-                           lists:subtract(PendingTargets, TargetPids)
-                   end,
+                          true  ->
+                              [];
+                          false when PendingTargets == [] ->
+                              lists:subtract(AllTargets, TargetPids);
+                          false when PendingTargets /= [] ->
+                              lists:subtract(PendingTargets, TargetPids)
+                      end,
 
     NextState = ?COMPACTION_STATUS_RUNNING,
     NewState  = start_jobs_as_possible(State#state{status = NextState,
@@ -157,7 +160,6 @@ idle({start, TargetPids, MaxConNum, InspectFun}, From, State) ->
                                                    start_datetime        = leo_date:now()}),
     gen_fsm:reply(From, ok),
     {next_state, NextState, NewState};
-
 
 idle(suspend, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
@@ -170,19 +172,17 @@ idle(resume, From, State) ->
     {next_state, NextState, State#state{status = NextState}}.
 
 
--spec(idle({done_child, list(), pos_integer(), atom()}, #state{}) ->
-             {stop, string(), #state{}}).
-idle({done_child, _DonePid, _Id}, State) ->
-    % never happen
+-spec(idle({'done_child',_,_},_) ->
+             {stop, string(), _}).
+idle({done_child,_DonePid,_Id}, State) ->
     {stop, "receive invalid done_child", State}.
 
 
 %% @doc State of 'running'
 %%
--spec(running({start, list(), pos_integer(), atom()} | suspend | resume,
-                    From::pid(), State::#state{}) ->
-             {next_state, running, #state{}}).
-running({start, _, _, _}, From, State) ->
+-spec(running({'start',_,_,_} | 'suspend' | 'resume', {_,_}, #state{}) ->
+             {next_state, 'suspend' | 'running', #state{}}).
+running({start,_,_,_}, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
     NextState = ?COMPACTION_STATUS_RUNNING,
     {next_state, NextState, State#state{status = NextState}};
@@ -235,10 +235,9 @@ running({done_child,_DonePid,_DoneId}, #state{pending_targets  = [],
 
 %% @doc State of 'suspend'
 %%
--spec(suspend({start, list(), pos_integer(), function()} | suspend | resume,
-                    From::pid(), State::#state{}) ->
-             {next_state, suspend | running, #state{}}).
-suspend({start, _, _, _}, From, State) ->
+-spec(suspend({'start',_,_,_} | 'suspend' | 'resume', {_,_}, #state{}) ->
+             {next_state, 'idle' | 'suspend' | 'running', #state{}}).
+suspend({start,_,_,_}, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
     NextState = ?COMPACTION_STATUS_SUSPEND,
     {next_state, NextState, State#state{status = NextState}};
@@ -393,7 +392,7 @@ format_status(_Opt, [_PDict, State]) ->
 %% @doc Start compaction processes as many as possible
 %% @private
 -spec(start_jobs_as_possible(#state{}) ->
-             list()).
+             #state{}).
 start_jobs_as_possible(State) ->
     start_jobs_as_possible(State#state{child_pids = []}, 0).
 
@@ -403,14 +402,14 @@ start_jobs_as_possible(#state{pending_targets = [Id|Rest],
                               inspect_fun           = FunHasChargeOfNode,
                               child_pids            = ChildPids} = State, NumChild) when NumChild < MaxProc ->
     Pid  = spawn_link(fun() ->
-                         loop_child(?MODULE, FunHasChargeOfNode)
-                 end),
+                              loop_child(FunHasChargeOfNode)
+                      end),
     erlang:send(Pid, {compact, Id}),
 
     start_jobs_as_possible(
-        State#state{pending_targets = Rest,
-                    ongoing_targets = [Id|InProgPids],
-                    child_pids      = orddict:store(Pid, true, ChildPids)}, NumChild + 1);
+      State#state{pending_targets = Rest,
+                  ongoing_targets = [Id|InProgPids],
+                  child_pids      = orddict:store(Pid, true, ChildPids)}, NumChild + 1);
 
 start_jobs_as_possible(State, _NumChild) ->
     State.
@@ -418,28 +417,31 @@ start_jobs_as_possible(State, _NumChild) ->
 
 %% @doc Loop of job executor(child)
 %% @private
--spec(loop_child(pid(), fun()) ->
+-spec(loop_child(fun()) ->
              ok | {error, any()}).
-loop_child(From, FunHasChargeOfNode) ->
-    loop_child(From, FunHasChargeOfNode, undefined).
-loop_child(From, FunHasChargeOfNode, TargetId) ->
+loop_child(FunHasChargeOfNode) ->
+    loop_child(FunHasChargeOfNode, undefined).
+
+-spec(loop_child(fun(), atom()) ->
+             ok | {error, any()}).
+loop_child(FunHasChargeOfNode, TargetId) ->
     receive
         {compact, Id} ->
             ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id}, ?STATE_COMPACTING),
             _  = leo_object_storage_server:compact(Id, FunHasChargeOfNode),
-            loop_child(From, FunHasChargeOfNode, Id);
+            loop_child(FunHasChargeOfNode, Id);
         suspend ->
             _  = leo_object_storage_server:compact_suspend(TargetId),
             ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, TargetId}, ?STATE_ACTIVE),
-            loop_child(From, FunHasChargeOfNode, TargetId);
+            loop_child(FunHasChargeOfNode, TargetId);
         resume ->
             _  = leo_object_storage_server:compact_resume(TargetId),
             ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, TargetId}, ?STATE_COMPACTING),
-            loop_child(From, FunHasChargeOfNode, TargetId);
+            loop_child(FunHasChargeOfNode, TargetId);
         done ->
             ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, TargetId}, ?STATE_ACTIVE),
             _  = done_child(self(), TargetId),
-            loop_child(From, FunHasChargeOfNode, undefined);
+            loop_child(FunHasChargeOfNode, undefined);
         stop ->
             ok;
         _ ->
