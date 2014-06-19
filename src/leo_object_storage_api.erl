@@ -169,11 +169,12 @@ fetch_by_key(Key, Fun, MaxKeys) ->
                                     Acc
                             end
                     end, [], List),
+            Res_1 = lists:reverse(lists:flatten(Res)),
             case MaxKeys of
                 undefined ->
-                    {ok, lists:reverse(lists:flatten(Res))};
+                    {ok, Res_1};
                 _ ->
-                    {ok, lists:sublist(lists:reverse(lists:flatten(Res)), MaxKeys)}
+                    {ok, lists:sublist(Res_1, MaxKeys)}
             end
     end.
 
@@ -234,7 +235,8 @@ start_app() ->
             ok;
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "start_app/0"},
+                                   [{module, ?MODULE_STRING},
+                                    {function, "start_app/0"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.

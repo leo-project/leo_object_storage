@@ -37,7 +37,7 @@
 %% API
 %%--------------------------------------------------------------------
 -spec(metadata_to_object(#metadata{} | #?METADATA{}) ->
-             #?OBJECT{} | {error, invaid_record}).         
+             #?OBJECT{} | {error, invaid_record}).
 metadata_to_object(#metadata{key     = Key,
                              addr_id = AddrId,
                              ksize   = KSize,

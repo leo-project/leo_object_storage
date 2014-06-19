@@ -123,7 +123,8 @@ done_child(Pid, Id) ->
 %%====================================================================
 %% GEN_SERVER CALLBACKS
 %%====================================================================
-                                                % Description: Initiates the server
+%% @doc Initiates the server
+%%
 init([]) ->
     AllTargets = leo_object_storage_api:get_object_storage_pid('all'),
     TotalNumOfTargets = erlang:length(AllTargets),
@@ -152,12 +153,13 @@ idle({start, TargetPids, MaxConNum, InspectFun}, From, State) ->
                       end,
 
     NextState = ?COMPACTION_STATUS_RUNNING,
-    NewState  = start_jobs_as_possible(State#state{status = NextState,
-                                                   pending_targets       = TargetPids,
-                                                   reserved_targets      = ReservedTargets,
-                                                   max_num_of_concurrent = MaxConNum,
-                                                   inspect_fun           = InspectFun,
-                                                   start_datetime        = leo_date:now()}),
+    NewState  = start_jobs_as_possible(
+                  State#state{status = NextState,
+                              pending_targets       = TargetPids,
+                              reserved_targets      = ReservedTargets,
+                              max_num_of_concurrent = MaxConNum,
+                              inspect_fun           = InspectFun,
+                              start_datetime        = leo_date:now()}),
     gen_fsm:reply(From, ok),
     {next_state, NextState, NewState};
 
@@ -205,18 +207,20 @@ running({done_child, DonePid, DoneId}, #state{pending_targets = [Id|Rest],
                                               ongoing_targets = InProgPids} = State) ->
     erlang:send(DonePid, {compact, Id}),
     NextState = ?COMPACTION_STATUS_RUNNING,
-    {next_state, NextState, State#state{status = NextState,
-                                        pending_targets = Rest,
-                                        ongoing_targets = [Id|lists:delete(DoneId, InProgPids)]}};
+    {next_state, NextState,
+     State#state{status = NextState,
+                 pending_targets = Rest,
+                 ongoing_targets = [Id|lists:delete(DoneId, InProgPids)]}};
 
 running({done_child, DonePid, DoneId}, #state{pending_targets = [],
                                               ongoing_targets = [_,_|_],
                                               child_pids      = ChildPids} = State) ->
     erlang:send(DonePid, stop),
     NextState = ?COMPACTION_STATUS_RUNNING,
-    {next_state, NextState, State#state{status = NextState,
-                                        ongoing_targets = lists:delete(DoneId, State#state.ongoing_targets),
-                                        child_pids       = orddict:erase(DonePid, ChildPids)}};
+    {next_state, NextState,
+     State#state{status = NextState,
+                 ongoing_targets = lists:delete(DoneId, State#state.ongoing_targets),
+                 child_pids       = orddict:erase(DonePid, ChildPids)}};
 
 running({done_child,_DonePid,_DoneId}, #state{pending_targets  = [],
                                               ongoing_targets  = [_|_],
@@ -331,7 +335,6 @@ suspend({done_child,_DonePid,_DoneId}, #state{pending_targets  = [],
                                         reserved_targets = []}}.
 
 
-
 %% @doc Handle events
 %%
 handle_event(_Event, StateName, State) ->
@@ -399,8 +402,8 @@ start_jobs_as_possible(State) ->
 start_jobs_as_possible(#state{pending_targets = [Id|Rest],
                               ongoing_targets = InProgPids,
                               max_num_of_concurrent = MaxProc,
-                              inspect_fun           = FunHasChargeOfNode,
-                              child_pids            = ChildPids} = State, NumChild) when NumChild < MaxProc ->
+                              inspect_fun = FunHasChargeOfNode,
+                              child_pids  = ChildPids} = State, NumChild) when NumChild < MaxProc ->
     Pid  = spawn_link(fun() ->
                               loop_child(FunHasChargeOfNode)
                       end),

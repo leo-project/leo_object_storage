@@ -117,8 +117,10 @@ start_child(ObjectStorageInfo) ->
                         Pid;
                     {error, Cause0} ->
                         error_logger:error_msg("~p,~p,~p,~p~n",
-                                               [{module, ?MODULE_STRING}, {function, "start_child/2"},
-                                                {line, ?LINE}, {body, "Could NOT start backend-db sup"}]),
+                                               [{module, ?MODULE_STRING},
+                                                {function, "start_child/2"},
+                                                {line, ?LINE},
+                                                {body, "Could NOT start backend-db sup"}]),
                         exit(Cause0)
                 end;
             Pid ->
@@ -157,8 +159,10 @@ start_child(ObjectStorageInfo) ->
             ok;
         {error, Cause1} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "start_child/2"},
-                                    {line, ?LINE}, {body, "Could NOT start compaction manager process"}]),
+                                   [{module, ?MODULE_STRING},
+                                    {function, "start_child/2"},
+                                    {line, ?LINE},
+                                    {body, "Could NOT start compaction manager process"}]),
             exit(Cause1)
     end,
 
@@ -167,8 +171,10 @@ start_child(ObjectStorageInfo) ->
     case whereis(?MODULE) of
         undefined ->
             error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "start_child/2"},
-                                    {line, ?LINE}, {body, "NOT started supervisor"}]),
+                                   [{module, ?MODULE_STRING},
+                                    {function, "start_child/2"},
+                                    {line, ?LINE},
+                                    {body, "NOT started supervisor"}]),
             exit(not_initialized);
         SupRef ->
             case supervisor:count_children(SupRef) of
@@ -177,8 +183,10 @@ start_child(ObjectStorageInfo) ->
                     ok;
                 _ ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING}, {function, "start_child/2"},
-                                            {line, ?LINE}, {body, "Could NOT start worker processes"}]),
+                                           [{module, ?MODULE_STRING},
+                                            {function, "start_child/2"},
+                                            {line, ?LINE},
+                                            {body, "Could NOT start worker processes"}]),
                     case ?MODULE:stop() of
                         ok ->
                             exit(invalid_launch);
@@ -239,32 +247,29 @@ add_container(BackendDBSupPid, Id0, Props) ->
     IsStrictCheck = leo_misc:get_value('is_strict_check', Props),
 
     %% %% Launch metadata-db
-    case leo_backend_db_sup:start_child(
+    ok = leo_backend_db_sup:start_child(
            BackendDBSupPid, Id2, 1, MetadataDB,
-           lists:append([Path, ?DEF_METADATA_STORAGE_SUB_DIR, integer_to_list(Id0)])) of
-        ok ->
-            %% Launch object-storage
-            Args = [Id1, Id0, Id2, Path, IsStrictCheck],
-            ChildSpec = {Id1,
-                         {leo_object_storage_server, start_link, Args},
-                         permanent, 2000, worker, [leo_object_storage_server]},
+           lists:append([Path, ?DEF_METADATA_STORAGE_SUB_DIR, integer_to_list(Id0)])),
+    %% Launch object-storage
+    Args = [Id1, Id0, Id2, Path, IsStrictCheck],
+    ChildSpec = {Id1,
+                 {leo_object_storage_server, start_link, Args},
+                 permanent, 2000, worker, [leo_object_storage_server]},
 
-            case supervisor:start_child(?MODULE, ChildSpec) of
-                {ok, _Pid} ->
-                    true = ets:insert(?ETS_CONTAINERS_TABLE, {Id0, [{obj_storage, Id1},
-                                                                    {metadata,    Id2}]}),
+    case supervisor:start_child(?MODULE, ChildSpec) of
+        {ok, _Pid} ->
+            true = ets:insert(?ETS_CONTAINERS_TABLE, {Id0, [{obj_storage, Id1},
+                                                            {metadata,    Id2}]}),
 
-                    ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id1}, ?STATE_ACTIVE),
-                    ok;
-                {error, Cause} ->
-                    error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING}, {function, "add_container/3"},
-                                            {line, ?LINE},
-                                            {body, Cause}]),
-                    {error, Cause}
-            end;
-        _ ->
-            {error, "Could NOT start worker processes"}
+            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id1}, ?STATE_ACTIVE),
+            ok;
+        {error, Cause} ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING},
+                                    {function, "add_container/3"},
+                                    {line, ?LINE},
+                                    {body, Cause}]),
+            {error, Cause}
     end.
 
 
