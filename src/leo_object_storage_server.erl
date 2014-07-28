@@ -66,6 +66,7 @@
           storage_stats       :: #storage_stats{},
           state_filepath      :: string(),
           is_strict_check     :: boolean(),
+          error_pos = 0       :: non_neg_integer(),
           set_errors          :: set()
          }).
 
@@ -946,7 +947,8 @@ do_compact_1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} =
                          key_bin     = NewKeyValue,
                          body_bin    = NewBodyValue,
                          next_offset = NewNextOffset},
-                       State);
+                       State#state{error_pos  = 0,
+                                   set_errors = sets:new()});
         {error, eof} ->
             ok = output_accumulated_errors(State),
             NumOfAcriveObjs  = CompactParams#compact_params.num_of_active_objects,
@@ -954,10 +956,18 @@ do_compact_1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} =
             {ok, NumOfAcriveObjs, SizeOfActiveObjs};
         {_, Cause} ->
             OldOffset = CompactParams#compact_params.next_offset,
+            ErrorPosCur = State#state.error_pos,
+            ErrorPosNew = case (State#state.error_pos == 0) of
+                              true ->
+                                  OldOffset;
+                              false ->
+                                  ErrorPosCur
+                          end,
             SetErrors = sets:add_element(Cause, State#state.set_errors),
             do_compact_1(ok, Metadata,
                          CompactParams#compact_params{next_offset = OldOffset + 1},
-                         State#state{set_errors = SetErrors})
+                         State#state{error_pos  = ErrorPosNew,
+                                     set_errors = SetErrors})
     end;
 do_compact_1(Error,_,_,_) ->
     Error.
@@ -967,17 +977,21 @@ do_compact_1(Error,_,_,_) ->
 %% @private
 -spec(output_accumulated_errors(#state{}) ->
              ok).
-output_accumulated_errors(#state{set_errors = SetErrors}) ->
+output_accumulated_errors(#state{error_pos  = ErrorPos,
+                                 set_errors = SetErrors}) ->
     case sets:size(SetErrors) of
         0 ->
-            void;
+            ok;
         _ ->
             error_logger:warning_msg("~p,~p,~p,~p~n",
                                      [{module, ?MODULE_STRING},
                                       {function, "do_compact_1/4"},
-                                      {line, ?LINE}, {body, sets:to_list(SetErrors)}])
-    end,
-    ok.
+                                      {line, ?LINE},
+                                      {body, [{error_pos, ErrorPos},
+                                              {errors, sets:to_list(SetErrors)}]}
+                                     ]),
+            ok
+    end.
 
 
 %% @doc Generate a raw file path.
