@@ -257,7 +257,6 @@ header_bin_to_metadata(Bin) ->
     catch
         _:_ ->
             {error, invalid_format}
-
     end.
 
 
@@ -267,13 +266,18 @@ header_bin_to_metadata(Bin) ->
 cmeta_bin_into_metadata(<<>>, Metadata) ->
     Metadata;
 cmeta_bin_into_metadata(CustomMetaBin, Metadata) ->
-    CustomeMeta = binary_to_term(CustomMetaBin),
-    ClusterId     = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID,      CustomeMeta, []),
-    NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomeMeta, 0),
-    Version       = leo_misc:get_value(?PROP_CMETA_VER,             CustomeMeta, 0),
-    Metadata#?METADATA{cluster_id = ClusterId,
-                       num_of_replicas = NumOfReplicas,
-                       ver = Version}.
+    try
+        CustomeMeta = binary_to_term(CustomMetaBin),
+        ClusterId     = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID,      CustomeMeta, []),
+        NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomeMeta, 0),
+        Version       = leo_misc:get_value(?PROP_CMETA_VER,             CustomeMeta, 0),
+        Metadata#?METADATA{cluster_id = ClusterId,
+                           num_of_replicas = NumOfReplicas,
+                           ver = Version}
+    catch
+        _:_ ->
+            {error, invalid_format}
+    end.
 
 %% @doc List to a custome-metadata(binary)
 -spec(list_to_cmeta_bin(list(tuple())) ->

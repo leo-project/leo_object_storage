@@ -65,7 +65,8 @@
           object_storage      :: #backend_info{},
           storage_stats       :: #storage_stats{},
           state_filepath      :: string(),
-          is_strict_check     :: boolean()
+          is_strict_check     :: boolean(),
+          set_errors          :: set()
          }).
 
 -record(compact_params, {
@@ -733,8 +734,7 @@ compact_fun_2({ok, #state{meta_db_id     = MetaDBId,
                                               read_handler      = undefined,
                                               write_handler     = undefined,
                                               tmp_read_handler  = undefined,
-                                              tmp_write_handler = undefined
-                                             }},
+                                              tmp_write_handler = undefined}},
     compact_fun_3({Res, NewState});
 
 compact_fun_2({Error,_State}, _) ->
@@ -895,12 +895,13 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
     %% set a flag of object of compaction
     NumOfReplicas = Metadata#?METADATA.num_of_replicas,
     HasChargeOfNode = FunHasChargeOfNode(Key, NumOfReplicas),
+    State_1 = State#state{set_errors = sets:new()},
 
     %% execute compaction
     case (is_deleted_rec(MetaDBId, StorageInfo, Metadata)
           orelse HasChargeOfNode == false) of
         true ->
-            do_comapct_1(ok, Metadata, CompactParams, State);
+            do_compact_1(ok, Metadata, CompactParams, State_1);
         false ->
             %% Insert into the temporary object-container.
             %%
@@ -922,22 +923,23 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
                                          num_of_active_objects = NumOfActiveObjs  + 1,
                                          size_of_active_object = SizeActive + ObjectSize},
 
-                    do_comapct_1(Ret, NewMeta, NewCompactParams, State);
+                    do_compact_1(Ret, NewMeta, NewCompactParams, State_1);
                 Error ->
-                    do_comapct_1(Error, Metadata, CompactParams, State)
+                    do_compact_1(Error, Metadata, CompactParams, State_1)
             end
     end.
 
 
 %% @doc Reduce unnecessary objects from object-container.
 %% @private
-do_comapct_1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} = State) ->
+do_compact_1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} = State) ->
     ReadHandler = StorageInfo#backend_info.read_handler,
 
     case leo_object_storage_haystack:compact_get(
            ReadHandler, CompactParams#compact_params.next_offset) of
         {ok, NewMetadata, [_HeaderValue, NewKeyValue,
                            NewBodyValue, NewNextOffset]} ->
+            ok = output_accumulated_errors(State),
             do_compact(NewMetadata,
                        CompactParams#compact_params{
                          key_bin     = NewKeyValue,
@@ -945,21 +947,37 @@ do_comapct_1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} =
                          next_offset = NewNextOffset},
                        State);
         {error, eof} ->
+            ok = output_accumulated_errors(State),
             NumOfAcriveObjs  = CompactParams#compact_params.num_of_active_objects,
             SizeOfActiveObjs = CompactParams#compact_params.size_of_active_object,
             {ok, NumOfAcriveObjs, SizeOfActiveObjs};
-        {error, Cause} when Cause =:= ?ERROR_INVALID_DATA orelse
-                            Cause =:= ?ERROR_DATA_SIZE_DID_NOT_MATCH ->
-            %% retry until eof
+        {_, Cause} ->
+            erlang:garbage_collect(self()),
             OldOffset = CompactParams#compact_params.next_offset,
-            do_comapct_1(ok, Metadata,
+            SetErrors = sets:add_element(Cause, State#state.set_errors),
+            do_compact_1(ok, Metadata,
                          CompactParams#compact_params{next_offset = OldOffset + 1},
-                         State);
-        Error ->
-            Error
+                         State#state{set_errors = SetErrors})
     end;
-do_comapct_1(Error,_,_,_) ->
+do_compact_1(Error,_,_,_) ->
     Error.
+
+
+%% @doc Output accumulated errors to logger
+%% @private
+-spec(output_accumulated_errors(#state{}) ->
+             ok).
+output_accumulated_errors(#state{set_errors = SetErrors}) ->
+    case sets:size(SetErrors) of
+        0 ->
+            void;
+        _ ->
+            error_logger:warning_msg("~p,~p,~p,~p~n",
+                                     [{module, ?MODULE_STRING},
+                                      {function, "do_compact_1/4"},
+                                      {line, ?LINE}, {body, sets:to_list(SetErrors)}])
+    end,
+    ok.
 
 
 %% @doc Generate a raw file path.

@@ -41,6 +41,7 @@ compaction_test_() ->
     {setup,
      fun ( ) ->
              ?debugVal("***** COMPACTION.START *****"),
+             os:cmd("rm -rf " ++ ?AVS_DIR_FOR_COMPACTION),
              application:start(sasl),
              application:start(os_mon),
              application:start(crypto),
@@ -51,28 +52,23 @@ compaction_test_() ->
              application:stop(crypto),
              application:stop(os_mon),
              application:stop(sasl),
-             os:cmd("rm -rf " ++ ?AVS_DIR_FOR_COMPACTION),
              timer:sleep(5000),
              ?debugVal("***** COMPACTION.END *****"),
              ok
      end,
-     [{"test all functions",
-       {timeout, 300, fun compact/0}}
+     [
+      {"test compaction - irregular case",
+       {timeout, 600, fun compact/0}}
      ]}.
 
 compact() ->
     %% Launch object-storage
     leo_object_storage_api:start([{1, ?AVS_DIR_FOR_COMPACTION}]),
-    %% Put 128 objects  - exists duplicate objects
-    ok = put_regular_bin(1, 100),
+    ok = put_regular_bin(1, 50),
     ok = put_irregular_bin(),
-    ok = put_regular_bin(25, 5),
+    ok = put_regular_bin(36, 25),
     ok = put_irregular_bin(),
-    ok = put_regular_bin(50, 5),
-    ok = put_irregular_bin(),
-    ok = put_regular_bin(75, 5),
-    ok = put_irregular_bin(),
-    ok = put_regular_bin(101, 28),
+    ok = put_regular_bin(51, 50),
 
     %% Execute compaction
     timer:sleep(3000),
@@ -82,18 +78,29 @@ compact() ->
     TargetPids = leo_object_storage_api:get_object_storage_pid(all),
     ok = leo_compaction_manager_fsm:start(TargetPids, 1, FunHasChargeOfNode),
 
-    timer:sleep(10000),
-    {ok, #compaction_stats{status = CurStatus}} = leo_compaction_manager_fsm:status(),
-    ?assertEqual(idle, CurStatus),
+    %% Check comaction status
+    ok = check_status(),
 
     %% Check # of active objects and total of objects
+    timer:sleep(1000),
     {ok, [{_,#storage_stats{total_num  = TotalNum,
                             active_num = ActiveNum
                            }}|_]} = leo_object_storage_api:stats(),
     ?debugVal({TotalNum, ActiveNum}),
+    ?assertEqual(100, TotalNum),
     ?assertEqual(TotalNum, ActiveNum),
     ok.
 
+check_status() ->
+    timer:sleep(100),
+    case leo_compaction_manager_fsm:status() of        
+        {ok, #compaction_stats{status = 'idle'}} ->
+            ok;
+        {ok, _} ->
+            check_status();
+        Error ->
+            Error
+    end.
 
 %% @doc Put data
 %% @private
@@ -117,9 +124,16 @@ put_regular_bin(Index, Counter) ->
     put_regular_bin(Index + 1, Counter -1).
 
 put_irregular_bin() ->
-    %% @PENDING
-    %% Bin = crypto:rand_bytes(erlang:phash2(leo_date:clock(), (1024 * 1024))),
-    %% _ = leo_object_storage_api:add_incorrect_data(Bin),
+    Min = 1024 * 16,
+    Len = case erlang:phash2(leo_date:clock(), (1024 * 512)) of
+              Val when Val < Min ->
+                  Min;
+              Val ->
+                  Val
+          end,
+    ?debugVal(Len),
+    Bin = crypto:rand_bytes(Len),
+    _ = leo_object_storage_api:add_incorrect_data(Bin),
     ok.
 
 

@@ -492,9 +492,9 @@ put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key      = Key,
                                           data     = Bin,
                                           checksum = Checksum} = Object) ->
     Checksum_1 = case Checksum of
-                    0 -> leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin));
-                    _ -> Checksum
-                end,
+                     0 -> leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin));
+                     _ -> Checksum
+                 end,
     Object_1 = Object#?OBJECT{ksize    = byte_size(Key),
                               checksum = Checksum_1},
     Needle = create_needle(Object_1),
@@ -596,12 +596,7 @@ compact_get(ReadHandler, Offset) ->
                 HeaderSize ->
                     compact_get(ReadHandler, Offset, HeaderSize, HeaderBin);
                 _ ->
-                    Cause = ?ERROR_DATA_SIZE_DID_NOT_MATCH,
-                    error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING},
-                                            {function, "compact_get/2"},
-                                            {line, ?LINE}, {body, Cause}]),
-                    {error, Cause}
+                    {error, ?ERROR_DATA_SIZE_DID_NOT_MATCH}
             end;
         eof = Cause ->
             {error, Cause};
@@ -640,13 +635,7 @@ compact_get(#?METADATA{ksize = KSize,
 
     case (RemainSize > ?MAX_DATABLOCK_SIZE) of
         true ->
-            Cause = ?ERROR_INVALID_DATA,
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING},
-                                    {function, "compact_get/4"},
-                                    {line, ?LINE},
-                                    {body, "Data size too large"}]),
-            {error, Cause};
+            {error, ?ERROR_INVALID_DATA};
         false ->
             try
                 case file:pread(ReadHandler, Offset + HeaderSize, RemainSize) of
@@ -657,23 +646,11 @@ compact_get(#?METADATA{ksize = KSize,
                                               DSize4Read, RemainBin,
                                               Offset + HeaderSize + RemainSize);
                             _ ->
-                                Cause = ?ERROR_DATA_SIZE_DID_NOT_MATCH,
-                                error_logger:error_msg("~p,~p,~p,~p~n",
-                                                       [{module, ?MODULE_STRING},
-                                                        {function, "compact_get/4"},
-                                                        {line, ?LINE},
-                                                        {body, Cause}]),
-                                {error, Cause}
+                                {error, ?ERROR_DATA_SIZE_DID_NOT_MATCH}
                         end;
-
-
                     eof = Cause ->
                         {error, Cause};
                     {error, Cause} ->
-                        error_logger:error_msg("~p,~p,~p,~p~n",
-                                               [{module, ?MODULE_STRING},
-                                                {function, "compact_get/4"},
-                                                {line, ?LINE}, {body, Cause}]),
                         {error, Cause}
                 end
             catch
@@ -704,20 +681,23 @@ compact_get_1(HeaderBin, #?METADATA{ksize = KSize,
 %% @private
 compact_get_2(HeaderBin, Metadata, KeyBin, BodyBin, CMetaBin, TotalSize) ->
     Checksum = Metadata#?METADATA.checksum,
-    Metadata_1 = leo_object_storage_transformer:cmeta_bin_into_metadata(
-                   CMetaBin, Metadata),
-    Checksum_1 = leo_hex:raw_binary_to_integer(crypto:hash(md5, BodyBin)),
-
-    case (Checksum == Checksum_1
-          orelse Checksum_1 == ?MD5_EMPTY_BIN) of
-        true ->
-            {ok, Metadata_1#?METADATA{key = KeyBin},
-             [HeaderBin, KeyBin, BodyBin, TotalSize]};
-        false ->
-            Cause = ?ERROR_INVALID_DATA,
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING},
-                                    {function, "compact_get_2/4"},
-                                    {line, ?LINE}, {body, Cause}]),
-            {error, Cause}
+    case leo_object_storage_transformer:cmeta_bin_into_metadata(
+           CMetaBin, Metadata) of
+        {error, Cause} ->
+            {error, Cause};
+        Metadata_1 ->
+            Checksum_1 = leo_hex:raw_binary_to_integer(crypto:hash(md5, BodyBin)),
+            case (Checksum == Checksum_1
+                  orelse Checksum_1 == ?MD5_EMPTY_BIN) of
+                true ->
+                    {ok, Metadata_1#?METADATA{key = KeyBin},
+                     [HeaderBin, KeyBin, BodyBin, TotalSize]};
+                false ->
+                    Reason = ?ERROR_INVALID_DATA,
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING},
+                                            {function, "compact_get_2/4"},
+                                            {line, ?LINE}, {body, Reason}]),
+                    {error, Reason}
+            end
     end.
