@@ -262,7 +262,7 @@ header_bin_to_metadata(Bin) ->
 
 %% @doc Set values from a custome-metadata
 -spec(cmeta_bin_into_metadata(binary(), #?METADATA{})->
-             #?METADATA{}).
+             #?METADATA{} | {error, any()}).
 cmeta_bin_into_metadata(<<>>, Metadata) ->
     Metadata;
 cmeta_bin_into_metadata(CustomMetaBin, Metadata) ->
