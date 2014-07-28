@@ -933,6 +933,7 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
 %% @doc Reduce unnecessary objects from object-container.
 %% @private
 do_compact_1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} = State) ->
+    erlang:garbage_collect(self()),
     ReadHandler = StorageInfo#backend_info.read_handler,
 
     case leo_object_storage_haystack:compact_get(
@@ -952,7 +953,6 @@ do_compact_1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} =
             SizeOfActiveObjs = CompactParams#compact_params.size_of_active_object,
             {ok, NumOfAcriveObjs, SizeOfActiveObjs};
         {_, Cause} ->
-            erlang:garbage_collect(self()),
             OldOffset = CompactParams#compact_params.next_offset,
             SetErrors = sets:add_element(Cause, State#state.set_errors),
             do_compact_1(ok, Metadata,
