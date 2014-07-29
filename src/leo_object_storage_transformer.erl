@@ -275,7 +275,7 @@ cmeta_bin_into_metadata(CustomMetaBin, Metadata) ->
                            num_of_replicas = NumOfReplicas,
                            ver = Version}
     catch
-        _:_ ->
+        _:_Cause ->
             {error, invalid_format}
     end.
 
