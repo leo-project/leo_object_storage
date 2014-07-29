@@ -69,6 +69,25 @@ compact() ->
     ok = put_regular_bin(36, 25),
     ok = put_irregular_bin(),
     ok = put_regular_bin(51, 50),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(101, 50),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(136, 25),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(151, 50),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(201, 50),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(236, 25),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(251, 50),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(301, 50),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(336, 25),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(351, 50),
+    ok = put_irregular_bin(),
 
     %% Execute compaction
     timer:sleep(3000),
@@ -87,7 +106,7 @@ compact() ->
                             active_num = ActiveNum
                            }}|_]} = leo_object_storage_api:stats(),
     ?debugVal({TotalNum, ActiveNum}),
-    ?assertEqual(100, TotalNum),
+    ?assertEqual(400, TotalNum),
     ?assertEqual(TotalNum, ActiveNum),
     ok.
 
