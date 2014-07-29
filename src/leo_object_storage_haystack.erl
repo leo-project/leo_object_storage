@@ -702,7 +702,7 @@ compact_get_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, TotalSize) ->
                         eof = Cause ->
                             {error, Cause};
                         {error,_Cause} ->
-                            {error, invalid_data}
+                            {error, {?LINE, invalid_data}}
                     end;
                 false ->
                     {ok, Metadata_1#?METADATA{msize = 0},
