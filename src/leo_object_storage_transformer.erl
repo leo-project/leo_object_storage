@@ -84,6 +84,7 @@ metadata_to_object(#?METADATA{} = Metadata) ->
                num_of_replicas = NumOfReplicas,
                ver = Ver,
                del = Del} = Metadata,
+    
     #?OBJECT{key     = Key,
              addr_id = AddrId,
              ksize   = KSize,

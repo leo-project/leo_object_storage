@@ -68,25 +68,27 @@ compact() ->
     ok = put_irregular_bin(),
     ok = put_regular_bin(36, 25),
     ok = put_irregular_bin(),
-    ok = put_regular_bin(51, 50),
+    ok = put_regular_bin_with_cmeta(51, 50),
     ok = put_irregular_bin(),
     ok = put_regular_bin(101, 50),
     ok = put_irregular_bin(),
     ok = put_regular_bin(136, 25),
     ok = put_irregular_bin(),
-    ok = put_regular_bin(151, 50),
+    ok = put_regular_bin_with_cmeta(151, 50),
     ok = put_irregular_bin(),
     ok = put_regular_bin(201, 50),
     ok = put_irregular_bin(),
     ok = put_regular_bin(236, 25),
     ok = put_irregular_bin(),
-    ok = put_regular_bin(251, 50),
+    ok = put_regular_bin_with_cmeta(251, 50),
     ok = put_irregular_bin(),
     ok = put_regular_bin(301, 50),
     ok = put_irregular_bin(),
     ok = put_regular_bin(336, 25),
     ok = put_irregular_bin(),
     ok = put_regular_bin(351, 50),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin_with_cmeta(401, 10),
     ok = put_irregular_bin(),
 
     %% Execute compaction
@@ -106,13 +108,13 @@ compact() ->
                             active_num = ActiveNum
                            }}|_]} = leo_object_storage_api:stats(),
     ?debugVal({TotalNum, ActiveNum}),
-    ?assertEqual(400, TotalNum),
+    ?assertEqual(410, TotalNum),
     ?assertEqual(TotalNum, ActiveNum),
     ok.
 
 check_status() ->
     timer:sleep(100),
-    case leo_compaction_manager_fsm:status() of        
+    case leo_compaction_manager_fsm:status() of
         {ok, #compaction_stats{status = 'idle'}} ->
             ok;
         {ok, _} ->
@@ -142,6 +144,36 @@ put_regular_bin(Index, Counter) ->
     {ok, _} = leo_object_storage_api:put({AddrId, Key}, Object),
     put_regular_bin(Index + 1, Counter -1).
 
+
+%% @doc Put data with custom-metadata
+%% @private
+put_regular_bin_with_cmeta(_, 0) ->
+    ok;
+put_regular_bin_with_cmeta(Index, Counter) ->
+    AddrId = 1,
+    Key = list_to_binary(lists:append(["TEST_", integer_to_list(Index)])),
+    Bin = crypto:rand_bytes(erlang:phash2(leo_date:clock(), (1024 * 1024))),
+    CMetaBin = leo_object_storage_transformer:list_to_cmeta_bin(
+                         [{?PROP_CMETA_CLUSTER_ID, 'remote_cluster'},
+                          {?PROP_CMETA_NUM_OF_REPLICAS, 3}]),
+    Object = #?OBJECT{method    = put,
+                      addr_id   = AddrId,
+                      key       = Key,
+                      ksize     = byte_size(Key),
+                      data      = Bin,
+                      dsize     = byte_size(Bin),
+                      meta      = CMetaBin,
+                      msize     = byte_size(CMetaBin),
+                      checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
+                      timestamp = leo_date:now(),
+                      clock     = leo_date:clock()
+                     },
+    {ok, _} = leo_object_storage_api:put({AddrId, Key}, Object),
+    put_regular_bin_with_cmeta(Index + 1, Counter -1).
+
+
+%% @doc Put irregular data
+%% @private
 put_irregular_bin() ->
     Min = 1024 * 16,
     Len = case erlang:phash2(leo_date:clock(), (1024 * 512)) of

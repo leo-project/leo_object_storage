@@ -655,15 +655,14 @@ compact_get(#?METADATA{ksize = KSize,
                 end
             catch
                 _:Reason ->
-                    {error, Reason}
+                    {error, {?LINE, Reason}}
             end
     end.
 
 %% @private
 compact_get_1(_ReadHandler,_HeaderBin, #?METADATA{ksize = 0},_DSize,_Bin,_TotalSize) ->
     {error, {?LINE, ?ERROR_DATA_SIZE_DID_NOT_MATCH}};
-compact_get_1(ReadHandler, HeaderBin, #?METADATA{ksize = KSize,
-                                                 msize = 0} = Metadata,
+compact_get_1(ReadHandler, HeaderBin, #?METADATA{ksize = KSize} = Metadata,
               DSize, Bin, TotalSize) ->
     << KeyBin:KSize/binary,
        BodyBin:DSize/binary,
@@ -676,29 +675,32 @@ compact_get_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, TotalSize) ->
     Checksum_1 = leo_hex:raw_binary_to_integer(crypto:hash(md5, BodyBin)),
     Metadata_1 = Metadata#?METADATA{key = KeyBin},
 
-    case (Checksum   == Checksum_1 orelse
-          Checksum_1 == ?MD5_EMPTY_BIN) of
+    case (Checksum == Checksum_1) of
         true ->
             HeaderSize = erlang:round(?BLEN_HEADER/8),
-            Offset = Metadata#?METADATA.offset,
-            KSize  = Metadata#?METADATA.ksize,
-            DSize  = Metadata#?METADATA.dsize,
-            MSize  = Metadata#?METADATA.msize,
+            #?METADATA{offset = Offset,
+                       ksize  = KSize,
+                       dsize  = DSize,
+                       msize  = MSize} = Metadata,
 
-            case (?MAX_DATABLOCK_SIZE < MSize andalso MSize > 0) of
+            case (?MAX_DATABLOCK_SIZE > MSize andalso MSize > 0) of
                 true ->
                     MPos = Offset + HeaderSize + KSize + DSize,
                     case file:pread(ReadHandler, MPos, MSize) of
                         {ok, CMetaBin} ->
                             case leo_object_storage_transformer:cmeta_bin_into_metadata(
-                                   CMetaBin, Metadata) of
+                                   CMetaBin, Metadata_1) of
                                 {error,_Cause} ->
                                     {ok, Metadata_1#?METADATA{msize = 0},
                                      [HeaderBin, KeyBin, BodyBin, TotalSize]};
                                 Metadata_2 ->
-                                    {ok, Metadata_2#?METADATA{key = KeyBin},
-                                     [HeaderBin, KeyBin, BodyBin, TotalSize + MSize]}
+                                    {ok, Metadata_2,
+                                     [HeaderBin, KeyBin, BodyBin,
+                                      Offset + HeaderSize + KSize
+                                      + DSize + MSize + ?LEN_PADDING]}
                             end;
+                        eof = Cause ->
+                            {error, Cause};
                         {error,_Cause} ->
                             {error, invalid_data}
                     end;
@@ -708,9 +710,5 @@ compact_get_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, TotalSize) ->
             end;
         false ->
             Reason = ?ERROR_INVALID_DATA,
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING},
-                                    {function, "compact_get_2/4"},
-                                    {line, ?LINE}, {body, Reason}]),
-            {error, Reason}
+            {error, {?LINE, Reason}}
     end.
