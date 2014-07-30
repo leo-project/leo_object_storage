@@ -58,7 +58,7 @@ compaction_test_() ->
      end,
      [
       {"test compaction - irregular case",
-       {timeout, 600, fun compact/0}}
+       {timeout, 1000, fun compact/0}}
      ]}.
 
 compact() ->

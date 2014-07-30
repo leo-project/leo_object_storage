@@ -941,7 +941,7 @@ do_compact_1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} =
            ReadHandler, CompactParams#compact_params.next_offset) of
         {ok, NewMetadata, [_HeaderValue, NewKeyValue,
                            NewBodyValue, NewNextOffset]} ->
-            ok = output_accumulated_errors(State),
+            ok = output_accumulated_errors(State, CompactParams#compact_params.next_offset),
             do_compact(NewMetadata,
                        CompactParams#compact_params{
                          key_bin     = NewKeyValue,
@@ -950,7 +950,7 @@ do_compact_1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} =
                        State#state{error_pos  = 0,
                                    set_errors = sets:new()});
         {error, eof} ->
-            ok = output_accumulated_errors(State),
+            ok = output_accumulated_errors(State, CompactParams#compact_params.next_offset),
             NumOfAcriveObjs  = CompactParams#compact_params.num_of_active_objects,
             SizeOfActiveObjs = CompactParams#compact_params.size_of_active_object,
             {ok, NumOfAcriveObjs, SizeOfActiveObjs};
@@ -975,10 +975,10 @@ do_compact_1(Error,_,_,_) ->
 
 %% @doc Output accumulated errors to logger
 %% @private
--spec(output_accumulated_errors(#state{}) ->
+-spec(output_accumulated_errors(#state{}, integer()) ->
              ok).
-output_accumulated_errors(#state{error_pos  = ErrorPos,
-                                 set_errors = SetErrors}) ->
+output_accumulated_errors(#state{error_pos  = ErrorPosStart,
+                                 set_errors = SetErrors}, ErrorPosEnd) ->
     case sets:size(SetErrors) of
         0 ->
             ok;
@@ -987,8 +987,9 @@ output_accumulated_errors(#state{error_pos  = ErrorPos,
                                      [{module, ?MODULE_STRING},
                                       {function, "do_compact_1/4"},
                                       {line, ?LINE},
-                                      {body, [{error_pos, ErrorPos},
-                                              {errors, sets:to_list(SetErrors)}]}
+                                      {body, [{error_pos_start, ErrorPosStart},
+                                              {error_pos_end,   ErrorPosEnd},
+                                              {errors,          sets:to_list(SetErrors)}]}
                                      ]),
             ok
     end.
