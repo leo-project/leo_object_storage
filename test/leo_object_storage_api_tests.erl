@@ -30,12 +30,168 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("leo_object_storage.hrl").
 
-%%--------------------------------------------------------------------
-%% TEST FUNCTIONS
-%%--------------------------------------------------------------------
 -ifdef(EUNIT).
 
-all_test_() ->
+%%======================================================================
+%% Compaction TEST
+%%======================================================================
+-define(AVS_DIR_FOR_COMPACTION, "comaction_test/").
+
+compaction_test_() ->
+    {setup,
+     fun ( ) ->
+             ?debugVal("***** COMPACTION.START *****"),
+             os:cmd("rm -rf " ++ ?AVS_DIR_FOR_COMPACTION),
+             application:start(sasl),
+             application:start(os_mon),
+             application:start(crypto),
+             ok
+     end,
+     fun (_) ->
+             application:stop(leo_object_storage),
+             application:stop(crypto),
+             application:stop(os_mon),
+             application:stop(sasl),
+             timer:sleep(5000),
+             ?debugVal("***** COMPACTION.END *****"),
+             ok
+     end,
+     [
+      {"test compaction - irregular case",
+       {timeout, 600, fun compact/0}}
+     ]}.
+
+compact() ->
+    %% Launch object-storage
+    leo_object_storage_api:start([{1, ?AVS_DIR_FOR_COMPACTION}]),
+    ok = put_regular_bin(1, 50),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(36, 25),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin_with_cmeta(51, 50),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(101, 50),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(136, 25),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin_with_cmeta(151, 50),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(201, 50),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(236, 25),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin_with_cmeta(251, 50),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(301, 50),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(336, 25),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(351, 50),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin_with_cmeta(401, 10),
+    ok = put_irregular_bin(),
+
+    %% Execute compaction
+    timer:sleep(3000),
+    FunHasChargeOfNode = fun(_Key_,_NumOfReplicas_) ->
+                                 true
+                         end,
+    TargetPids = leo_object_storage_api:get_object_storage_pid(all),
+    ok = leo_compaction_manager_fsm:start(TargetPids, 1, FunHasChargeOfNode),
+
+    %% Check comaction status
+    ok = check_status(),
+
+    %% Check # of active objects and total of objects
+    timer:sleep(1000),
+    {ok, [{_,#storage_stats{total_num  = TotalNum,
+                            active_num = ActiveNum
+                           }}|_]} = leo_object_storage_api:stats(),
+    ?debugVal({TotalNum, ActiveNum}),
+    ?assertEqual(410, TotalNum),
+    ?assertEqual(TotalNum, ActiveNum),
+    ok.
+
+check_status() ->
+    timer:sleep(100),
+    case leo_compaction_manager_fsm:status() of
+        {ok, #compaction_stats{status = 'idle'}} ->
+            ok;
+        {ok, _} ->
+            check_status();
+        Error ->
+            Error
+    end.
+
+%% @doc Put data
+%% @private
+put_regular_bin(_, 0) ->
+    ok;
+put_regular_bin(Index, Counter) ->
+    AddrId = 1,
+    Key = list_to_binary(lists:append(["TEST_", integer_to_list(Index)])),
+    Bin = crypto:rand_bytes(erlang:phash2(leo_date:clock(), (1024 * 1024))),
+    Object = #?OBJECT{method    = put,
+                      addr_id   = AddrId,
+                      key       = Key,
+                      ksize     = byte_size(Key),
+                      data      = Bin,
+                      dsize     = byte_size(Bin),
+                      checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
+                      timestamp = leo_date:now(),
+                      clock     = leo_date:clock()
+                     },
+    {ok, _} = leo_object_storage_api:put({AddrId, Key}, Object),
+    put_regular_bin(Index + 1, Counter -1).
+
+
+%% @doc Put data with custom-metadata
+%% @private
+put_regular_bin_with_cmeta(_, 0) ->
+    ok;
+put_regular_bin_with_cmeta(Index, Counter) ->
+    AddrId = 1,
+    Key = list_to_binary(lists:append(["TEST_", integer_to_list(Index)])),
+    Bin = crypto:rand_bytes(erlang:phash2(leo_date:clock(), (1024 * 1024))),
+    CMetaBin = leo_object_storage_transformer:list_to_cmeta_bin(
+                         [{?PROP_CMETA_CLUSTER_ID, 'remote_cluster'},
+                          {?PROP_CMETA_NUM_OF_REPLICAS, 3}]),
+    Object = #?OBJECT{method    = put,
+                      addr_id   = AddrId,
+                      key       = Key,
+                      ksize     = byte_size(Key),
+                      data      = Bin,
+                      dsize     = byte_size(Bin),
+                      meta      = CMetaBin,
+                      msize     = byte_size(CMetaBin),
+                      checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
+                      timestamp = leo_date:now(),
+                      clock     = leo_date:clock()
+                     },
+    {ok, _} = leo_object_storage_api:put({AddrId, Key}, Object),
+    put_regular_bin_with_cmeta(Index + 1, Counter -1).
+
+
+%% @doc Put irregular data
+%% @private
+put_irregular_bin() ->
+    Min = 1024 * 16,
+    Len = case erlang:phash2(leo_date:clock(), (1024 * 512)) of
+              Val when Val < Min ->
+                  Min;
+              Val ->
+                  Val
+          end,
+    ?debugVal(Len),
+    Bin = crypto:rand_bytes(Len),
+    _ = leo_object_storage_api:add_incorrect_data(Bin),
+    ok.
+
+
+%%======================================================================
+%% Suite TEST
+%%======================================================================
+suite_test_() ->
     {foreach, fun setup/0, fun teardown/1,
      [{with, [T]} || T <- [fun new_/1,
                            fun operate_/1,
@@ -54,8 +210,9 @@ teardown([Path1, Path2]) ->
     io:format(user, "teardown~n", []),
     os:cmd("rm -rf " ++ Path1),
     os:cmd("rm -rf " ++ Path2),
+    application:stop(leo_object_storage),
     application:stop(crypto),
-    timer:sleep(200),
+    timer:sleep(1000),
     ok.
 
 
@@ -432,21 +589,21 @@ compact_test_() ->
              ok = leo_compaction_manager_fsm:start(TargetPids, 2, FunHasChargeOfNode),
              timer:sleep(100),
 
-             {ok, CopactionStats} = leo_compaction_manager_fsm:status(),
-             ?assertEqual('running', CopactionStats#compaction_stats.status),
-             ?assertEqual(8, CopactionStats#compaction_stats.total_num_of_targets),
-             ?assertEqual(true, 0 < CopactionStats#compaction_stats.num_of_pending_targets),
-             ?assertEqual(true, 0 < CopactionStats#compaction_stats.num_of_ongoing_targets),
+             {ok, CompactionStats} = leo_compaction_manager_fsm:status(),
+             ?assertEqual('running', CompactionStats#compaction_stats.status),
+             ?assertEqual(8, CompactionStats#compaction_stats.total_num_of_targets),
+             ?assertEqual(true, 0 < CompactionStats#compaction_stats.num_of_pending_targets),
+             ?assertEqual(true, 0 < CompactionStats#compaction_stats.num_of_ongoing_targets),
 
              ?assertEqual(ok, leo_compaction_manager_fsm:suspend()),
-             {ok, CopactionStats2} = leo_compaction_manager_fsm:status(),
-             ?assertEqual('suspend', CopactionStats2#compaction_stats.status),
+             {ok, CompactionStats2} = leo_compaction_manager_fsm:status(),
+             ?assertEqual('suspend', CompactionStats2#compaction_stats.status),
              %% keep # of ongoing/pending fixed during suspend
-             Pending = CopactionStats2#compaction_stats.num_of_pending_targets,
-             Ongoing = CopactionStats2#compaction_stats.num_of_ongoing_targets,
+             Pending = CompactionStats2#compaction_stats.num_of_pending_targets,
+             Ongoing = CompactionStats2#compaction_stats.num_of_ongoing_targets,
              timer:sleep(1000),
-             ?assertEqual(Pending, CopactionStats2#compaction_stats.num_of_pending_targets),
-             ?assertEqual(Ongoing, CopactionStats2#compaction_stats.num_of_ongoing_targets),
+             ?assertEqual(Pending, CompactionStats2#compaction_stats.num_of_pending_targets),
+             ?assertEqual(Ongoing, CompactionStats2#compaction_stats.num_of_ongoing_targets),
              %% operation during suspend
              TestAddrId0 = 0,
              TestKey0    = <<"air/on/g/string/0">>,
@@ -459,12 +616,13 @@ compact_test_() ->
 
              timer:sleep(3000),
              {ok, Res2} = leo_object_storage_api:stats(),
-             {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2} 
+             {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2}
                  = get_avs_stats_summary(Res2),
              io:format(user, "[debug] summary1:~p~n", [{SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2}]),
              ?assertEqual(13, SumTotal2),
              ?assertEqual(13, SumActive2),
              ?assertEqual(true, SumTotalSize2 =:= SumActiveSize2),
+
 
              %% confirm whether first compaction have broken avs files or not
              ok = leo_compaction_manager_fsm:start(TargetPids, 2, FunHasChargeOfNode),
@@ -523,23 +681,23 @@ compact_test_() ->
 %%--------------------------------------------------------------------
 get_avs_stats_summary(ResStats) ->
     lists:foldl(
-        fun({ok, #storage_stats{file_path  = _ObjPath,
-                                total_sizes = TotalSize,
-                                active_sizes = ActiveSize,
-                                has_error = HasError,
-                                total_num  = Total,
-                                active_num = Active} = SS},
-            {SumTotal, SumActive, SumTotalSize, SumActiveSize}) ->
-                io:format(user, "[debug]ss:~p~n",[SS]),
-                case TotalSize of
-                    0 -> void;
-                    _ -> ?assertEqual(false, HasError)
-                end,
-                {SumTotal + Total,
-                 SumActive + Active,
-                 SumTotalSize + TotalSize,
-                 SumActiveSize + ActiveSize}
-        end, {0, 0, 0, 0}, ResStats).
+      fun({ok, #storage_stats{file_path  = _ObjPath,
+                              total_sizes = TotalSize,
+                              active_sizes = ActiveSize,
+                              has_error = HasError,
+                              total_num  = Total,
+                              active_num = Active} = SS},
+          {SumTotal, SumActive, SumTotalSize, SumActiveSize}) ->
+              io:format(user, "[debug]ss:~p~n",[SS]),
+              case TotalSize of
+                  0 -> void;
+                  _ -> ?assertEqual(false, HasError)
+              end,
+              {SumTotal + Total,
+               SumActive + Active,
+               SumTotalSize + TotalSize,
+               SumActiveSize + ActiveSize}
+      end, {0, 0, 0, 0}, ResStats).
 
 
 put_test_data(AddrId, Key, Bin) ->

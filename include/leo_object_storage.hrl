@@ -42,19 +42,21 @@
 
 %% Error Constants
 %%
--define(ERROR_FD_CLOSED,               "already closed file-descriptor").
--define(ERROR_FILE_OPEN,               "file open error").
--define(ERROR_INVALID_DATA,            "invalid data").
--define(ERROR_DATA_SIZE_DID_NOT_MATCH, "data-size did not match").
--define(ERROR_COMPACT_SUSPEND_FAILURE, "comaction-suspend filure").
--define(ERROR_COMPACT_RESUME_FAILURE,  "comaction-resume filure").
+-define(ERROR_FD_CLOSED,                "already closed file-descriptor").
+-define(ERROR_FILE_OPEN,                "file open error").
+-define(ERROR_INVALID_DATA,             "invalid data").
+-define(ERROR_DATA_SIZE_DID_NOT_MATCH,  "data-size did not match").
+-define(ERROR_COMPACT_SUSPEND_FAILURE,  "comaction-suspend filure").
+-define(ERROR_COMPACT_RESUME_FAILURE,   "comaction-resume filure").
+-define(ERROR_PROCESS_NOT_FOUND,        "server process not found").
+-define(ERROR_COULD_NOT_GET_MOUNT_PATH, "could not get mout path").
 
 
 -define(DEL_TRUE,  1).
 -define(DEL_FALSE, 0).
 
 -type(del_flag() :: ?DEL_TRUE | ?DEL_FALSE).
--type(type_of_method() :: get | put | delete | head).
+-type(type_of_method() :: get | put | delete | head | head_with_calc_md5 | store).
 
 -define(MD5_EMPTY_BIN, 281949768489412648962353822266799178366).
 
@@ -130,44 +132,44 @@
          }).
 
 -record(metadata, { %% - leofs-v1.0.0-pre3
-          key = <<>>          :: binary(),      %% filename
-          addr_id    = 0      :: pos_integer(), %% ring-address id (MD5 > hex-to-integer)
-          ksize      = 0      :: pos_integer(), %% file-path size
-          dsize      = 0      :: pos_integer(), %% data size
-          msize      = 0      :: pos_integer(), %% custom-metadata size
+          key = <<>>          :: binary(),  %% filename
+          addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
+          ksize      = 0      :: integer(), %% file-path size
+          dsize      = 0      :: integer(), %% data size
+          msize      = 0      :: integer(), %% custom-metadata size
 
-          csize      = 0      :: pos_integer(), %% * chunked data size    (for large-object)
-          cnumber    = 0      :: pos_integer(), %% * # of chunked objects (for large-object)
-          cindex     = 0      :: pos_integer(), %% * chunked object index (for large-object)
+          csize      = 0      :: integer(), %% * chunked data size    (for large-object)
+          cnumber    = 0      :: integer(), %% * # of chunked objects (for large-object)
+          cindex     = 0      :: integer(), %% * chunked object index (for large-object)
 
-          offset     = 0      :: pos_integer(), %% object-container's offset
-          clock      = 0      :: pos_integer(), %% clock
-          timestamp  = 0      :: pos_integer(), %% timestamp
-          checksum   = 0      :: pos_integer(), %% checksum (MD5 > hex-to-integer)
-          ring_hash  = 0      :: pos_integer(), %% RING's Hash(CRC32) when write an object.
+          offset     = 0      :: integer(), %% object-container's offset
+          clock      = 0      :: integer(), %% clock
+          timestamp  = 0      :: integer(), %% timestamp
+          checksum   = 0      :: integer(), %% checksum (MD5 > hex-to-integer)
+          ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
           del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
          }).
 
 -record(metadata_1, { %% leofs-v1.0.0 - current ver
-          key = <<>>          :: binary(),      %% filename
-          addr_id    = 0      :: pos_integer(), %% ring-address id (MD5 > hex-to-integer)
-          ksize      = 0      :: pos_integer(), %% file-path size
-          dsize      = 0      :: pos_integer(), %% data size
-          msize      = 0      :: pos_integer(), %% custom-metadata size
+          key = <<>>          :: binary(),  %% filename
+          addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
+          ksize      = 0      :: integer(), %% file-path size
+          dsize      = 0      :: integer(), %% data size
+          msize      = 0      :: integer(), %% custom-metadata size
 
-          csize      = 0      :: pos_integer(), %% * chunked data size    (for large-object)
-          cnumber    = 0      :: pos_integer(), %% * # of chunked objects (for large-object)
-          cindex     = 0      :: pos_integer(), %% * chunked object index (for large-object)
+          csize      = 0      :: integer(), %% * chunked data size    (for large-object)
+          cnumber    = 0      :: integer(), %% * # of chunked objects (for large-object)
+          cindex     = 0      :: integer(), %% * chunked object index (for large-object)
 
-          offset     = 0      :: pos_integer(), %% object-container's offset
-          clock      = 0      :: pos_integer(), %% clock
-          timestamp  = 0      :: pos_integer(), %% timestamp
-          checksum   = 0      :: pos_integer(), %% checksum (MD5 > hex-to-integer)
-          ring_hash  = 0      :: pos_integer(), %% RING's Hash(CRC32) when write an object.
+          offset     = 0      :: integer(), %% object-container's offset
+          clock      = 0      :: integer(), %% clock
+          timestamp  = 0      :: integer(), %% timestamp
+          checksum   = 0      :: integer(), %% checksum (MD5 > hex-to-integer)
+          ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
 
-          cluster_id          :: atom(),        %% cluster-id for the mdc-replication
-          num_of_replicas = 0 :: pos_integer(), %% # of replicas for the mdc-replication
-          ver = 0             :: pos_integer(), %% version number
+          cluster_id          :: atom(),    %% cluster-id for the mdc-replication
+          num_of_replicas = 0 :: integer(), %% # of replicas for the mdc-replication
+          ver = 0             :: integer(), %% version number
 
           del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
          }).
@@ -179,20 +181,20 @@
           addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
           data       = <<>>   :: binary(),  %% file
           meta       = <<>>   :: binary(),  %% custom-metadata
-          ksize      = 0      :: pos_integer(), %% filename size
-          dsize      = 0      :: pos_integer(), %% data size
-          msize      = 0      :: pos_integer(), %% custom-metadata size
+          ksize      = 0      :: integer(), %% filename size
+          dsize      = 0      :: integer(), %% data size
+          msize      = 0      :: integer(), %% custom-metadata size
 
-          csize      = 0      :: pos_integer(), %% * chunked data size    (for large-object)
-          cnumber    = 0      :: pos_integer(), %% * # of chunked objects (for large-object)
-          cindex     = 0      :: pos_integer(), %% * chunked object index (for large-object)
+          csize      = 0      :: integer(), %% * chunked data size    (for large-object)
+          cnumber    = 0      :: integer(), %% * # of chunked objects (for large-object)
+          cindex     = 0      :: integer(), %% * chunked object index (for large-object)
 
-          offset     = 0      :: pos_integer(), %% object-container's offset
-          clock      = 0      :: pos_integer(), %% clock
-          timestamp  = 0      :: pos_integer(), %% timestamp
-          checksum   = 0      :: pos_integer(), %% checksum (MD5 > hex-to-integer)
-          ring_hash  = 0      :: pos_integer(), %% RING's Hash(CRC32) when write an object.
-          req_id     = 0      :: pos_integer(), %% request id
+          offset     = 0      :: integer(), %% object-container's offset
+          clock      = 0      :: integer(), %% clock
+          timestamp  = 0      :: integer(), %% timestamp
+          checksum   = 0      :: integer(), %% checksum (MD5 > hex-to-integer)
+          ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
+          req_id     = 0      :: integer(), %% request id
           del = ?DEL_FALSE    :: del_flag() %% delete flag
          }).
 
@@ -202,35 +204,34 @@
           addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
           data       = <<>>   :: binary(),  %% file
           meta       = <<>>   :: binary(),  %% custom-metadata
-          ksize      = 0      :: pos_integer(), %% filename size
-          dsize      = 0      :: pos_integer(), %% data size
-          msize      = 0      :: pos_integer(), %% custom-metadata size
+          ksize      = 0      :: integer(), %% filename size
+          dsize      = 0      :: integer(),         %% data size
+          msize      = 0      :: integer(), %% custom-metadata size
 
-          csize      = 0      :: pos_integer(), %% * chunked data size    (for large-object)
-          cnumber    = 0      :: pos_integer(), %% * # of chunked objects (for large-object)
-          cindex     = 0      :: pos_integer(), %% * chunked object index (for large-object)
+          csize      = 0      :: integer(), %% * chunked data size    (for large-object)
+          cnumber    = 0      :: integer(), %% * # of chunked objects (for large-object)
+          cindex     = 0      :: integer(), %% * chunked object index (for large-object)
 
-          offset     = 0      :: pos_integer(), %% object-container's offset
-          clock      = 0      :: pos_integer(), %% clock
-          timestamp  = 0      :: pos_integer(), %% timestamp
-          checksum   = 0      :: pos_integer(), %% checksum (MD5 > hex-to-integer)
-          ring_hash  = 0      :: pos_integer(), %% RING's Hash(CRC32) when write an object.
-          req_id     = 0      :: pos_integer(), %% request id
+          offset     = 0      :: integer(), %% object-container's offset
+          clock      = 0      :: integer(), %% clock
+          timestamp  = 0      :: integer(), %% timestamp
+          checksum   = 0      :: integer(), %% checksum (MD5 > hex-to-integer)
+          ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
+          req_id     = 0      :: integer(), %% request id
 
-          cluster_id = []     :: string(),      %% cluster-id for the mdc-replication
-          num_of_replicas = 0 :: pos_integer(), %% # of replicas for the mdc-replication
-          ver = 0             :: pos_integer(), %% version number
-
-          del = ?DEL_FALSE    :: del_flag()     %% delete flag
+          cluster_id          :: atom(),    %% cluster-id for the mdc-replication
+          num_of_replicas = 0 :: integer(), %% # of replicas for the mdc-replication
+          ver = 0             :: integer(), %% version number
+          del = ?DEL_FALSE    :: del_flag() %% delete flag
          }).
 -define(OBJECT, 'object_1').
 
 -record(storage_stats, {
           file_path            = []    :: string(),
-          total_sizes          = 0     :: pos_integer(),
-          active_sizes         = 0     :: pos_integer(),
-          total_num            = 0     :: pos_integer(),
-          active_num           = 0     :: pos_integer(),
+          total_sizes          = 0     :: non_neg_integer(),
+          active_sizes         = 0     :: non_neg_integer(),
+          total_num            = 0     :: non_neg_integer(),
+          active_num           = 0     :: non_neg_integer(),
           compaction_histories = []    :: compaction_histories(),
           has_error            = false :: boolean()
          }).
@@ -248,14 +249,14 @@
 
 -record(compaction_stats, {
           status = ?COMPACTION_STATUS_IDLE :: compaction_status(),
-          total_num_of_targets    = 0  :: pos_integer(),
-          num_of_reserved_targets = 0  :: pos_integer(),
-          num_of_pending_targets  = 0  :: pos_integer(),
-          num_of_ongoing_targets  = 0  :: pos_integer(),
+          total_num_of_targets    = 0  :: non_neg_integer(),
+          num_of_reserved_targets = 0  :: non_neg_integer(),
+          num_of_pending_targets  = 0  :: non_neg_integer(),
+          num_of_ongoing_targets  = 0  :: non_neg_integer(),
           reserved_targets = []        :: list(),
           pending_targets  = []        :: list(),
           ongoing_targets  = []        :: list(),
-          latest_exec_datetime = 0     :: pos_integer()
+          latest_exec_datetime = 0     :: non_neg_integer()
          }).
 
 

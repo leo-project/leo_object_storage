@@ -57,7 +57,8 @@
 %%--------------------------------------------------------------------
 %% @doc Open and clreate a file.
 %%
--spec(calc_obj_size(#?METADATA{}|#?OBJECT{}) -> integer()).
+-spec(calc_obj_size(#?METADATA{}|#?OBJECT{}) ->
+             non_neg_integer()).
 calc_obj_size(#?METADATA{ksize = KSize,
                          dsize = DSize,
                          cnumber = 0}) ->
@@ -74,9 +75,10 @@ calc_obj_size(#?OBJECT{key  = Key}) ->
     KSize = byte_size(Key),
     calc_obj_size(KSize, 0).
 
--spec(calc_obj_size(integer(), integer()) -> integer()).
+-spec(calc_obj_size(non_neg_integer(), non_neg_integer()) ->
+             integer()).
 calc_obj_size(KSize, DSize) ->
-    ?BLEN_HEADER/8 + KSize + DSize + ?LEN_PADDING.
+    erlang:round(?BLEN_HEADER/8 + KSize + DSize + ?LEN_PADDING).
 
 
 -spec(open(FilePath::string) ->
@@ -103,7 +105,7 @@ open(FilePath) ->
 
 %% @doc Close file handlers.
 %%
--spec(close(Writehandler::port(), ReadHandler::port()) ->
+-spec(close(port()|_, port()|_) ->
              ok).
 close(WriteHandler, ReadHandler) ->
     catch file:close(WriteHandler),
@@ -184,7 +186,7 @@ head_with_calc_md5(MetaDBId, StorageInfo, Key, MD5Context) ->
 %% @doc Fetch objects from the object-storage
 %%
 -spec(fetch(atom(), binary(), function(), pos_integer()|undefined) ->
-             ok | {error, any()}).
+             {ok, list()} | not_found | {error, any()}).
 fetch(MetaDBId, Key, Fun, undefined) ->
     leo_backend_db_api:fetch(MetaDBId, Key, Fun);
 fetch(MetaDBId, Key, Fun, MaxKeys) ->
@@ -231,6 +233,7 @@ add_incorrect_data(StorageInfo, Data) ->
 -spec(add_incorrect_data(file:io_device(), integer(), binary()) ->
              ok | {error, any()}).
 add_incorrect_data(WriteHandler, Offset, Data) ->
+    ?debugVal(Offset),
     case file:pwrite(WriteHandler, Offset, Data) of
         ok ->
             ok;
@@ -490,9 +493,9 @@ put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key      = Key,
                                           data     = Bin,
                                           checksum = Checksum} = Object) ->
     Checksum_1 = case Checksum of
-                    0 -> leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin));
-                    _ -> Checksum
-                end,
+                     0 -> leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin));
+                     _ -> Checksum
+                 end,
     Object_1 = Object#?OBJECT{ksize    = byte_size(Key),
                               checksum = Checksum_1},
     Needle = create_needle(Object_1),
@@ -594,12 +597,7 @@ compact_get(ReadHandler, Offset) ->
                 HeaderSize ->
                     compact_get(ReadHandler, Offset, HeaderSize, HeaderBin);
                 _ ->
-                    Cause = ?ERROR_DATA_SIZE_DID_NOT_MATCH,
-                    error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING},
-                                            {function, "compact_get/2"},
-                                            {line, ?LINE}, {body, Cause}]),
-                    {error, Cause}
+                    {error, {?LINE,?ERROR_DATA_SIZE_DID_NOT_MATCH}}
             end;
         eof = Cause ->
             {error, Cause};
@@ -626,96 +624,91 @@ compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
 %% @private
 compact_get(#?METADATA{ksize = KSize,
                        dsize = DSize,
-                       msize = MSize,
                        cnumber = CNum} = Metadata, ReadHandler,
             Offset, HeaderSize, HeaderBin) ->
     DSize4Read = case (CNum > 0) of
                      true  -> 0;
                      false -> DSize
                  end,
-    RemainSize = (KSize + DSize4Read
-                  + MSize + ?LEN_PADDING),
+    RemainSize = (KSize + DSize4Read + ?LEN_PADDING),
 
     case (RemainSize > ?MAX_DATABLOCK_SIZE) of
         true ->
-            Cause = ?ERROR_INVALID_DATA,
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING},
-                                    {function, "compact_get/4"},
-                                    {line, ?LINE},
-                                    {body, "Data size too large"}]),
-            {error, Cause};
+            {error, {?LINE,?ERROR_INVALID_DATA}};
         false ->
             try
                 case file:pread(ReadHandler, Offset + HeaderSize, RemainSize) of
                     {ok, RemainBin} ->
                         case byte_size(RemainBin) of
                             RemainSize ->
-                                compact_get_1(HeaderBin, Metadata,
-                                              DSize4Read, RemainBin,
-                                              Offset + HeaderSize + RemainSize);
+                                TotalSize = Offset + HeaderSize + RemainSize,
+                                compact_get_1(ReadHandler,
+                                              HeaderBin, Metadata#?METADATA{offset = Offset},
+                                              DSize4Read, RemainBin, TotalSize);
                             _ ->
-                                Cause = ?ERROR_DATA_SIZE_DID_NOT_MATCH,
-                                error_logger:error_msg("~p,~p,~p,~p~n",
-                                                       [{module, ?MODULE_STRING},
-                                                        {function, "compact_get/4"},
-                                                        {line, ?LINE},
-                                                        {body, Cause}]),
-                                {error, Cause}
+                                {error, {?LINE,?ERROR_DATA_SIZE_DID_NOT_MATCH}}
                         end;
-
-
                     eof = Cause ->
                         {error, Cause};
                     {error, Cause} ->
-                        error_logger:error_msg("~p,~p,~p,~p~n",
-                                               [{module, ?MODULE_STRING},
-                                                {function, "compact_get/4"},
-                                                {line, ?LINE}, {body, Cause}]),
                         {error, Cause}
                 end
             catch
                 _:Reason ->
-                    {error, Reason}
+                    {error, {?LINE, Reason}}
             end
     end.
 
 %% @private
-compact_get_1(_HeaderBin, #?METADATA{ksize = 0},_DSize,_Bin,_TotalSize) ->
-    {error, ?ERROR_DATA_SIZE_DID_NOT_MATCH};
-compact_get_1(HeaderBin, #?METADATA{ksize = KSize,
-                                    msize = 0} = Metadata,
+compact_get_1(_ReadHandler,_HeaderBin, #?METADATA{ksize = 0},_DSize,_Bin,_TotalSize) ->
+    {error, {?LINE, ?ERROR_DATA_SIZE_DID_NOT_MATCH}};
+compact_get_1(ReadHandler, HeaderBin, #?METADATA{ksize = KSize} = Metadata,
               DSize, Bin, TotalSize) ->
     << KeyBin:KSize/binary,
        BodyBin:DSize/binary,
        _Footer/binary>> = Bin,
-    compact_get_2(HeaderBin, Metadata, KeyBin, BodyBin, <<>>, TotalSize);
-compact_get_1(HeaderBin, #?METADATA{ksize = KSize,
-                                    msize = MSize} = Metadata,
-              DSize, Bin, TotalSize) ->
-    << KeyBin:KSize/binary,
-       BodyBin:DSize/binary,
-       CMetaBin:MSize/binary,
-       _Footer/binary>> = Bin,
-    compact_get_2(HeaderBin, Metadata, KeyBin, BodyBin, CMetaBin, TotalSize).
+    compact_get_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, TotalSize).
 
 %% @private
-compact_get_2(HeaderBin, Metadata, KeyBin, BodyBin, CMetaBin, TotalSize) ->
+compact_get_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, TotalSize) ->
     Checksum = Metadata#?METADATA.checksum,
-    Metadata_1 = leo_object_storage_transformer:cmeta_bin_into_metadata(
-                   CMetaBin, Metadata),
     Checksum_1 = leo_hex:raw_binary_to_integer(crypto:hash(md5, BodyBin)),
+    Metadata_1 = Metadata#?METADATA{key = KeyBin},
 
-    case (Checksum == Checksum_1
-          orelse Checksum_1 == ?MD5_EMPTY_BIN) of
+    case (Checksum == Checksum_1) of
         true ->
-            {ok, Metadata_1#?METADATA{key = KeyBin},
-             [HeaderBin, KeyBin, BodyBin, TotalSize]};
+            HeaderSize = erlang:round(?BLEN_HEADER/8),
+            #?METADATA{offset = Offset,
+                       ksize  = KSize,
+                       dsize  = DSize,
+                       msize  = MSize} = Metadata,
+
+            case (?MAX_DATABLOCK_SIZE > MSize andalso MSize > 0) of
+                true ->
+                    MPos = Offset + HeaderSize + KSize + DSize,
+                    case file:pread(ReadHandler, MPos, MSize) of
+                        {ok, CMetaBin} ->
+                            case leo_object_storage_transformer:cmeta_bin_into_metadata(
+                                   CMetaBin, Metadata_1) of
+                                {error,_Cause} ->
+                                    {ok, Metadata_1#?METADATA{msize = 0},
+                                     [HeaderBin, KeyBin, BodyBin, TotalSize]};
+                                Metadata_2 ->
+                                    {ok, Metadata_2,
+                                     [HeaderBin, KeyBin, BodyBin,
+                                      Offset + HeaderSize + KSize
+                                      + DSize + MSize + ?LEN_PADDING]}
+                            end;
+                        eof = Cause ->
+                            {error, Cause};
+                        {error,_Cause} ->
+                            {error, {?LINE, invalid_data}}
+                    end;
+                false ->
+                    {ok, Metadata_1#?METADATA{msize = 0},
+                     [HeaderBin, KeyBin, BodyBin, TotalSize]}
+            end;
         false ->
-            Cause = ?ERROR_INVALID_DATA,
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING},
-                                    {function, "compact_get_2/4"},
-                                    {line, ?LINE}, {body, Cause}]),
-            {error, Cause}
+            Reason = ?ERROR_INVALID_DATA,
+            {error, {?LINE, Reason}}
     end.

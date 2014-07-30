@@ -36,6 +36,8 @@
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
+-spec(metadata_to_object(#metadata{} | #?METADATA{}) ->
+             #?OBJECT{} | {error, invaid_record}).
 metadata_to_object(#metadata{key     = Key,
                              addr_id = AddrId,
                              ksize   = KSize,
@@ -82,6 +84,7 @@ metadata_to_object(#?METADATA{} = Metadata) ->
                num_of_replicas = NumOfReplicas,
                ver = Ver,
                del = Del} = Metadata,
+    
     #?OBJECT{key     = Key,
              addr_id = AddrId,
              ksize   = KSize,
@@ -174,7 +177,7 @@ object_to_metadata(_) ->
 
 %% @doc Transform old-type metadata to current-type
 -spec(transform_metadata(#metadata{} | #metadata_1{}) ->
-             #metadata_1{}).
+             #metadata_1{} | {error, invaid_record}).
 transform_metadata(#metadata{key     = Key,
                              addr_id = AddrId,
                              ksize   = KSize,
@@ -211,7 +214,7 @@ transform_metadata(_) ->
 
 %% @doc Transport a header-bin to a metadata
 -spec(header_bin_to_metadata(binary()) ->
-             #?METADATA{}).
+             #?METADATA{} | {error, invaid_record}).
 header_bin_to_metadata(Bin) ->
     try
         << Checksum:?BLEN_CHKSUM,
@@ -255,23 +258,27 @@ header_bin_to_metadata(Bin) ->
     catch
         _:_ ->
             {error, invalid_format}
-
     end.
 
 
 %% @doc Set values from a custome-metadata
 -spec(cmeta_bin_into_metadata(binary(), #?METADATA{})->
-             #?METADATA{}).
+             #?METADATA{} | {error, any()}).
 cmeta_bin_into_metadata(<<>>, Metadata) ->
     Metadata;
 cmeta_bin_into_metadata(CustomMetaBin, Metadata) ->
-    CustomeMeta = binary_to_term(CustomMetaBin),
-    ClusterId     = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID,      CustomeMeta, []),
-    NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomeMeta, 0),
-    Version       = leo_misc:get_value(?PROP_CMETA_VER,             CustomeMeta, 0),
-    Metadata#?METADATA{cluster_id = ClusterId,
-                       num_of_replicas = NumOfReplicas,
-                       ver = Version}.
+    try
+        CustomeMeta = binary_to_term(CustomMetaBin),
+        ClusterId     = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID,      CustomeMeta, []),
+        NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomeMeta, 0),
+        Version       = leo_misc:get_value(?PROP_CMETA_VER,             CustomeMeta, 0),
+        Metadata#?METADATA{cluster_id = ClusterId,
+                           num_of_replicas = NumOfReplicas,
+                           ver = Version}
+    catch
+        _:_Cause ->
+            {error, invalid_format}
+    end.
 
 %% @doc List to a custome-metadata(binary)
 -spec(list_to_cmeta_bin(list(tuple())) ->

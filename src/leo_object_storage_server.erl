@@ -65,7 +65,9 @@
           object_storage      :: #backend_info{},
           storage_stats       :: #storage_stats{},
           state_filepath      :: string(),
-          is_strict_check     :: boolean()
+          is_strict_check     :: boolean(),
+          error_pos = 0       :: non_neg_integer(),
+          set_errors          :: set()
          }).
 
 -record(compact_params, {
@@ -95,13 +97,13 @@
 %%====================================================================
 %% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
 %% Description: Starts the server
--spec(start_link(atom(), integer(), atom(), string()) ->
-             ok | {error, any()}).
+-spec(start_link(atom(), non_neg_integer(), atom(), string()) ->
+             {ok, pid()} | {error, any()}).
 start_link(Id, SeqNo, MetaDBId, RootPath) ->
     start_link(Id, SeqNo, MetaDBId, RootPath, false).
 
--spec(start_link(atom(), integer(), atom(), string(), boolean()) ->
-             ok | {error, any()}).
+-spec(start_link(atom(), non_neg_integer(), atom(), string(), boolean()) ->
+             {ok, pid()} | {error, any()}).
 start_link(Id, SeqNo, MetaDBId, RootPath, IsStrictCheck) ->
     gen_server:start_link({local, Id}, ?MODULE,
                           [Id, SeqNo, MetaDBId, RootPath, IsStrictCheck], []).
@@ -153,7 +155,7 @@ head(Id, Key) ->
 
 %% @doc Retrieve objects from the object-storage by Key and Function
 %%
--spec(fetch(atom(), binary(), function(), pos_integer()|undefined) ->
+-spec(fetch(atom(), any(), fun(), non_neg_integer()|undefined) ->
              {ok, list()} | {error, any()}).
 fetch(Id, Key, Fun, MaxKeys) ->
     gen_server:call(Id, {fetch, Key, Fun, MaxKeys}, ?DEF_TIMEOUT).
@@ -634,10 +636,8 @@ compact_fun(State, FunHasChargeOfNode) ->
           end,
 
     NewState = try compact_fun_2(Res, FunHasChargeOfNode) of
-                   {_,State_1} ->
-                       State_1;
-                   _Other ->
-                       State
+                   {_, #state{} = State_1} ->
+                       State_1
                catch _:Reason ->
                        error_logger:error_msg(
                          "~p,~p,~p,~p~n",
@@ -735,8 +735,7 @@ compact_fun_2({ok, #state{meta_db_id     = MetaDBId,
                                               read_handler      = undefined,
                                               write_handler     = undefined,
                                               tmp_read_handler  = undefined,
-                                              tmp_write_handler = undefined
-                                             }},
+                                              tmp_write_handler = undefined}},
     compact_fun_3({Res, NewState});
 
 compact_fun_2({Error,_State}, _) ->
@@ -815,15 +814,18 @@ compact_add_history(finish, [{Start, _}|Histories]) ->
 calc_remain_disksize(MetaDBId, FilePath) ->
     case leo_file:file_get_mount_path(FilePath) of
         {ok, MountPath} ->
-            {ok, MetaDir} = leo_backend_db_api:get_db_raw_filepath(MetaDBId),
-
-            case catch leo_file:file_get_total_size(MetaDir) of
-                {'EXIT', Reason} ->
-                    {error, Reason};
-                MetaSize ->
-                    AvsSize = filelib:file_size(FilePath),
-                    Remain  = leo_file:file_get_remain_disk(MountPath),
-                    {ok, Remain - (AvsSize + MetaSize) * 1.5}
+            case leo_backend_db_api:get_db_raw_filepath(MetaDBId) of
+                {ok, MetaDir} ->
+                    case catch leo_file:file_get_total_size(MetaDir) of
+                        {'EXIT', Reason} ->
+                            {error, Reason};
+                        MetaSize ->
+                            AvsSize = filelib:file_size(FilePath),
+                            Remain  = leo_file:file_get_remain_disk(MountPath),
+                            {ok, erlang:round(Remain - (AvsSize + MetaSize))}
+                    end;
+                _ ->
+                    {error, ?ERROR_COULD_NOT_GET_MOUNT_PATH}
             end;
         Error ->
             Error
@@ -841,11 +843,13 @@ is_deleted_rec(MetaDBId, #backend_info{avs_version_bin_prv = AVSVsnBinPrv} = Sto
                           addr_id  = AddrId} = MetaFromAvs) ->
     KeyOfMetadata = ?gen_backend_key(AVSVsnBinPrv, AddrId, Key),
     case leo_backend_db_api:get(MetaDBId, KeyOfMetadata) of
-        {ok, #?METADATA{del = ?DEL_TRUE}} ->
-            true;
-        {ok, MetaOrg} ->
-            MetaOrgTerm = binary_to_term(MetaOrg),
-            is_deleted_rec(MetaDBId, StorageInfo, MetaFromAvs, MetaOrgTerm);
+        {ok, MetaBin} ->
+            case binary_to_term(MetaBin) of
+                #?METADATA{del = ?DEL_TRUE} ->
+                    true;
+                Metadata ->
+                    is_deleted_rec(MetaDBId, StorageInfo, MetaFromAvs, Metadata)
+            end;
         not_found ->
             true;
         _Other ->
@@ -892,12 +896,13 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
     %% set a flag of object of compaction
     NumOfReplicas = Metadata#?METADATA.num_of_replicas,
     HasChargeOfNode = FunHasChargeOfNode(Key, NumOfReplicas),
+    State_1 = State#state{set_errors = sets:new()},
 
     %% execute compaction
     case (is_deleted_rec(MetaDBId, StorageInfo, Metadata)
           orelse HasChargeOfNode == false) of
         true ->
-            do_comapct_1(ok, Metadata, CompactParams, State);
+            do_compact_1(ok, Metadata, CompactParams, State_1);
         false ->
             %% Insert into the temporary object-container.
             %%
@@ -919,44 +924,74 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
                                          num_of_active_objects = NumOfActiveObjs  + 1,
                                          size_of_active_object = SizeActive + ObjectSize},
 
-                    do_comapct_1(Ret, NewMeta, NewCompactParams, State);
+                    do_compact_1(Ret, NewMeta, NewCompactParams, State_1);
                 Error ->
-                    do_comapct_1(Error, Metadata, CompactParams, State)
+                    do_compact_1(Error, Metadata, CompactParams, State_1)
             end
     end.
 
 
 %% @doc Reduce unnecessary objects from object-container.
 %% @private
-do_comapct_1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} = State) ->
+do_compact_1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} = State) ->
+    erlang:garbage_collect(self()),
     ReadHandler = StorageInfo#backend_info.read_handler,
 
     case leo_object_storage_haystack:compact_get(
            ReadHandler, CompactParams#compact_params.next_offset) of
         {ok, NewMetadata, [_HeaderValue, NewKeyValue,
                            NewBodyValue, NewNextOffset]} ->
+            ok = output_accumulated_errors(State),
             do_compact(NewMetadata,
                        CompactParams#compact_params{
                          key_bin     = NewKeyValue,
                          body_bin    = NewBodyValue,
                          next_offset = NewNextOffset},
-                       State);
+                       State#state{error_pos  = 0,
+                                   set_errors = sets:new()});
         {error, eof} ->
+            ok = output_accumulated_errors(State),
             NumOfAcriveObjs  = CompactParams#compact_params.num_of_active_objects,
             SizeOfActiveObjs = CompactParams#compact_params.size_of_active_object,
             {ok, NumOfAcriveObjs, SizeOfActiveObjs};
-        {error, Cause} when Cause =:= ?ERROR_INVALID_DATA orelse
-                            Cause =:= ?ERROR_DATA_SIZE_DID_NOT_MATCH ->
-            %% retry until eof
+        {_, Cause} ->
             OldOffset = CompactParams#compact_params.next_offset,
-            do_comapct_1(ok, Metadata,
+            ErrorPosCur = State#state.error_pos,
+            ErrorPosNew = case (State#state.error_pos == 0) of
+                              true ->
+                                  OldOffset;
+                              false ->
+                                  ErrorPosCur
+                          end,
+            SetErrors = sets:add_element(Cause, State#state.set_errors),
+            do_compact_1(ok, Metadata,
                          CompactParams#compact_params{next_offset = OldOffset + 1},
-                         State);
-        Error ->
-            Error
+                         State#state{error_pos  = ErrorPosNew,
+                                     set_errors = SetErrors})
     end;
-do_comapct_1(Error,_,_,_) ->
+do_compact_1(Error,_,_,_) ->
     Error.
+
+
+%% @doc Output accumulated errors to logger
+%% @private
+-spec(output_accumulated_errors(#state{}) ->
+             ok).
+output_accumulated_errors(#state{error_pos  = ErrorPos,
+                                 set_errors = SetErrors}) ->
+    case sets:size(SetErrors) of
+        0 ->
+            ok;
+        _ ->
+            error_logger:warning_msg("~p,~p,~p,~p~n",
+                                     [{module, ?MODULE_STRING},
+                                      {function, "do_compact_1/4"},
+                                      {line, ?LINE},
+                                      {body, [{error_pos, ErrorPos},
+                                              {errors, sets:to_list(SetErrors)}]}
+                                     ]),
+            ok
+    end.
 
 
 %% @doc Generate a raw file path.
@@ -970,7 +1005,7 @@ gen_raw_file_path(FilePath) ->
 %% @doc Close a storage
 %% @private
 close_storage(Id, MetaDBId, StateFilePath,
-              StorageStats, WriteHandler, ReadHandler) ->
+              StorageStats, WriteHandler, ReadHandler) when is_list(StateFilePath) ->
     _ = filelib:ensure_dir(StateFilePath),
     _ = leo_file:file_unconsult(
           StateFilePath,
@@ -983,4 +1018,6 @@ close_storage(Id, MetaDBId, StateFilePath,
            {has_error,            StorageStats#storage_stats.has_error}]),
     ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
     ok = leo_backend_db_server:close(MetaDBId),
+    ok;
+close_storage(_,_,_,_,_,_) ->
     ok.
