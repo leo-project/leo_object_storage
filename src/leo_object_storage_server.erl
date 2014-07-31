@@ -148,7 +148,7 @@ delete(Id, Object) ->
 %% @doc Retrieve an object's metadata from the object-storage
 %%
 -spec(head(atom(), tuple()) ->
-             {ok, #?METADATA{}} | {error, any()}).
+             {ok, binary()} | not_found | {error, any()}).
 head(Id, Key) ->
     gen_server:call(Id, {head, Key}, ?DEF_TIMEOUT).
 

@@ -100,7 +100,7 @@ delete(AddrIdAndKey, Object) ->
 %% @doc Retrieve a metadata from the object-storage
 %%
 -spec(head(tuple()) ->
-             {ok, metadata} | {error, any()}).
+             {ok, binary()} | not_found | {error, any()}).
 head(AddrIdAndKey) ->
     do_request(head, [AddrIdAndKey]).
 
@@ -291,6 +291,7 @@ get_status_by_id(Pid) ->
 %% @private
 -spec(do_request(type_of_method(), list(_)) ->
              ok |
+             {ok, binary()} |
              {ok, #?METADATA{}, #?OBJECT{}} |
              not_found |
              {error, any()}).

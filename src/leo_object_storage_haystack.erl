@@ -148,7 +148,7 @@ delete(MetaDBId, StorageInfo, Object) ->
 %% @doc Retrieve a metada from backend_db from the object-storage
 %%
 -spec(head(atom(), binary()) ->
-             {ok, #?METADATA{}} | not_found | {error, any()}).
+             {ok, binary()} | not_found | {error, any()}).
 head(MetaDBId, Key) ->
     case catch leo_backend_db_api:get(MetaDBId, Key) of
         {ok, MetadataBin} ->
