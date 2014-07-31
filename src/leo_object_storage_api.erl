@@ -291,6 +291,7 @@ get_status_by_id(Pid) ->
 %% @private
 -spec(do_request(type_of_method(), list(_)) ->
              ok |
+             {ok, binary()} |
              {ok, #?METADATA{}, #?OBJECT{}} |
              not_found |
              {error, any()}).
