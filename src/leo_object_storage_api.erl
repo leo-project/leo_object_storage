@@ -100,7 +100,7 @@ delete(AddrIdAndKey, Object) ->
 %% @doc Retrieve a metadata from the object-storage
 %%
 -spec(head(tuple()) ->
-             {ok, metadata} | not_found | {error, any()}).
+             {ok, binary()} | not_found | {error, any()}).
 head(AddrIdAndKey) ->
     do_request(head, [AddrIdAndKey]).
 
