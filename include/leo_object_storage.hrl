@@ -237,8 +237,8 @@
          }).
 
 %% @doc Compaction related definitions
--type(compaction_history() :: {calendar:datetime(), calendar:datetime()}).
--type(compaction_histories() :: list(compaction_history())).
+-type(compaction_history() :: {integer(), integer()}).
+-type(compaction_histories() :: [compaction_history()]).
 
 -define(COMPACTION_STATUS_IDLE,    'idle').
 -define(COMPACTION_STATUS_RUNNING, 'running').

@@ -53,6 +53,8 @@
          terminate/2,
          code_change/3]).
 
+-compile(nowarn_deprecated_type).
+
 -ifdef(TEST).
 -export([add_incorrect_data/2]).
 -endif.
