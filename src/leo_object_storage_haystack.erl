@@ -675,7 +675,15 @@ compact_get_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, TotalSize) ->
     Checksum_1 = leo_hex:raw_binary_to_integer(crypto:hash(md5, BodyBin)),
     Metadata_1 = Metadata#?METADATA{key = KeyBin},
 
-    case (Checksum == Checksum_1) of
+    IsLargeObjParent = (Metadata#?METADATA.ksize =< ?MAX_KEY_SIZE andalso
+                        Metadata#?METADATA.timestamp > 0 andalso
+                        Metadata#?METADATA.cnumber   > 0 andalso
+                        Metadata#?METADATA.cindex   == 0 andalso
+                        Metadata#?METADATA.del      == 0 andalso
+                        Checksum_1 == ?MD5_EMPTY_BIN),
+
+    case (Checksum == Checksum_1 orelse
+          IsLargeObjParent == true) of
         true ->
             HeaderSize = erlang:round(?BLEN_HEADER/8),
             #?METADATA{offset = Offset,

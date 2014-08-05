@@ -240,6 +240,9 @@ header_bin_to_metadata(Bin) ->
                          {{Year, Month, Day}, {Hour, Min, Second}}) of
                 {'EXIT',_Cause} ->
                     0;
+                Val when Val < 63113904000;
+                         Val > 66301199999 ->
+                    0;
                 Val ->
                     Val
             end,
