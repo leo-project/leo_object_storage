@@ -59,6 +59,7 @@
 -type(type_of_method() :: get | put | delete | head | head_with_calc_md5 | store).
 
 -define(MD5_EMPTY_BIN, 281949768489412648962353822266799178366).
+-define(MAX_KEY_SIZE,  1024 * 4).
 
 %%--------------------------------------------------------------------
 %% AVS-Related

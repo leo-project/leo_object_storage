@@ -70,19 +70,22 @@ compact() ->
     ok = put_irregular_bin(),
     ok = put_regular_bin_with_cmeta(51, 50),
     ok = put_irregular_bin(),
-    ok = put_regular_bin(101, 50),
+    ok = put_large_bin(101),
+    ok = put_regular_bin(102, 50),
     ok = put_irregular_bin(),
     ok = put_regular_bin(136, 25),
     ok = put_irregular_bin(),
     ok = put_regular_bin_with_cmeta(151, 50),
     ok = put_irregular_bin(),
-    ok = put_regular_bin(201, 50),
+    ok = put_large_bin(201),
+    ok = put_regular_bin(202, 50),
     ok = put_irregular_bin(),
     ok = put_regular_bin(236, 25),
     ok = put_irregular_bin(),
     ok = put_regular_bin_with_cmeta(251, 50),
     ok = put_irregular_bin(),
-    ok = put_regular_bin(301, 50),
+    ok = put_large_bin(301),
+    ok = put_regular_bin(302, 50),
     ok = put_irregular_bin(),
     ok = put_regular_bin(336, 25),
     ok = put_irregular_bin(),
@@ -143,6 +146,27 @@ put_regular_bin(Index, Counter) ->
                      },
     {ok, _} = leo_object_storage_api:put({AddrId, Key}, Object),
     put_regular_bin(Index + 1, Counter -1).
+
+
+put_large_bin(Index) ->
+    AddrId = 1,
+    Key = list_to_binary(lists:append(["TEST_", integer_to_list(Index)])),
+    Len = 1024 * 1024,
+    Object = #?OBJECT{method    = put,
+                      addr_id   = AddrId,
+                      key       = Key,
+                      ksize     = byte_size(Key),
+                      data      = <<>>,
+                      dsize     = Len,
+                      checksum  = ?MD5_EMPTY_BIN,
+                      timestamp = leo_date:now(),
+                      clock     = leo_date:clock(),
+                      csize     = Len,
+                      cnumber   = 100,
+                      cindex    = 0                      
+                     },
+    {ok, _} = leo_object_storage_api:put({AddrId, Key}, Object),
+    ok.
 
 
 %% @doc Put data with custom-metadata
