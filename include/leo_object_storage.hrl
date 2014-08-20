@@ -91,6 +91,8 @@
                               ?AVS_PART_OF_HEADER/binary,
                               ?AVS_PART_OF_BODY/binary,
                               ?AVS_PART_OF_FOOTER/binary>>).
+-define(AVS_SUPER_BLOCK_LEN, byte_size(?AVS_SUPER_BLOCK)).
+
 %% ------------------------ %%
 -define(BLEN_CHKSUM,       128). %% chechsum (MD5)
 -define(BLEN_KSIZE,         16). %% key size

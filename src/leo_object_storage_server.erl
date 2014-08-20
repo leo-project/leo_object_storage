@@ -693,32 +693,26 @@ compact_fun_2({ok, #state{meta_db_id     = MetaDBId,
     TmpWriteHandler = StorageInfo#backend_info.tmp_write_handler,
 
     %% Start compaction
-    NewHist = compact_add_history(start, StorageStats#storage_stats.compaction_histories),
-    Res = case catch leo_object_storage_haystack:compact_get(ReadHandler) of
-              {ok, Metadata, [_HeaderValue, KeyValue, BodyValue, NextOffset]} ->
-                  case leo_backend_db_api:compact_start(MetaDBId) of
-                      ok ->
-                          CompactParams = #compact_params{
-                                             key_bin     = KeyValue,
-                                             body_bin    = BodyValue,
-                                             next_offset = NextOffset,
-                                             num_of_active_objects = 0,
-                                             size_of_active_object = 0,
-                                             fun_has_charge_of_node = FunHasChargeOfNode},
-                          try do_compact(Metadata, CompactParams, State) of
-                              Ret ->
-                                  Ret
-                          catch
-                              _:Reason ->
-                                  error_logger:error_msg("~p,~p,~p,~p~n",
-                                                         [{module, ?MODULE_STRING},
-                                                          {function, "compact_fun/2"},
-                                                          {line, ?LINE},
-                                                          {body, {MetaDBId, Reason}}]),
-                                  {error, Reason}
-                          end;
-                      Error ->
-                          Error
+    NewHist = compact_add_history(
+                start, StorageStats#storage_stats.compaction_histories),
+    Res = case leo_backend_db_api:compact_start(MetaDBId) of
+              ok ->
+                  try do_compact(#metadata{}, #compact_params{
+                                                 next_offset = ?AVS_SUPER_BLOCK_LEN,
+                                                 num_of_active_objects = 0,
+                                                 size_of_active_object = 0,
+                                                 fun_has_charge_of_node = FunHasChargeOfNode},
+                                 State) of
+                      Ret ->
+                          Ret
+                  catch
+                      _:Reason ->
+                          error_logger:error_msg("~p,~p,~p,~p~n",
+                                                 [{module, ?MODULE_STRING},
+                                                  {function, "compact_fun/2"},
+                                                  {line, ?LINE},
+                                                  {body, {MetaDBId, Reason}}]),
+                          {error, Reason}
                   end;
               Error ->
                   Error
@@ -875,6 +869,9 @@ is_deleted_rec(_MetaDBId,_StorageInfo,_Meta_1,_Meta_2) ->
              ok | {error, any()}).
 do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
                                            object_storage = StorageInfo} = State) ->
+    %% initialize set-error property
+    State_1 = State#state{set_errors = sets:new()},
+
     %% check mailbox regularly
     receive
         compact_suspend ->
@@ -887,54 +884,62 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
             void
     end,
 
-    %% retrieve value
-    #compact_params{key_bin  = Key,
-                    body_bin = Body,
-                    fun_has_charge_of_node = FunHasChargeOfNode,
-                    num_of_active_objects  = NumOfActiveObjs,
-                    size_of_active_object  = SizeActive
-                   } = CompactParams,
-
-    %% set a flag of object of compaction
-    NumOfReplicas = Metadata#?METADATA.num_of_replicas,
-    HasChargeOfNode = FunHasChargeOfNode(Key, NumOfReplicas),
-    State_1 = State#state{set_errors = sets:new()},
-
     %% execute compaction
-    case (is_deleted_rec(MetaDBId, StorageInfo, Metadata)
-          orelse HasChargeOfNode == false) of
+    case (CompactParams#compact_params.next_offset == ?AVS_SUPER_BLOCK_LEN) of
         true ->
-            do_compact_1(ok, Metadata, CompactParams, State_1);
+            do_compact_1(Metadata, CompactParams, State_1);
         false ->
-            %% Insert into the temporary object-container.
-            %%
-            TmpWriteHandler = StorageInfo#backend_info.tmp_write_handler,
+            %% retrieve value
+            #compact_params{key_bin  = Key,
+                            body_bin = Body,
+                            fun_has_charge_of_node = FunHasChargeOfNode,
+                            num_of_active_objects  = NumOfActiveObjs,
+                            size_of_active_object  = SizeActive
+                           } = CompactParams,
 
-            case leo_object_storage_haystack:compact_put(
-                   TmpWriteHandler, Metadata, Key, Body) of
-                {ok, Offset} ->
-                    NewMeta = Metadata#?METADATA{offset = Offset},
-                    KeyOfMetadata = ?gen_backend_key(
-                                       StorageInfo#backend_info.avs_version_bin_cur,
-                                       Metadata#?METADATA.addr_id,
-                                       Metadata#?METADATA.key),
-                    Ret = leo_backend_db_api:compact_put(
-                            MetaDBId, KeyOfMetadata, term_to_binary(NewMeta)),
+            %% set a flag of object of compaction
+            NumOfReplicas = Metadata#?METADATA.num_of_replicas,
+            HasChargeOfNode = FunHasChargeOfNode(Key, NumOfReplicas),
 
-                    ObjectSize = leo_object_storage_haystack:calc_obj_size(NewMeta),
-                    NewCompactParams = CompactParams#compact_params{
-                                         num_of_active_objects = NumOfActiveObjs  + 1,
-                                         size_of_active_object = SizeActive + ObjectSize},
+            %% execute compaction
+            case (is_deleted_rec(MetaDBId, StorageInfo, Metadata)
+                  orelse HasChargeOfNode == false) of
+                true ->
+                    do_compact_1(Metadata, CompactParams, State_1);
+                false ->
+                    %% insert into the temporary object-container.
+                    {Ret_1, NewMetadata, NewCompactParams} =
+                        case leo_object_storage_haystack:compact_put(
+                               StorageInfo#backend_info.tmp_write_handler,
+                               Metadata, Key, Body) of
+                            {ok, Offset} ->
+                                Metadata_1 = Metadata#?METADATA{offset = Offset},
+                                KeyOfMeta  = ?gen_backend_key(
+                                                StorageInfo#backend_info.avs_version_bin_cur,
+                                                Metadata#?METADATA.addr_id,
+                                                Metadata#?METADATA.key),
+                                Ret = leo_backend_db_api:compact_put(
+                                        MetaDBId, KeyOfMeta, term_to_binary(Metadata_1)),
 
-                    do_compact_1(Ret, NewMeta, NewCompactParams, State_1);
-                Error ->
-                    do_compact_1(Error, Metadata, CompactParams, State_1)
+                                %% calculate num of objects and total size of objects
+                                ObjectSize = leo_object_storage_haystack:calc_obj_size(Metadata_1),
+                                {Ret, Metadata_1,
+                                 CompactParams#compact_params{
+                                   num_of_active_objects = NumOfActiveObjs + 1,
+                                   size_of_active_object = SizeActive + ObjectSize}};
+                            Error ->
+                                {Error, Metadata, CompactParams}
+                        end,
+                    do_compact_1(Ret_1, NewMetadata, NewCompactParams, State_1)
             end
     end.
 
 
 %% @doc Reduce unnecessary objects from object-container.
 %% @private
+do_compact_1(Metadata, CompactParams, State) ->
+    do_compact_1(ok, Metadata, CompactParams, State).
+
 do_compact_1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} = State) ->
     erlang:garbage_collect(self()),
     ReadHandler = StorageInfo#backend_info.read_handler,
