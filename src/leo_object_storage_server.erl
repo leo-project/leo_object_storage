@@ -698,7 +698,7 @@ compact_fun_2({ok, #state{meta_db_id     = MetaDBId,
     Res = case leo_backend_db_api:compact_start(MetaDBId) of
               ok ->
                   try do_compact(#metadata{}, #compact_params{
-                                                 next_offset = 0,
+                                                 next_offset = ?AVS_SUPER_BLOCK_LEN,
                                                  num_of_active_objects = 0,
                                                  size_of_active_object = 0,
                                                  fun_has_charge_of_node = FunHasChargeOfNode},
@@ -885,7 +885,7 @@ do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
     end,
 
     %% execute compaction
-    case (CompactParams#compact_params.next_offset == 0) of
+    case (CompactParams#compact_params.next_offset == ?AVS_SUPER_BLOCK_LEN) of
         true ->
             do_compact_1(Metadata, CompactParams, State_1);
         false ->
