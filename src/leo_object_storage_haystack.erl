@@ -198,11 +198,18 @@ fetch(MetaDBId, Key, Fun, MaxKeys) ->
 -spec(store(atom(), #backend_info{}, #?METADATA{}, binary()) ->
              ok | {error, any()}).
 store(MetaDBId, StorageInfo, Metadata, Bin) ->
-    Checksum = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
     Object_1 = leo_object_storage_transformer:metadata_to_object(Metadata),
-    Object_2 = Object_1#?OBJECT{data = Bin,
-                                checksum = Checksum},
-    case put_fun_1(MetaDBId, StorageInfo, Object_2) of
+    Object_2 = Object_1#?OBJECT{data = Bin},
+    Object_3 = case (Metadata#?METADATA.cnumber > 0) of
+                   true ->
+                       Object_2#?OBJECT{checksum = Metadata#?METADATA.checksum};
+                   false ->
+                       Checksum = leo_hex:raw_binary_to_integer(
+                                    crypto:hash(md5, Bin)),
+                       Object_2#?OBJECT{checksum = Checksum}
+               end,
+
+    case put_fun_1(MetaDBId, StorageInfo, Object_3) of
         {ok, _Checksum} ->
             ok;
         {error, Cause} ->

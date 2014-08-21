@@ -984,20 +984,23 @@ do_compact_1(Error,_,_,_) ->
 %% @private
 -spec(output_accumulated_errors(#state{}, integer()) ->
              ok).
-output_accumulated_errors(#state{error_pos  = ErrorPosStart,
+output_accumulated_errors(#state{object_storage = ObjStorageInfo,
+                                 error_pos  = ErrorPosStart,
                                  set_errors = SetErrors}, ErrorPosEnd) ->
     case sets:size(SetErrors) of
         0 ->
             ok;
         _ ->
-            error_logger:warning_msg("~p,~p,~p,~p~n",
-                                     [{module, ?MODULE_STRING},
-                                      {function, "do_compact_1/4"},
-                                      {line, ?LINE},
-                                      {body, [{error_pos_start, ErrorPosStart},
-                                              {error_pos_end,   ErrorPosEnd},
-                                              {errors,          sets:to_list(SetErrors)}]}
-                                     ]),
+            error_logger:warning_msg(
+              "~p,~p,~p,~p~n",
+              [{module, ?MODULE_STRING},
+               {function, "do_compact_1/4"},
+               {line, ?LINE},
+               {body, [{obj_container_path, ObjStorageInfo#backend_info.file_path_raw},
+                       {error_pos_start, ErrorPosStart},
+                       {error_pos_end,   ErrorPosEnd},
+                       {errors,          sets:to_list(SetErrors)}]}
+              ]),
             ok
     end.
 
