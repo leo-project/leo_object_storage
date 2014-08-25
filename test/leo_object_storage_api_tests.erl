@@ -100,7 +100,7 @@ compact() ->
                                  true
                          end,
     TargetPids = leo_object_storage_api:get_object_storage_pid(all),
-    ok = leo_compaction_manager_fsm:start(TargetPids, 1, FunHasChargeOfNode),
+    ok = leo_compact_fsm_controller:start(TargetPids, 1, FunHasChargeOfNode),
 
     %% Check comaction status
     ok = check_status(),
@@ -117,7 +117,7 @@ compact() ->
 
 check_status() ->
     timer:sleep(100),
-    case leo_compaction_manager_fsm:status() of
+    case leo_compact_fsm_controller:status() of
         {ok, #compaction_stats{status = 'idle'}} ->
             ok;
         {ok, _} ->
@@ -552,8 +552,8 @@ compact_test_() ->
                              end, {0, 0}, Res0),
              ?assertEqual(9, SumTotal0),
              ?assertEqual(8, SumActive0),
-             ?assertEqual({error,badstate}, leo_compaction_manager_fsm:suspend()),
-             ?assertEqual({error,badstate}, leo_compaction_manager_fsm:resume()),
+             ?assertEqual({error,badstate}, leo_compact_fsm_controller:suspend()),
+             ?assertEqual({error,badstate}, leo_compact_fsm_controller:resume()),
 
              %% append incorrect data based on IS devenv's corrupted data
              {ok, CorruptedDataBlock} = file:read_file("../test/broken_part.avs"),
@@ -579,7 +579,7 @@ compact_test_() ->
                                                  pending_targets  = AllTargets,
                                                  ongoing_targets  = [],
                                                  latest_exec_datetime = 0
-                                                }}, leo_compaction_manager_fsm:status()),
+                                                }}, leo_compact_fsm_controller:status()),
              AddrId = 4095,
              Key    = <<"air/on/g/string/7">>,
              Object = #?OBJECT{method    = delete,
@@ -610,17 +610,17 @@ compact_test_() ->
              TargetPids = leo_object_storage_api:get_object_storage_pid(all),
              io:format(user, "*** target-pids:~p~n", [TargetPids]),
 
-             ok = leo_compaction_manager_fsm:start(TargetPids, 2, FunHasChargeOfNode),
+             ok = leo_compact_fsm_controller:start(TargetPids, 2, FunHasChargeOfNode),
              timer:sleep(100),
 
-             {ok, CompactionStats} = leo_compaction_manager_fsm:status(),
+             {ok, CompactionStats} = leo_compact_fsm_controller:status(),
              ?assertEqual('running', CompactionStats#compaction_stats.status),
              ?assertEqual(8, CompactionStats#compaction_stats.total_num_of_targets),
              ?assertEqual(true, 0 < CompactionStats#compaction_stats.num_of_pending_targets),
              ?assertEqual(true, 0 < CompactionStats#compaction_stats.num_of_ongoing_targets),
 
-             ?assertEqual(ok, leo_compaction_manager_fsm:suspend()),
-             {ok, CompactionStats2} = leo_compaction_manager_fsm:status(),
+             ?assertEqual(ok, leo_compact_fsm_controller:suspend()),
+             {ok, CompactionStats2} = leo_compact_fsm_controller:status(),
              ?assertEqual('suspend', CompactionStats2#compaction_stats.status),
              %% keep # of ongoing/pending fixed during suspend
              Pending = CompactionStats2#compaction_stats.num_of_pending_targets,
@@ -636,7 +636,7 @@ compact_test_() ->
              {ok, _, _} = get_test_data(TestAddrId0, TestKey0),
              {ok, _, _} = get_test_data(TestAddrId1, TestKey1),
 
-             ?assertEqual(ok, leo_compaction_manager_fsm:resume()),
+             ?assertEqual(ok, leo_compact_fsm_controller:resume()),
 
              timer:sleep(3000),
              {ok, Res2} = leo_object_storage_api:stats(),
@@ -649,7 +649,7 @@ compact_test_() ->
 
 
              %% confirm whether first compaction have broken avs files or not
-             ok = leo_compaction_manager_fsm:start(TargetPids, 2, FunHasChargeOfNode),
+             ok = leo_compact_fsm_controller:start(TargetPids, 2, FunHasChargeOfNode),
              timer:sleep(5000),
              %% must be equal the previous stats
              {ok, Res3} = leo_object_storage_api:stats(),

@@ -151,9 +151,9 @@ start_child(ObjectStorageInfo) ->
 
     %% Launch a Compaction manager
     %%   under the leo_object_storage_sup
-    ChildSpec1 = {leo_compaction_manager_fsm,
-                  {leo_compaction_manager_fsm, start_link, []},
-                  permanent, 2000, worker, [leo_compaction_manager_fsm]},
+    ChildSpec1 = {leo_compact_fsm_controller,
+                  {leo_compact_fsm_controller, start_link, []},
+                  permanent, 2000, worker, [leo_compact_fsm_controller]},
     case supervisor:start_child(?MODULE, ChildSpec1) of
         {ok, _Pid} ->
             ok;
@@ -238,30 +238,64 @@ get_path(Path0) ->
 %%
 -spec(add_container(pid(), integer(), list()) ->
              ok).
-add_container(BackendDBSupPid, Id0, Props) ->
-    Id1 = gen_id(obj_storage, Id0),
-    Id2 = gen_id(metadata,    Id0),
-
-    Path          = leo_misc:get_value('path',            Props),
-    MetadataDB    = leo_misc:get_value('metadata_db',     Props),
-    IsStrictCheck = leo_misc:get_value('is_strict_check', Props),
+add_container(BackendDBSupPid, Id, Props) ->
+    ?debugVal(Id),
+    ObjStorageId    = gen_id(obj_storage,   Id),
+    MetaDBId        = gen_id(metadata,      Id),
+    CompactWorkerId = gen_id(compact_worker,Id),
 
     %% %% Launch metadata-db
+    MetadataDB = leo_misc:get_value('metadata_db', Props),
+    Path       = leo_misc:get_value('path', Props),
     ok = leo_backend_db_sup:start_child(
-           BackendDBSupPid, Id2, 1, MetadataDB,
-           lists:append([Path, ?DEF_METADATA_STORAGE_SUB_DIR, integer_to_list(Id0)])),
-    %% Launch object-storage
-    Args = [Id1, Id0, Id2, Path, IsStrictCheck],
-    ChildSpec = {Id1,
-                 {leo_object_storage_server, start_link, Args},
-                 permanent, 2000, worker, [leo_object_storage_server]},
+           BackendDBSupPid, MetaDBId, 1, MetadataDB,
+           lists:append([Path, ?DEF_METADATA_STORAGE_SUB_DIR, integer_to_list(Id)])),
+
+    %% %% Launch compact_fsm_worker
+    case add_container_1(leo_compact_fsm_worker, CompactWorkerId, ObjStorageId, MetaDBId) of
+        ok ->
+            %% Launch object-storage
+            add_container_1(leo_object_storage_server, Id, ObjStorageId,
+                            MetaDBId, CompactWorkerId, Props);
+        {error, Cause} ->
+            {error, Cause}
+    end.
+
+
+%% @private
+add_container_1(leo_compact_fsm_worker = Mod, Id, ObjStorageId, MetaDBId) ->
+    ChildSpec = {Id,
+                   {Mod, start_link, [Id, ObjStorageId, MetaDBId, fun(_)-> void end]},
+                   permanent, 2000, worker, [Mod]},
+    case supervisor:start_child(?MODULE, ChildSpec) of
+        {ok,_} ->
+            ok;
+        {error, Cause} ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING},
+                                    {function, "add_container/3"},
+                                    {line, ?LINE},
+                                    {body, Cause}]),
+            {error, Cause}
+    end.
+
+add_container_1(leo_object_storage_server = Mod, BaseId,
+                ObjStorageId, MetaDBId, CompactWorkerId, Props) ->
+    Path          = leo_misc:get_value('path',            Props),
+    IsStrictCheck = leo_misc:get_value('is_strict_check', Props),
+
+    Args = [ObjStorageId, BaseId,
+            MetaDBId, CompactWorkerId, Path, IsStrictCheck],
+    ChildSpec = {ObjStorageId,
+                 {Mod, start_link, Args},
+                 permanent, 2000, worker, [Mod]},
 
     case supervisor:start_child(?MODULE, ChildSpec) of
-        {ok, _Pid} ->
-            true = ets:insert(?ETS_CONTAINERS_TABLE, {Id0, [{obj_storage, Id1},
-                                                            {metadata,    Id2}]}),
-
-            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id1}, ?STATE_ACTIVE),
+        {ok,_} ->
+            true = ets:insert(?ETS_CONTAINERS_TABLE, {BaseId, [{obj_storage,    ObjStorageId},
+                                                               {metadata,       MetaDBId},
+                                                               {compact_worker, CompactWorkerId}]}),
+            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, ObjStorageId}, ?STATE_ACTIVE),
             ok;
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
@@ -275,13 +309,15 @@ add_container(BackendDBSupPid, Id0, Props) ->
 
 %% @doc Generate Id for obj-storage or metadata
 %%
--spec(gen_id(obj_storage | metadata, integer()) ->
+-spec(gen_id(obj_storage | metadata | compact_worker, integer()) ->
              atom()).
 gen_id(obj_storage, Id) ->
     list_to_atom(lists:append([atom_to_list(?APP_NAME),
                                "_",
                                integer_to_list(Id)]));
 gen_id(metadata, Id) ->
-    list_to_atom(lists:append(["leo_metadata",
-                               "_",
+    list_to_atom(lists:append(["leo_metadata_",
+                               integer_to_list(Id)]));
+gen_id(compact_worker, Id) ->
+    list_to_atom(lists:append(["leo_compact_worker_",
                                integer_to_list(Id)])).

@@ -23,7 +23,7 @@
 %% @doc
 %% @end
 %%======================================================================
--module(leo_compaction_manager_fsm).
+-module(leo_compact_fsm_controller).
 
 -author('Yosuke Hara').
 -author('Yoshiyuki Kanno').
@@ -153,13 +153,13 @@ idle({start, TargetPids, MaxConNum, InspectFun}, From, State) ->
                       end,
 
     NextState = ?COMPACTION_STATUS_RUNNING,
-    NewState  = start_jobs_as_possible(
-                  State#state{status = NextState,
-                              pending_targets       = TargetPids,
-                              reserved_targets      = ReservedTargets,
-                              max_num_of_concurrent = MaxConNum,
-                              inspect_fun           = InspectFun,
-                              start_datetime        = leo_date:now()}),
+    {ok, NewState} = start_jobs_as_possible(
+                       State#state{status = NextState,
+                                   pending_targets       = TargetPids,
+                                   reserved_targets      = ReservedTargets,
+                                   max_num_of_concurrent = MaxConNum,
+                                   inspect_fun           = InspectFun,
+                                   start_datetime        = leo_date:now()}),
     gen_fsm:reply(From, ok),
     {next_state, NextState, NewState};
 
@@ -395,7 +395,7 @@ format_status(_Opt, [_PDict, State]) ->
 %% @doc Start compaction processes as many as possible
 %% @private
 -spec(start_jobs_as_possible(#state{}) ->
-             #state{}).
+             {ok, #state{}}).
 start_jobs_as_possible(State) ->
     start_jobs_as_possible(State#state{child_pids = []}, 0).
 
@@ -404,9 +404,9 @@ start_jobs_as_possible(#state{pending_targets = [Id|Rest],
                               max_num_of_concurrent = MaxProc,
                               inspect_fun = FunHasChargeOfNode,
                               child_pids  = ChildPids} = State, NumChild) when NumChild < MaxProc ->
-    Pid  = spawn_link(fun() ->
-                              loop_child(FunHasChargeOfNode)
-                      end),
+    Pid = spawn_link(fun() ->
+                             loop_child(FunHasChargeOfNode)
+                     end),
     erlang:send(Pid, {compact, Id}),
 
     start_jobs_as_possible(
@@ -415,7 +415,7 @@ start_jobs_as_possible(#state{pending_targets = [Id|Rest],
                   child_pids      = orddict:store(Pid, true, ChildPids)}, NumChild + 1);
 
 start_jobs_as_possible(State, _NumChild) ->
-    State.
+    {ok, State}.
 
 
 %% @doc Loop of job executor(child)
@@ -430,19 +430,27 @@ loop_child(FunHasChargeOfNode) ->
 loop_child(FunHasChargeOfNode, TargetId) ->
     receive
         {compact, Id} ->
-            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id}, ?STATE_COMPACTING),
-            _  = leo_object_storage_server:compact(Id, FunHasChargeOfNode),
-            loop_child(FunHasChargeOfNode, Id);
+            {ok, Id_1} = leo_object_storage_server:get_compaction_worker(Id),
+            ok = leo_compact_fsm_worker:run(Id_1),
+            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id},
+                                  ?STATE_RUNNING_COMPACTION),
+            loop_child(FunHasChargeOfNode, {Id, Id_1});
         suspend ->
-            _  = leo_object_storage_server:compact_suspend(TargetId),
-            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, TargetId}, ?STATE_ACTIVE),
+            {ObjStorageId, CompactionWorkerId} = TargetId,
+            ok = leo_compact_fsm_worker:suspend(CompactionWorkerId),
+            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, ObjStorageId},
+                                  ?STATE_ACTIVE),
             loop_child(FunHasChargeOfNode, TargetId);
         resume ->
-            _  = leo_object_storage_server:compact_resume(TargetId),
-            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, TargetId}, ?STATE_COMPACTING),
+            {ObjStorageId, CompactionWorkerId} = TargetId,
+            ok = leo_compact_fsm_worker:resume(CompactionWorkerId),
+            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, ObjStorageId},
+                                  ?STATE_RUNNING_COMPACTION),
             loop_child(FunHasChargeOfNode, TargetId);
         done ->
-            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, TargetId}, ?STATE_ACTIVE),
+            {ObjStorageId,_CompactionWorkerId} = TargetId,
+            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, ObjStorageId},
+                                  ?STATE_ACTIVE),
             _  = done_child(self(), TargetId),
             loop_child(FunHasChargeOfNode, undefined);
         stop ->

@@ -34,16 +34,13 @@
 -include_lib("eunit/include/eunit.hrl").
 
 %% API
--export([start_link/4, start_link/5, stop/1]).
+-export([start_link/5, start_link/6, stop/1]).
 -export([put/2, get/4, delete/2, head/2, fetch/4, store/3,
-         compact/2, compact_suspend/1, compact_resume/1, stats/1,
-         get_avs_version_bin/1,
-         head_with_calc_md5/3,
-         close/1
+         stats/1, get_avs_version_bin/1,
+         head_with_calc_md5/3, close/1,
+         get_info/2, set_info/3,
+         get_compaction_worker/1
         ]).
-
-%% To be passed to spawn_link
--export([compact_fun/2]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -60,29 +57,15 @@
 -endif.
 
 -record(state, {
-          id                  :: atom(),
-          meta_db_id          :: atom(),
-          compaction_from_pid :: pid(),
-          compaction_exec_pid :: pid(),
-          object_storage      :: #backend_info{},
-          storage_stats       :: #storage_stats{},
-          state_filepath      :: string(),
-          is_strict_check     :: boolean(),
-          error_pos = 0       :: non_neg_integer(),
-          set_errors          :: set()
+          id                   :: atom(),
+          meta_db_id           :: atom(),
+          compaction_worker_id :: atom(),
+          object_storage       :: #backend_info{},
+          storage_stats        :: #storage_stats{},
+          state_filepath       :: string(),
+          is_strict_check      :: boolean()
          }).
 
--record(compact_params, {
-          key_bin                :: binary(),
-          body_bin               :: binary(),
-          next_offset            :: integer(),
-          fun_has_charge_of_node :: function(),
-          num_of_active_objects  :: integer(),
-          size_of_active_object  :: integer()
-         }).
-
--define(MAX_COMPACT_HISTORIES, 7).
--define(AVS_FILE_EXT, ".avs").
 -define(DEF_TIMEOUT, 30000).
 
 
@@ -99,16 +82,16 @@
 %%====================================================================
 %% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
 %% Description: Starts the server
--spec(start_link(atom(), non_neg_integer(), atom(), string()) ->
+-spec(start_link(atom(), non_neg_integer(), atom(), atom(), string()) ->
              {ok, pid()} | {error, any()}).
-start_link(Id, SeqNo, MetaDBId, RootPath) ->
-    start_link(Id, SeqNo, MetaDBId, RootPath, false).
+start_link(Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath) ->
+    start_link(Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath, false).
 
--spec(start_link(atom(), non_neg_integer(), atom(), string(), boolean()) ->
+-spec(start_link(atom(), non_neg_integer(), atom(), atom(), string(), boolean()) ->
              {ok, pid()} | {error, any()}).
-start_link(Id, SeqNo, MetaDBId, RootPath, IsStrictCheck) ->
+start_link(Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath, IsStrictCheck) ->
     gen_server:start_link({local, Id}, ?MODULE,
-                          [Id, SeqNo, MetaDBId, RootPath, IsStrictCheck], []).
+                          [Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath, IsStrictCheck], []).
 
 %% @doc Stop this server
 %%
@@ -171,33 +154,6 @@ store(Id, Metadata, Bin) ->
     gen_server:call(Id, {store, Metadata, Bin}, ?DEF_TIMEOUT).
 
 
-%% @doc compaction/start prepare(check disk usage, mk temporary file...)
-%%
--spec(compact(atom(), function()) ->
-             ok | {error, any()}).
-compact(Id, FunHasChargeOfNode) ->
-    gen_server:call(Id, {compact, FunHasChargeOfNode}, infinity).
-
-
-%% @doc compaction/suspend
-%%
--spec(compact_suspend(atom()) ->
-             ok | {error, any()}).
-compact_suspend(Id) ->
-    gen_server:call(Id, compact_suspend, infinity).
-
-compact_done(#state{id = Id} = NewState) ->
-    gen_server:cast(Id, {compact_done, NewState}).
-
-
-%% @doc compaction/resume
-%%
--spec(compact_resume(atom()) ->
-             ok | {error, any()}).
-compact_resume(Id) ->
-    gen_server:call(Id, compact_resume, infinity).
-
-
 %% @doc Retrieve the storage stats specfied by Id
 %%      which contains number of objects and so on.
 %%
@@ -229,6 +185,24 @@ close(Id) ->
     gen_server:call(Id, close, ?DEF_TIMEOUT).
 
 
+%% @doc Retrieve object-storage/metadata-storage info
+%%
+get_info(Id, ServerType) ->
+    gen_server:call(Id, {get_info, ServerType}, ?DEF_TIMEOUT).
+
+
+%% @doc Retrieve object-storage/metadata-storage info
+%%
+set_info(Id, ServerType, BackendInfo) ->
+    gen_server:call(Id, {set_info, ServerType, BackendInfo}, ?DEF_TIMEOUT).
+
+%% @doc Retrieve the compaction worker
+%%
+get_compaction_worker(Id) ->
+    ?debugVal(Id),
+    gen_server:call(Id, get_compaction_worker, ?DEF_TIMEOUT).
+
+
 -ifdef(TEST).
 %% @doc Store metadata and data
 %%
@@ -247,7 +221,7 @@ add_incorrect_data(Id, Bin) ->
 %%                         ignore               |
 %%                         {stop, Reason}
 %% Description: Initiates the server
-init([Id, SeqNo, MetaDBId, RootPath, IsStrictCheck]) ->
+init([Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath, IsStrictCheck]) ->
     ObjectStorageDir  = lists:append([RootPath, ?DEF_OBJECT_STORAGE_SUB_DIR]),
     ObjectStoragePath = lists:append([ObjectStorageDir, integer_to_list(SeqNo), ?AVS_FILE_EXT]),
     StateFilePath     = lists:append([RootPath, ?DEF_STATE_SUB_DIR, atom_to_list(Id)]),
@@ -261,7 +235,7 @@ init([Id, SeqNo, MetaDBId, RootPath, IsStrictCheck]) ->
                    active_sizes = leo_misc:get_value('active_sizes', Props, 0),
                    total_num    = leo_misc:get_value('total_num',    Props, 0),
                    active_num   = leo_misc:get_value('active_num',   Props, 0),
-                   compaction_histories = leo_misc:get_value('compaction_histories', Props, []),
+                   %% compaction_histories = leo_misc:get_value('compaction_histories', Props, []),
                    has_error            = leo_misc:get_value('has_error', Props, false)};
             _ -> #storage_stats{file_path = ObjectStoragePath}
         end,
@@ -278,13 +252,12 @@ init([Id, SeqNo, MetaDBId, RootPath, IsStrictCheck]) ->
                                      read_handler        = ObjectReadHandler,
                                      avs_version_bin_cur = AVSVsnBin},
                     {ok, #state{id = Id,
-                                meta_db_id          = MetaDBId,
-                                object_storage      = StorageInfo,
-                                storage_stats       = StorageStats,
-                                compaction_from_pid = undefined,
-                                compaction_exec_pid = undefined,
-                                state_filepath      = StateFilePath,
-                                is_strict_check     = IsStrictCheck
+                                meta_db_id           = MetaDBId,
+                                compaction_worker_id = CompactionWorkerId,
+                                object_storage       = StorageInfo,
+                                storage_stats        = StorageStats,
+                                state_filepath       = StateFilePath,
+                                is_strict_check      = IsStrictCheck
                                }};
                 {error, Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
@@ -429,38 +402,10 @@ handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
           active_num   = StorageStats#storage_stats.active_num   + DiffRec},
     {reply, Reply, State#state{storage_stats = NewStorageStats}};
 
+
+
 handle_call(stats, _From, #state{storage_stats = StorageStats} = State) ->
     {reply, {ok, StorageStats}, State};
-
-handle_call(compact_suspend,  _From, #state{compaction_exec_pid = undefined} = State) ->
-    {reply, {error, ?ERROR_COMPACT_SUSPEND_FAILURE}, State};
-
-handle_call(compact_suspend,  _From, #state{meta_db_id          = MetaDBId,
-                                            compaction_exec_pid = Pid} = State) ->
-    leo_backend_db_api:compact_suspend(MetaDBId),
-    erlang:send(Pid, compact_suspend),
-    {reply, ok, State};
-
-handle_call(compact_resume,  _From, #state{compaction_exec_pid = undefined} = State) ->
-    {reply, {error, ?ERROR_COMPACT_RESUME_FAILURE}, State};
-
-handle_call(compact_resume,  _From, #state{meta_db_id          = MetaDBId,
-                                           compaction_exec_pid = Pid} = State) ->
-    leo_backend_db_api:compact_resume(MetaDBId),
-    erlang:send(Pid, compact_resume),
-    {reply, ok, State};
-
-handle_call({compact, FunHasChargeOfNode}, {FromPid, _FromRef},
-            #state{object_storage = StorageInfo} = State0) ->
-    State1 = State0#state{compaction_from_pid = FromPid},
-    Pid = spawn_link(?MODULE, compact_fun,
-                     [State1#state{
-                        object_storage = StorageInfo#backend_info{
-                                           write_handler = undefined,
-                                           read_handler  = undefined
-                                          }},
-                      FunHasChargeOfNode]),
-    {reply, ok, State1#state{compaction_exec_pid = Pid}};
 
 handle_call(get_avs_version_bin, _From, #state{object_storage = StorageInfo} = State) ->
     Reply = {ok, StorageInfo#backend_info.avs_version_bin_cur},
@@ -489,6 +434,18 @@ handle_call(close, _From,
                        StorageStats, WriteHandler, ReadHandler),
     {reply, ok, State};
 
+handle_call({get_info, object_storage}, _From,
+            #state{object_storage = ObjectStorage} = State) ->
+    {reply, {ok, ObjectStorage}, State};
+
+handle_call({set_info, object_storage, BackendInfo}, _From,
+            #state{object_storage = BackendInfo} = State) ->
+    {reply, ok, State};
+
+handle_call(get_compaction_worker, _From,
+            #state{compaction_worker_id = CompactionWorkerId} = State) ->
+    {reply, {ok, CompactionWorkerId}, State};
+
 handle_call({add_incorrect_data,_Bin},
             _From, #state{object_storage =_StorageInfo} = State) ->
     ?add_incorrect_data(_StorageInfo,_Bin),
@@ -499,26 +456,6 @@ handle_call({add_incorrect_data,_Bin},
 %%                                      {noreply, State, Timeout} |
 %%                                      {stop, Reason, State}
 %% Description: Handling cast message
-handle_cast({compact_done, NewState},  #state{object_storage      = StorageInfo,
-                                              compaction_from_pid = From} = State) ->
-    FilePath     = StorageInfo#backend_info.file_path,
-    ReadHandler  = StorageInfo#backend_info.read_handler,
-    WriteHandler = StorageInfo#backend_info.write_handler,
-    ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
-    NewState2 = case leo_object_storage_haystack:open(FilePath) of
-                    {ok, [NewWriteHandler, NewReadHandler, AVSVsnBin]} ->
-                        BackendInfo = NewState#state.object_storage,
-                        NewState#state{
-                          object_storage = BackendInfo#backend_info{
-                                             avs_version_bin_cur = AVSVsnBin,
-                                             write_handler       = NewWriteHandler,
-                                             read_handler        = NewReadHandler}};
-                    {error, _} ->
-                        State
-                end,
-    erlang:send(From, done),
-    {noreply, NewState2#state{compaction_from_pid = undefined,
-                              compaction_exec_pid = undefined}};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -595,7 +532,7 @@ get_raw_path(object, ObjectStorageRootDir, SymLinkPath) ->
                 {ok, FileName} ->
                     {ok, FileName};
                 {error, enoent} ->
-                    RawPath = gen_raw_file_path(SymLinkPath),
+                    RawPath = ?gen_raw_file_path(SymLinkPath),
 
                     case leo_file:file_touch(RawPath) of
                         ok ->
@@ -615,404 +552,6 @@ get_raw_path(object, ObjectStorageRootDir, SymLinkPath) ->
             Error
     end.
 
-
-%% @doc compact objects from the object-container on a independent process.
-%% @private
--spec(compact_fun(#state{}, function()) ->
-             ok).
-compact_fun(State, FunHasChargeOfNode) ->
-    #state{meta_db_id     = MetaDBId,
-           object_storage = #backend_info{
-                               file_path = FilePath,
-                               file_path_raw = OrgFilePath}} = State,
-    Res = case calc_remain_disksize(MetaDBId, FilePath) of
-              {ok, RemainSize} ->
-                  case (RemainSize > 0) of
-                      true ->
-                          compact_fun_1(FilePath, OrgFilePath, State);
-                      false ->
-                          {{error, system_limit}, State}
-                  end;
-              Error ->
-                  {Error, State}
-          end,
-
-    NewState = try compact_fun_2(Res, FunHasChargeOfNode) of
-                   {_, #state{} = State_1} ->
-                       State_1
-               catch _:Reason ->
-                       error_logger:error_msg(
-                         "~p,~p,~p,~p~n",
-                         [{module, ?MODULE_STRING},
-                          {function, "compact_fun/2"},
-                          {line, ?LINE},
-                          {body, {MetaDBId, Reason}}]),
-                       State
-               end,
-    compact_done(NewState).
-
-
-%% @private
-compact_fun_1(FilePath, OrgFilePath, State) ->
-    StorageInfo = State#state.object_storage,
-    TmpPath = gen_raw_file_path(FilePath),
-
-    %% must reopen the original file when handling at another process
-    case leo_object_storage_haystack:open(TmpPath) of
-        {ok, [TmpWriteHandler, TmpReadHandler, AVSVsnBinCur]} ->
-            case leo_object_storage_haystack:open(OrgFilePath) of
-                {ok, [WriteHandler, ReadHandler, AVSVsnBinPrv]} ->
-                    FileSize = filelib:file_size(OrgFilePath),
-                    ok = file:advise(TmpWriteHandler, 0, FileSize, dont_need),
-                    ok = file:advise(ReadHandler, 0, FileSize, sequential),
-                    {ok, State#state{
-                           object_storage = StorageInfo#backend_info{
-                                              avs_version_bin_cur = AVSVsnBinCur,
-                                              avs_version_bin_prv = AVSVsnBinPrv,
-                                              tmp_file_path_raw   = TmpPath,
-                                              write_handler       = WriteHandler,
-                                              read_handler        = ReadHandler,
-                                              tmp_write_handler   = TmpWriteHandler,
-                                              tmp_read_handler    = TmpReadHandler}}};
-                Error ->
-                    {Error, State}
-            end;
-        Error ->
-            {Error, State}
-    end.
-
-
-%% @doc Reduce objects from the object-container.
-%% @private
-compact_fun_2({ok, #state{meta_db_id     = MetaDBId,
-                          storage_stats  = StorageStats,
-                          object_storage = StorageInfo} = State}, FunHasChargeOfNode) ->
-    ReadHandler     = StorageInfo#backend_info.read_handler,
-    WriteHandler    = StorageInfo#backend_info.write_handler,
-    TmpReadHandler  = StorageInfo#backend_info.tmp_read_handler,
-    TmpWriteHandler = StorageInfo#backend_info.tmp_write_handler,
-
-    %% Start compaction
-    NewHist = compact_add_history(
-                start, StorageStats#storage_stats.compaction_histories),
-    Res = case leo_backend_db_api:compact_start(MetaDBId) of
-              ok ->
-                  try do_compact(#metadata{}, #compact_params{
-                                                 next_offset = ?AVS_SUPER_BLOCK_LEN,
-                                                 num_of_active_objects = 0,
-                                                 size_of_active_object = 0,
-                                                 fun_has_charge_of_node = FunHasChargeOfNode},
-                                 State) of
-                      Ret ->
-                          Ret
-                  catch
-                      _:Reason ->
-                          error_logger:error_msg("~p,~p,~p,~p~n",
-                                                 [{module, ?MODULE_STRING},
-                                                  {function, "compact_fun/2"},
-                                                  {line, ?LINE},
-                                                  {body, {MetaDBId, Reason}}]),
-                          {error, Reason}
-                  end;
-              Error ->
-                  Error
-          end,
-
-    %% Close file handlers
-    catch leo_object_storage_haystack:close(WriteHandler,    ReadHandler),
-    catch leo_object_storage_haystack:close(TmpWriteHandler, TmpReadHandler),
-
-    %% Finish compaction
-    %% @TODO add history(end datetime)
-    NewHist2 = compact_add_history(finish, NewHist),
-    NewState = State#state{storage_stats  = StorageStats#storage_stats{
-                                              compaction_histories = NewHist2},
-                           object_storage = StorageInfo#backend_info{
-                                              read_handler      = undefined,
-                                              write_handler     = undefined,
-                                              tmp_read_handler  = undefined,
-                                              tmp_write_handler = undefined}},
-    compact_fun_3({Res, NewState});
-
-compact_fun_2({Error,_State}, _) ->
-    {Error,_State}.
-
-
-%% @doc Reduce objects from the object-container.
-%% @private
-compact_fun_3({{ok, NumActive, SizeActive},
-               #state{meta_db_id     = MetaDBId,
-                      storage_stats  = StorageStats,
-                      object_storage = StorageInfo} = State}) ->
-    RootPath       = StorageInfo#backend_info.file_path,
-    TmpFilePathRaw = StorageInfo#backend_info.tmp_file_path_raw,
-
-    catch file:delete(RootPath),
-    case file:make_symlink(TmpFilePathRaw, RootPath) of
-        ok ->
-            ok = file:delete(StorageInfo#backend_info.file_path_raw),
-            %% must reopen the original file when handling at another process
-            %% so we don't open here
-            _ = leo_backend_db_api:compact_end(MetaDBId, true),
-            BackendInfo = State#state.object_storage,
-            NewState    = State#state{storage_stats =
-                                          StorageStats#storage_stats{
-                                            total_num    = NumActive,
-                                            active_num   = NumActive,
-                                            total_sizes  = SizeActive,
-                                            active_sizes = SizeActive},
-                                      object_storage =
-                                          BackendInfo#backend_info{
-                                            file_path_raw = TmpFilePathRaw
-                                           }},
-            {ok, NewState};
-        {error, Cause} ->
-            leo_backend_db_api:compact_end(MetaDBId, false),
-            NewState = State#state{
-                         storage_stats = StorageStats#storage_stats{
-                                           has_error = true}},
-            {{error, Cause}, NewState}
-    end;
-
-compact_fun_3({_Error, #state{meta_db_id     = MetaDBId,
-                              storage_stats  = StorageStats,
-                              object_storage = StorageInfo} = State}) ->
-    %% rollback (delete tmp files)
-    %%
-    NewState = State#state{storage_stats = StorageStats#storage_stats{
-                                             has_error = true}},
-    %% must reopen the original file when handling at another process
-    %% so we don't open here
-    catch file:delete(StorageInfo#backend_info.tmp_file_path_raw),
-    leo_backend_db_api:compact_end(MetaDBId, false),
-    {ok, NewState}.
-
-
-%% @doc add compaction history
--spec(compact_add_history(atom(), compaction_histories()) ->
-             compaction_histories()).
-compact_add_history(start, Histories) when is_list(Histories) ->
-    NewHist = case length(Histories) < ?MAX_COMPACT_HISTORIES of
-                  true -> Histories;
-                  false ->
-                      Last = lists:last(Histories),
-                      lists:delete(Last, Histories)
-              end,
-    [{leo_date:now(), 0}|NewHist];
-compact_add_history(finish, [{Start, _}|Histories]) ->
-    [{Start, leo_date:now()}|Histories].
-
-
-%% @doc Calculate remain disk-sizes.
-%% @private
--spec(calc_remain_disksize(atom(), string()) ->
-             {ok, integer()} | {error, any()}).
-calc_remain_disksize(MetaDBId, FilePath) ->
-    case leo_file:file_get_mount_path(FilePath) of
-        {ok, MountPath} ->
-            case leo_backend_db_api:get_db_raw_filepath(MetaDBId) of
-                {ok, MetaDir} ->
-                    case catch leo_file:file_get_total_size(MetaDir) of
-                        {'EXIT', Reason} ->
-                            {error, Reason};
-                        MetaSize ->
-                            AvsSize = filelib:file_size(FilePath),
-                            Remain  = leo_file:file_get_remain_disk(MountPath),
-                            {ok, erlang:round(Remain - (AvsSize + MetaSize))}
-                    end;
-                _ ->
-                    {error, ?ERROR_COULD_NOT_GET_MOUNT_PATH}
-            end;
-        Error ->
-            Error
-    end.
-
-
-%% @doc Is deleted a record ?
-%% @private
--spec(is_deleted_rec(atom(), #backend_info{}, #?METADATA{}) ->
-             boolean()).
-is_deleted_rec(_MetaDBId, _StorageInfo, #?METADATA{del = ?DEL_TRUE}) ->
-    true;
-is_deleted_rec(MetaDBId, #backend_info{avs_version_bin_prv = AVSVsnBinPrv} = StorageInfo,
-               #?METADATA{key      = Key,
-                          addr_id  = AddrId} = MetaFromAvs) ->
-    KeyOfMetadata = ?gen_backend_key(AVSVsnBinPrv, AddrId, Key),
-    case leo_backend_db_api:get(MetaDBId, KeyOfMetadata) of
-        {ok, MetaBin} ->
-            case binary_to_term(MetaBin) of
-                #?METADATA{del = ?DEL_TRUE} ->
-                    true;
-                Metadata ->
-                    is_deleted_rec(MetaDBId, StorageInfo, MetaFromAvs, Metadata)
-            end;
-        not_found ->
-            true;
-        _Other ->
-            false
-    end.
-
-%% @private
--spec(is_deleted_rec(atom(), #backend_info{}, #?METADATA{}, #?METADATA{}) ->
-             boolean()).
-is_deleted_rec(_MetaDBId,_StorageInfo,
-               #?METADATA{offset = Offset_1},
-               #?METADATA{offset = Offset_2}) when Offset_1 /= Offset_2 ->
-    true;
-is_deleted_rec(_MetaDBId,_StorageInfo,_Meta_1,_Meta_2) ->
-    false.
-
-
-%% @doc Reduce unnecessary objects from object-container.
-%% @private
--spec(do_compact(#?METADATA{}, #compact_params{}, #state{}) ->
-             ok | {error, any()}).
-do_compact(Metadata, CompactParams, #state{meta_db_id     = MetaDBId,
-                                           object_storage = StorageInfo} = State) ->
-    %% initialize set-error property
-    State_1 = State#state{set_errors = sets:new()},
-
-    %% check mailbox regularly
-    receive
-        compact_suspend ->
-            receive
-                compact_resume ->
-                    void
-            end
-    after
-        0 ->
-            void
-    end,
-
-    %% execute compaction
-    case (CompactParams#compact_params.next_offset == ?AVS_SUPER_BLOCK_LEN) of
-        true ->
-            do_compact_1(Metadata, CompactParams, State_1);
-        false ->
-            %% retrieve value
-            #compact_params{key_bin  = Key,
-                            body_bin = Body,
-                            fun_has_charge_of_node = FunHasChargeOfNode,
-                            num_of_active_objects  = NumOfActiveObjs,
-                            size_of_active_object  = SizeActive
-                           } = CompactParams,
-
-            %% set a flag of object of compaction
-            NumOfReplicas = Metadata#?METADATA.num_of_replicas,
-            HasChargeOfNode = FunHasChargeOfNode(Key, NumOfReplicas),
-
-            %% execute compaction
-            case (is_deleted_rec(MetaDBId, StorageInfo, Metadata)
-                  orelse HasChargeOfNode == false) of
-                true ->
-                    do_compact_1(Metadata, CompactParams, State_1);
-                false ->
-                    %% insert into the temporary object-container.
-                    {Ret_1, NewMetadata, NewCompactParams} =
-                        case leo_object_storage_haystack:compact_put(
-                               StorageInfo#backend_info.tmp_write_handler,
-                               Metadata, Key, Body) of
-                            {ok, Offset} ->
-                                Metadata_1 = Metadata#?METADATA{offset = Offset},
-                                KeyOfMeta  = ?gen_backend_key(
-                                                StorageInfo#backend_info.avs_version_bin_cur,
-                                                Metadata#?METADATA.addr_id,
-                                                Metadata#?METADATA.key),
-                                Ret = leo_backend_db_api:compact_put(
-                                        MetaDBId, KeyOfMeta, term_to_binary(Metadata_1)),
-
-                                %% calculate num of objects and total size of objects
-                                ObjectSize = leo_object_storage_haystack:calc_obj_size(Metadata_1),
-                                {Ret, Metadata_1,
-                                 CompactParams#compact_params{
-                                   num_of_active_objects = NumOfActiveObjs + 1,
-                                   size_of_active_object = SizeActive + ObjectSize}};
-                            Error ->
-                                {Error, Metadata, CompactParams}
-                        end,
-                    do_compact_1(Ret_1, NewMetadata, NewCompactParams, State_1)
-            end
-    end.
-
-
-%% @doc Reduce unnecessary objects from object-container.
-%% @private
-do_compact_1(Metadata, CompactParams, State) ->
-    do_compact_1(ok, Metadata, CompactParams, State).
-
-do_compact_1(ok, Metadata, CompactParams, #state{object_storage = StorageInfo} = State) ->
-    erlang:garbage_collect(self()),
-    ReadHandler = StorageInfo#backend_info.read_handler,
-
-    case leo_object_storage_haystack:compact_get(
-           ReadHandler, CompactParams#compact_params.next_offset) of
-        {ok, NewMetadata, [_HeaderValue, NewKeyValue,
-                           NewBodyValue, NewNextOffset]} ->
-            ok = output_accumulated_errors(State, CompactParams#compact_params.next_offset),
-            do_compact(NewMetadata,
-                       CompactParams#compact_params{
-                         key_bin     = NewKeyValue,
-                         body_bin    = NewBodyValue,
-                         next_offset = NewNextOffset},
-                       State#state{error_pos  = 0,
-                                   set_errors = sets:new()});
-        {error, eof} ->
-            ok = output_accumulated_errors(State, CompactParams#compact_params.next_offset),
-            NumOfAcriveObjs  = CompactParams#compact_params.num_of_active_objects,
-            SizeOfActiveObjs = CompactParams#compact_params.size_of_active_object,
-            {ok, NumOfAcriveObjs, SizeOfActiveObjs};
-        {_, Cause} ->
-            OldOffset = CompactParams#compact_params.next_offset,
-            ErrorPosCur = State#state.error_pos,
-            ErrorPosNew = case (State#state.error_pos == 0) of
-                              true ->
-                                  OldOffset;
-                              false ->
-                                  ErrorPosCur
-                          end,
-            SetErrors = sets:add_element(Cause, State#state.set_errors),
-            do_compact_1(ok, Metadata,
-                         CompactParams#compact_params{next_offset = OldOffset + 1},
-                         State#state{error_pos  = ErrorPosNew,
-                                     set_errors = SetErrors})
-    end;
-do_compact_1(Error,_,_,_) ->
-    Error.
-
-
-%% @doc Output accumulated errors to logger
-%% @private
--spec(output_accumulated_errors(#state{}, integer()) ->
-             ok).
-output_accumulated_errors(#state{object_storage = ObjStorageInfo,
-                                 error_pos  = ErrorPosStart,
-                                 set_errors = SetErrors}, ErrorPosEnd) ->
-    case sets:size(SetErrors) of
-        0 ->
-            ok;
-        _ ->
-            error_logger:warning_msg(
-              "~p,~p,~p,~p~n",
-              [{module, ?MODULE_STRING},
-               {function, "do_compact_1/4"},
-               {line, ?LINE},
-               {body, [{obj_container_path, ObjStorageInfo#backend_info.file_path_raw},
-                       {error_pos_start, ErrorPosStart},
-                       {error_pos_end,   ErrorPosEnd},
-                       {errors,          sets:to_list(SetErrors)}]}
-              ]),
-            ok
-    end.
-
-
-%% @doc Generate a raw file path.
-%% @private
--spec(gen_raw_file_path(string()) ->
-             string()).
-gen_raw_file_path(FilePath) ->
-    lists:append([FilePath, "_", integer_to_list(leo_date:now())]).
-
-
 %% @doc Close a storage
 %% @private
 close_storage(Id, MetaDBId, StateFilePath,
@@ -1025,7 +564,7 @@ close_storage(Id, MetaDBId, StateFilePath,
            {active_sizes, StorageStats#storage_stats.active_sizes},
            {total_num,    StorageStats#storage_stats.total_num},
            {active_num,   StorageStats#storage_stats.active_num},
-           {compaction_histories, StorageStats#storage_stats.compaction_histories},
+           %% {compaction_histories, StorageStats#storage_stats.compaction_histories},
            {has_error,            StorageStats#storage_stats.has_error}]),
     ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
     ok = leo_backend_db_server:close(MetaDBId),

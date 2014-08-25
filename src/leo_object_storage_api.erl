@@ -312,7 +312,7 @@ do_request(store, [Metadata, Bin]) ->
             case get_status_by_id(Pid) of
                 ?STATE_ACTIVE ->
                     ?SERVER_MODULE:store(Pid, Metadata_1, Bin);
-                ?STATE_COMPACTING ->
+                ?STATE_RUNNING_COMPACTION ->
                     {error, doing_compaction}
             end;
         _ ->
@@ -325,7 +325,7 @@ do_request(put, [Key, Object]) ->
             case get_status_by_id(Pid) of
                 ?STATE_ACTIVE ->
                     ?SERVER_MODULE:put(Pid, Object);
-                ?STATE_COMPACTING ->
+                ?STATE_RUNNING_COMPACTION ->
                     {error, doing_compaction}
             end;
         _ ->
@@ -338,7 +338,7 @@ do_request(delete, [Key, Object]) ->
             case get_status_by_id(Pid) of
                 ?STATE_ACTIVE ->
                     ?SERVER_MODULE:delete(Pid, Object);
-                ?STATE_COMPACTING ->
+                ?STATE_RUNNING_COMPACTION ->
                     {error, doing_compaction}
             end;
         _ ->

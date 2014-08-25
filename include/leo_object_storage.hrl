@@ -25,6 +25,7 @@
 -define(APP_NAME, 'leo_object_storage').
 
 %% Default Values
+-define(AVS_FILE_EXT, ".avs").
 -define(DEF_METADATA_DB,              'bitcask').
 -define(DEF_OBJECT_STORAGE_SUB_DIR,   "object/").
 -define(DEF_METADATA_STORAGE_SUB_DIR, "metadata/").
@@ -35,10 +36,10 @@
 -define(ETS_INFO_TABLE,       'leo_object_storage_info').
 
 %% regarding compaction
--define(ENV_COMPACTION_STATUS, 'compaction_status').
--define(STATE_COMPACTING,      'compacting').
--define(STATE_ACTIVE,          'active').
--type(storage_status() :: ?STATE_COMPACTING | ?STATE_ACTIVE).
+-define(ENV_COMPACTION_STATUS,    'compaction_status').
+-define(STATE_RUNNING_COMPACTION, 'compacting').
+-define(STATE_ACTIVE,             'active').
+-type(storage_status() :: ?STATE_RUNNING_COMPACTION | ?STATE_ACTIVE).
 
 %% Error Constants
 %%
@@ -284,3 +285,12 @@
 -define(PROP_CMETA_CLUSTER_ID, 'cluster_id').
 -define(PROP_CMETA_NUM_OF_REPLICAS, 'num_of_replicas').
 -define(PROP_CMETA_VER, 'ver').
+
+
+%% @doc Generate a raw file path.
+-define(gen_raw_file_path(_FilePath),
+        begin
+            lists:append([_FilePath, "_", integer_to_list(leo_date:now())])
+        end
+       ).
+
