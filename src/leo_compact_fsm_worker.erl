@@ -104,7 +104,6 @@ stop(Id) ->
 -spec(run(atom()) ->
              ok | {error, any()}).
 run(Id) ->
-    ?debugVal(Id),
     gen_fsm:sync_send_event(Id, run, ?DEF_TIMEOUT).
 
 
@@ -199,7 +198,6 @@ format_status(_Opt, [_PDict, State]) ->
 idle(run, From, State) ->
     NextState = ?COMPACTION_STATUS_RUNNING,
     {ok, State_1} = execute(State),
-    ?debugVal(State_1),
 
     gen_fsm:reply(From, ok),
     {next_state, NextState, State_1};
@@ -259,7 +257,6 @@ suspend(_, From, State) ->
 -spec(execute(#state{}) ->
              {ok, #state{}}).
 execute(#state{id = Id} = State) ->
-    ?debugVal(Id),
     Pid = spawn_link(fun() ->
                              loop(State)
                      end),
@@ -274,8 +271,8 @@ loop(#state{id = Id} = State) ->
     receive
         {Id, run} ->
             ?debugVal({run, Id}),
-            {ok, _} = compact_fun(State),
-            loop(Id);
+            {ok, _State} = compact_fun(State),
+            ok;
         {Id, suspend} ->
             ?debugVal({suspend, Id}),
             loop(Id);
@@ -283,7 +280,7 @@ loop(#state{id = Id} = State) ->
             ?debugVal({resume, Id}),
             {ok, _} = compact_fun(State),
             loop(Id);
-        {Id, done} ->
+        {_, done} ->
             ?debugVal({done, Id}),
             loop(Id);
         {Id, stop} ->
@@ -303,10 +300,7 @@ compact_fun(State) ->
            meta_db_id = MetaDBId} = State,
     {ok, #backend_info{file_path = FilePath,
                        file_path_raw = OrgFilePath}} =
-        leo_object_storage_server:get_info(OBjStorageId, 'obj_storage'),
-    %% @TODO
-    FilePath = [],
-    OrgFilePath = [],
+        leo_object_storage_server:get_info(OBjStorageId, ?SERVER_OBJ_STORAGE),
 
     Res = case calc_remain_disksize(MetaDBId, FilePath) of
               {ok, RemainSize} ->
@@ -314,11 +308,9 @@ compact_fun(State) ->
                       true ->
                           compact_fun_1(FilePath, OrgFilePath, State);
                       false ->
-                          %% {{error, system_limit}, State}
                           {error, system_limit}
                   end;
               Error ->
-                  %% {Error, State}
                   Error
           end,
 
@@ -340,7 +332,7 @@ compact_fun(State) ->
 
 %% @private
 compact_fun_1(FilePath, OrgFilePath, #state{obj_storage_id = ObjStorageId}) ->
-    {ok, StorageInfo} = leo_object_storage_server:get_info(ObjStorageId, 'object_storage'),
+    {ok, StorageInfo} = ?get_obj_storage_info(ObjStorageId),
     TmpPath = ?gen_raw_file_path(FilePath),
 
     %% must reopen the original file when handling at another process
@@ -352,7 +344,7 @@ compact_fun_1(FilePath, OrgFilePath, #state{obj_storage_id = ObjStorageId}) ->
                     ok = file:advise(TmpWriteHandler, 0, FileSize, dont_need),
                     ok = file:advise(ReadHandler, 0, FileSize, sequential),
                     ok = leo_object_storage_server:set_info(
-                           ObjStorageId, 'object_storage',
+                           ObjStorageId, ?SERVER_OBJ_STORAGE,
                            StorageInfo#backend_info{
                              avs_version_bin_cur = AVSVsnBinCur,
                              avs_version_bin_prv = AVSVsnBinPrv,
@@ -376,7 +368,7 @@ compact_fun_2(ok, #state{meta_db_id = MetaDBId,
                          obj_storage_id = ObjStorageId,
                          %% storage_stats  = StorageStats,
                          callback_fun = FunHasChargeOfNode} = State) ->
-    {ok, StorageInfo} = leo_object_storage_server:get_info(ObjStorageId, 'object_storage'),
+    {ok, StorageInfo} = ?get_obj_storage_info(ObjStorageId),
     ReadHandler     = StorageInfo#backend_info.read_handler,
     WriteHandler    = StorageInfo#backend_info.write_handler,
     TmpReadHandler  = StorageInfo#backend_info.tmp_read_handler,
@@ -395,6 +387,7 @@ compact_fun_2(ok, #state{meta_db_id = MetaDBId,
                                                  fun_has_charge_of_node = FunHasChargeOfNode},
                                  State) of
                       Ret ->
+                          ?debugVal(Ret),
                           Ret
                   catch
                       _:Reason ->
@@ -435,7 +428,7 @@ compact_fun_2(Error,_State) ->
 compact_fun_3({{ok,_NumActive,_SizeActive},
                #state{meta_db_id     = MetaDBId,
                       obj_storage_id = ObjStorageId} = State}) ->
-    {ok, StorageInfo} = leo_object_storage_server:get_info(ObjStorageId, 'object_storage'),
+    {ok, StorageInfo} = ?get_obj_storage_info(ObjStorageId),
     RootPath       = StorageInfo#backend_info.file_path,
     TmpFilePathRaw = StorageInfo#backend_info.tmp_file_path_raw,
 
@@ -446,12 +439,12 @@ compact_fun_3({{ok,_NumActive,_SizeActive},
 
             %% must reopen the original file when handling at another process
             _ = leo_backend_db_api:compact_end(MetaDBId, true),
-            ok = leo_object_storage_server:set_info(ObjStorageId, 'object_storage',
+            ok = leo_object_storage_server:set_info(ObjStorageId, ?SERVER_OBJ_STORAGE,
                                                     StorageInfo#backend_info{
                                                       file_path_raw = TmpFilePathRaw
                                                      }),
             ok = leo_object_storage_server:set_info(
-                   ObjStorageId, 'object_storage',
+                   ObjStorageId, ?SERVER_OBJ_STORAGE,
                    StorageInfo#backend_info{
                      tmp_file_path_raw = TmpFilePathRaw}),
             %% @TODO
@@ -489,7 +482,7 @@ compact_fun_3({_Error, #state{obj_storage_id = ObjStorageId,
     NewState = State,
 
     %% must reopen the original file when handling at another process:
-    {ok, StorageInfo} = leo_object_storage_server:get_info(ObjStorageId, 'object_storage'),
+    {ok, StorageInfo} = ?get_obj_storage_info(ObjStorageId),
     catch file:delete(StorageInfo#backend_info.tmp_file_path_raw),
     leo_backend_db_api:compact_end(MetaDBId, false),
     {ok, NewState}.
@@ -500,8 +493,8 @@ compact_fun_3({_Error, #state{obj_storage_id = ObjStorageId,
 -spec(compact_done(#state{}) ->
              {ok, #state{}}).
 compact_done(#state{obj_storage_id = ObjStorageId,
-                    compact_pid = Pid} = State) ->
-    {ok, StorageInfo} = leo_object_storage_server:get_info(ObjStorageId, 'object_storage'),
+                    compact_pid = _Pid} = State) ->
+    {ok, StorageInfo} = ?get_obj_storage_info(ObjStorageId),
     FilePath     = StorageInfo#backend_info.file_path,
     ReadHandler  = StorageInfo#backend_info.read_handler,
     WriteHandler = StorageInfo#backend_info.write_handler,
@@ -510,7 +503,7 @@ compact_done(#state{obj_storage_id = ObjStorageId,
     case leo_object_storage_haystack:open(FilePath) of
         {ok, [NewWriteHandler, NewReadHandler, AVSVsnBin]} ->
             ok = leo_object_storage_server:set_info(
-                   ObjStorageId, 'object_storage',
+                   ObjStorageId, ?SERVER_OBJ_STORAGE,
                    StorageInfo#backend_info{
                      avs_version_bin_cur = AVSVsnBin,
                      write_handler       = NewWriteHandler,
@@ -518,7 +511,6 @@ compact_done(#state{obj_storage_id = ObjStorageId,
         {error, _} ->
             void
     end,
-    erlang:send(Pid, done),
     {ok, State#state{compact_pid = undefined}}.
 
 
@@ -530,7 +522,7 @@ do_compact(Metadata, CompactParams, #state{obj_storage_id = ObjStorageId,
                                            meta_db_id     = MetaDBId} = State) ->
     %% initialize set-error property
     State_1 = State#state{set_errors = sets:new()},
-    {ok, StorageInfo} = leo_object_storage_server:get_info(ObjStorageId, 'object_storage'),
+    {ok, StorageInfo} = ?get_obj_storage_info(ObjStorageId),
 
     %% execute compaction
     case (CompactParams#compact_params.next_offset == ?AVS_SUPER_BLOCK_LEN) of
@@ -591,14 +583,15 @@ do_compact_1(Metadata, CompactParams, State) ->
 do_compact_1(ok, Metadata, CompactParams,
              #state{obj_storage_id = ObjStorageId} = State) ->
     erlang:garbage_collect(self()),
-    {ok, StorageInfo} = leo_object_storage_server:get_info(ObjStorageId, 'object_storage'),
+    {ok, StorageInfo} = ?get_obj_storage_info(ObjStorageId),
     ReadHandler = StorageInfo#backend_info.read_handler,
+    NextOffset  = CompactParams#compact_params.next_offset,
 
     case leo_object_storage_haystack:compact_get(
-           ReadHandler, CompactParams#compact_params.next_offset) of
+           ReadHandler, NextOffset) of
         {ok, NewMetadata, [_HeaderValue, NewKeyValue,
                            NewBodyValue, NewNextOffset]} ->
-            ok = output_accumulated_errors(State, CompactParams#compact_params.next_offset),
+            ok = output_accumulated_errors(State, NextOffset),
             do_compact(NewMetadata,
                        CompactParams#compact_params{
                          key_bin     = NewKeyValue,
@@ -607,22 +600,21 @@ do_compact_1(ok, Metadata, CompactParams,
                        State#state{error_pos  = 0,
                                    set_errors = sets:new()});
         {error, eof} ->
-            ok = output_accumulated_errors(State, CompactParams#compact_params.next_offset),
+            ok = output_accumulated_errors(State, NextOffset),
             NumOfAcriveObjs  = CompactParams#compact_params.num_of_active_objects,
             SizeOfActiveObjs = CompactParams#compact_params.size_of_active_object,
             {ok, NumOfAcriveObjs, SizeOfActiveObjs};
         {_, Cause} ->
-            OldOffset = CompactParams#compact_params.next_offset,
             ErrorPosCur = State#state.error_pos,
             ErrorPosNew = case (State#state.error_pos == 0) of
                               true ->
-                                  OldOffset;
+                                  NextOffset;
                               false ->
                                   ErrorPosCur
                           end,
             SetErrors = sets:add_element(Cause, State#state.set_errors),
             do_compact_1(ok, Metadata,
-                         CompactParams#compact_params{next_offset = OldOffset + 1},
+                         CompactParams#compact_params{next_offset = NextOffset + 1},
                          State#state{error_pos  = ErrorPosNew,
                                      set_errors = SetErrors})
     end;
@@ -666,7 +658,7 @@ output_accumulated_errors(#state{obj_storage_id = ObjStorageId,
         0 ->
             ok;
         _ ->
-            {ok, StorageInfo} = leo_object_storage_server:get_info(ObjStorageId, 'object_storage'),
+            {ok, StorageInfo} = ?get_obj_storage_info(ObjStorageId),
             error_logger:warning_msg(
               "~p,~p,~p,~p~n",
               [{module, ?MODULE_STRING},

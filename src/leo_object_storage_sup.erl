@@ -264,8 +264,9 @@ add_container(BackendDBSupPid, Id, Props) ->
 
 %% @private
 add_container_1(leo_compact_fsm_worker = Mod, Id, ObjStorageId, MetaDBId) ->
+    %% @TODO
     ChildSpec = {Id,
-                   {Mod, start_link, [Id, ObjStorageId, MetaDBId, fun(_)-> void end]},
+                   {Mod, start_link, [Id, ObjStorageId, MetaDBId, fun(_,_)-> true end]},
                    permanent, 2000, worker, [Mod]},
     case supervisor:start_child(?MODULE, ChildSpec) of
         {ok,_} ->

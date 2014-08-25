@@ -199,7 +199,6 @@ set_info(Id, ServerType, BackendInfo) ->
 %% @doc Retrieve the compaction worker
 %%
 get_compaction_worker(Id) ->
-    ?debugVal(Id),
     gen_server:call(Id, get_compaction_worker, ?DEF_TIMEOUT).
 
 
@@ -434,13 +433,12 @@ handle_call(close, _From,
                        StorageStats, WriteHandler, ReadHandler),
     {reply, ok, State};
 
-handle_call({get_info, object_storage}, _From,
+handle_call({get_info, ?SERVER_OBJ_STORAGE}, _From,
             #state{object_storage = ObjectStorage} = State) ->
     {reply, {ok, ObjectStorage}, State};
 
-handle_call({set_info, object_storage, BackendInfo}, _From,
-            #state{object_storage = BackendInfo} = State) ->
-    {reply, ok, State};
+handle_call({set_info, ?SERVER_OBJ_STORAGE, BackendInfo}, _From, State) ->
+    {reply, ok, State#state{object_storage = BackendInfo}};
 
 handle_call(get_compaction_worker, _From,
             #state{compaction_worker_id = CompactionWorkerId} = State) ->

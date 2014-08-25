@@ -31,6 +31,9 @@
 -define(DEF_METADATA_STORAGE_SUB_DIR, "metadata/").
 -define(DEF_STATE_SUB_DIR,            "state/").
 
+-define(SERVER_OBJ_STORAGE, 'object_storage').
+-define(SERVER_METADATA_DB, 'metadata_db').
+
 %% ETS-Table
 -define(ETS_CONTAINERS_TABLE, 'leo_object_storage_containers').
 -define(ETS_INFO_TABLE,       'leo_object_storage_info').
@@ -287,10 +290,11 @@
 -define(PROP_CMETA_VER, 'ver').
 
 
-%% @doc Generate a raw file path.
+%% @doc Generate a raw file path
 -define(gen_raw_file_path(_FilePath),
-        begin
-            lists:append([_FilePath, "_", integer_to_list(leo_date:now())])
-        end
-       ).
+            lists:append([_FilePath, "_", integer_to_list(leo_date:now())])).
+
+%% @doc Retrieve object-storage info
+-define(get_obj_storage_info(_ObjStorageId),
+        leo_object_storage_server:get_info(_ObjStorageId, ?SERVER_OBJ_STORAGE)).
 
