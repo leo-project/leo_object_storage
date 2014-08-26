@@ -296,5 +296,4 @@
 
 %% @doc Retrieve object-storage info
 -define(get_obj_storage_info(_ObjStorageId),
-        leo_object_storage_server:get_info(_ObjStorageId, ?SERVER_OBJ_STORAGE)).
-
+        leo_object_storage_server:get_backend_info(_ObjStorageId, ?SERVER_OBJ_STORAGE)).

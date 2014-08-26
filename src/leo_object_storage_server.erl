@@ -36,9 +36,10 @@
 %% API
 -export([start_link/5, start_link/6, stop/1]).
 -export([put/2, get/4, delete/2, head/2, fetch/4, store/3,
-         stats/1, get_avs_version_bin/1,
+         get_stats/1, set_stats/2,
+         get_avs_version_bin/1,
          head_with_calc_md5/3, close/1,
-         get_info/2, set_info/3,
+         get_backend_info/2, set_backend_info/3,
          get_compaction_worker/1
         ]).
 
@@ -157,11 +158,20 @@ store(Id, Metadata, Bin) ->
 %% @doc Retrieve the storage stats specfied by Id
 %%      which contains number of objects and so on.
 %%
--spec(stats(atom()) ->
+-spec(get_stats(atom()) ->
              {ok, #storage_stats{}} |
              {error, any()}).
-stats(Id) ->
-    gen_server:call(Id, stats, ?DEF_TIMEOUT).
+get_stats(Id) ->
+    gen_server:call(Id, get_stats, ?DEF_TIMEOUT).
+
+
+%% @doc Retrieve the storage stats specfied by Id
+%%      which contains number of objects and so on.
+%%
+-spec(set_stats(atom(), #storage_stats{}) ->
+             ok).
+set_stats(Id, StorageStats) ->
+    gen_server:call(Id, {set_stats, StorageStats}, ?DEF_TIMEOUT).
 
 
 %% @doc Get AVS format version binary like <<"LeoFS AVS-2.2">>
@@ -187,14 +197,14 @@ close(Id) ->
 
 %% @doc Retrieve object-storage/metadata-storage info
 %%
-get_info(Id, ServerType) ->
-    gen_server:call(Id, {get_info, ServerType}, ?DEF_TIMEOUT).
+get_backend_info(Id, ServerType) ->
+    gen_server:call(Id, {get_backend_info, ServerType}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve object-storage/metadata-storage info
 %%
-set_info(Id, ServerType, BackendInfo) ->
-    gen_server:call(Id, {set_info, ServerType, BackendInfo}, ?DEF_TIMEOUT).
+set_backend_info(Id, ServerType, BackendInfo) ->
+    gen_server:call(Id, {set_backend_info, ServerType, BackendInfo}, ?DEF_TIMEOUT).
 
 %% @doc Retrieve the compaction worker
 %%
@@ -278,6 +288,7 @@ handle_call(stop, _From, State) ->
     {stop, shutdown, ok, State};
 
 
+%% Insert an object
 handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
                                          object_storage = StorageInfo,
                                          storage_stats  = StorageStats} = State) ->
@@ -309,7 +320,7 @@ handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
           active_num   = StorageStats#storage_stats.active_num   + DiffRec},
     {reply, Reply, NewState#state{storage_stats = NewStorageStats}};
 
-
+%% Retrieve an object
 handle_call({get, {AddrId, Key}, StartPos, EndPos},
             _From, #state{meta_db_id      = MetaDBId,
                           object_storage  = StorageInfo,
@@ -324,7 +335,7 @@ handle_call({get, {AddrId, Key}, StartPos, EndPos},
 
     {reply, Reply, NewState};
 
-
+%% Remove an object
 handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
                                             object_storage = StorageInfo,
                                             storage_stats  = StorageStats} = State) ->
@@ -355,7 +366,7 @@ handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
           active_num   = StorageStats#storage_stats.active_num   + DiffRec},
     {reply, Reply, NewState#state{storage_stats = NewStorageStats}};
 
-
+%% Head an object
 handle_call({head, {AddrId, Key}},
             _From, #state{meta_db_id = MetaDBId,
                           object_storage = StorageInfo} = State) ->
@@ -364,6 +375,7 @@ handle_call({head, {AddrId, Key}},
     Reply = leo_object_storage_haystack:head(MetaDBId, BackendKey),
     {reply, Reply, State};
 
+%% Fetch objects with address-id and key to maximum numbers of keys
 handle_call({fetch, {AddrId, Key}, Fun, MaxKeys},
             _From, #state{meta_db_id     = MetaDBId,
                           object_storage = StorageInfo} = State) ->
@@ -372,7 +384,7 @@ handle_call({fetch, {AddrId, Key}, Fun, MaxKeys},
     Reply = leo_object_storage_haystack:fetch(MetaDBId, BackendKey, Fun, MaxKeys),
     {reply, Reply, State};
 
-
+%% Store an object
 handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
                                                   object_storage = StorageInfo,
                                                   storage_stats  = StorageStats} = State) ->
@@ -401,15 +413,20 @@ handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
           active_num   = StorageStats#storage_stats.active_num   + DiffRec},
     {reply, Reply, State#state{storage_stats = NewStorageStats}};
 
-
-
-handle_call(stats, _From, #state{storage_stats = StorageStats} = State) ->
+%% Retrieve the current status
+handle_call(get_stats, _From, #state{storage_stats = StorageStats} = State) ->
     {reply, {ok, StorageStats}, State};
 
+%% Set the current status
+handle_call({set_stats, StorageStats}, _From, State) ->
+    {reply, ok, State#state{storage_stats = StorageStats}};
+
+%% Retrieve the avs version
 handle_call(get_avs_version_bin, _From, #state{object_storage = StorageInfo} = State) ->
     Reply = {ok, StorageInfo#backend_info.avs_version_bin_cur},
     {reply, Reply, State};
 
+%% Retrieve hash of the object with head-verb
 handle_call({head_with_calc_md5, {AddrId, Key}, MD5Context},
             _From, #state{meta_db_id      = MetaDBId,
                           object_storage  = StorageInfo} = State) ->
@@ -422,6 +439,7 @@ handle_call({head_with_calc_md5, {AddrId, Key}, MD5Context},
     erlang:garbage_collect(self()),
     {reply, Reply, NewState};
 
+%% Close the object-container
 handle_call(close, _From,
             #state{id = Id,
                    meta_db_id = MetaDBId,
@@ -433,17 +451,21 @@ handle_call(close, _From,
                        StorageStats, WriteHandler, ReadHandler),
     {reply, ok, State};
 
-handle_call({get_info, ?SERVER_OBJ_STORAGE}, _From,
+%% Retrieve the backend info/configuration
+handle_call({get_backend_info, ?SERVER_OBJ_STORAGE}, _From,
             #state{object_storage = ObjectStorage} = State) ->
     {reply, {ok, ObjectStorage}, State};
 
-handle_call({set_info, ?SERVER_OBJ_STORAGE, BackendInfo}, _From, State) ->
+%% Set the backend info/configuration
+handle_call({set_backend_info, ?SERVER_OBJ_STORAGE, BackendInfo}, _From, State) ->
     {reply, ok, State#state{object_storage = BackendInfo}};
 
+%% Retrieve the compaction worker
 handle_call(get_compaction_worker, _From,
             #state{compaction_worker_id = CompactionWorkerId} = State) ->
     {reply, {ok, CompactionWorkerId}, State};
 
+%% Put incorrect data for the unit-test
 handle_call({add_incorrect_data,_Bin},
             _From, #state{object_storage =_StorageInfo} = State) ->
     ?add_incorrect_data(_StorageInfo,_Bin),

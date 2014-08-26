@@ -18,10 +18,6 @@
 %% specific language governing permissions and limitations
 %% under the License.
 %%
-%% ---------------------------------------------------------------------
-%% Leo Object Storage - Server
-%% @doc
-%% @end
 %%======================================================================
 -module(leo_compact_fsm_worker).
 
@@ -67,7 +63,7 @@
           previous_times = [] :: [{non_neg_integer(),boolean()}]
          }).
 
--record(compact_params, {
+-record(compaction_prms, {
           key_bin                :: binary(),
           body_bin               :: binary(),
           next_offset            :: integer(),
@@ -245,7 +241,7 @@ running(resume, From, State) ->
 running(finish, From, #state{compact_cntl_pid = CntlPid}= State) ->
     gen_fsm:reply(From, ok),
     NextStatus = ?COMPACTION_STATUS_IDLE,
-    erlang:send(CntlPid, done),
+    erlang:send(CntlPid, 'finish'),
     {next_state, NextStatus, State#state{status = NextStatus}}.
 
 
@@ -308,11 +304,11 @@ loop(#state{id = Id} = State) ->
 -spec(compact_fun(#state{}) ->
              {ok, #state{}}).
 compact_fun(State) ->
-    #state{obj_storage_id = OBjStorageId,
+    #state{obj_storage_id = ObjStorageId,
            meta_db_id = MetaDBId} = State,
-    {ok, #backend_info{file_path = FilePath,
-                       file_path_raw = OrgFilePath}} =
-        leo_object_storage_server:get_info(OBjStorageId, ?SERVER_OBJ_STORAGE),
+    {ok, #backend_info{
+            file_path     = FilePath,
+            file_path_raw = OrgFilePath}} = ?get_obj_storage_info(ObjStorageId),
 
     Res = case calc_remain_disksize(MetaDBId, FilePath) of
               {ok, RemainSize} ->
@@ -355,7 +351,7 @@ compact_fun_1(FilePath, OrgFilePath, #state{obj_storage_id = ObjStorageId}) ->
                     FileSize = filelib:file_size(OrgFilePath),
                     ok = file:advise(TmpWriteHandler, 0, FileSize, dont_need),
                     ok = file:advise(ReadHandler, 0, FileSize, sequential),
-                    ok = leo_object_storage_server:set_info(
+                    ok = leo_object_storage_server:set_backend_info(
                            ObjStorageId, ?SERVER_OBJ_STORAGE,
                            StorageInfo#backend_info{
                              avs_version_bin_cur = AVSVsnBinCur,
@@ -392,7 +388,7 @@ compact_fun_2(ok, #state{meta_db_id = MetaDBId,
     %%             start, StorageStats#storage_stats.compaction_histories),
     Res = case leo_backend_db_api:compact_start(MetaDBId) of
               ok ->
-                  try do_compact(#metadata{}, #compact_params{
+                  try do_compact(#metadata{}, #compaction_prms{
                                                  next_offset = ?AVS_SUPER_BLOCK_LEN,
                                                  num_of_active_objects = 0,
                                                  size_of_active_object = 0,
@@ -436,49 +432,54 @@ compact_fun_2(Error,_State) ->
 
 %% @doc Reduce objects from the object-container.
 %% @private
-compact_fun_3({{ok,_NumActive,_SizeActive},
+compact_fun_3({{ok, NumActiveObjs, SizeActiveObjs},
                #state{meta_db_id     = MetaDBId,
                       obj_storage_id = ObjStorageId} = State}) ->
+    %% Unlink the symbol
     {ok, StorageInfo} = ?get_obj_storage_info(ObjStorageId),
     RootPath       = StorageInfo#backend_info.file_path,
     TmpFilePathRaw = StorageInfo#backend_info.tmp_file_path_raw,
-
     catch file:delete(RootPath),
+
+    %% Retrieve the before storage-state
+    {ok, StorageStats} = leo_object_storage_server:get_stats(ObjStorageId),
+
+    %% Migrate the filepath
     case file:make_symlink(TmpFilePathRaw, RootPath) of
         ok ->
+            %% Must reopen the original file when handling at another process
             ok = file:delete(StorageInfo#backend_info.file_path_raw),
-
-            %% must reopen the original file when handling at another process
-            _ = leo_backend_db_api:compact_end(MetaDBId, true),
-            ok = leo_object_storage_server:set_info(ObjStorageId, ?SERVER_OBJ_STORAGE,
-                                                    StorageInfo#backend_info{
-                                                      file_path_raw = TmpFilePathRaw
-                                                     }),
-            ok = leo_object_storage_server:set_info(
+            ok = leo_backend_db_api:compact_end(MetaDBId, true),
+            ok = leo_object_storage_server:set_backend_info(
                    ObjStorageId, ?SERVER_OBJ_STORAGE,
-                   StorageInfo#backend_info{
-                     tmp_file_path_raw = TmpFilePathRaw}),
-            %% @TODO
-            %% NewState    = State#state{storage_stats =
-            %%                               StorageStats#storage_stats{
-            %%                                 total_num    = NumActive,
-            %%                                 active_num   = NumActive,
-            %%                                 total_sizes  = SizeActive,
-            %%                                 active_sizes = SizeActive},
-            %%                           object_storage =
-            %%                               BackendInfo#backend_info{
-            %%                                 file_path_raw = TmpFilePathRaw
-            %%                                }},
-            NewState = State,
-            {ok, NewState};
+                   StorageInfo#backend_info{file_path_raw = TmpFilePathRaw}),
+            ok = leo_object_storage_server:set_backend_info(
+                   ObjStorageId, ?SERVER_OBJ_STORAGE,
+                   StorageInfo#backend_info{tmp_file_path_raw = TmpFilePathRaw}),
+
+            %% Update the stotrage state
+            ok = leo_object_storage_server:set_stats(
+                   ObjStorageId, StorageStats#storage_stats{
+                                   total_num    = NumActiveObjs,
+                                   active_num   = NumActiveObjs,
+                                   total_sizes  = SizeActiveObjs,
+                                   active_sizes = SizeActiveObjs}),
+            ok = leo_object_storage_server:set_backend_info(
+                   ObjStorageId, ?SERVER_OBJ_STORAGE,
+                   StorageInfo#backend_info{read_handler      = undefined,
+                                            write_handler     = undefined,
+                                            tmp_read_handler  = undefined,
+                                            tmp_write_handler = undefined,
+                                            file_path_raw     = TmpFilePathRaw
+                                           }),
+            {ok, State};
         {error, Cause} ->
             leo_backend_db_api:compact_end(MetaDBId, false),
             %% @TODO
             %% NewState = State#state{
             %%              storage_stats = StorageStats#storage_stats{
             %%                                has_error = true}},
-            NewState = State,
-            {{error, Cause}, NewState}
+            {{error, Cause}, State}
     end;
 
 %% @doc Rollback - delete the tmp-files
@@ -490,13 +491,12 @@ compact_fun_3({_Error, #state{obj_storage_id = ObjStorageId,
     %% @TODO
     %% NewState = State#state{storage_stats = StorageStats#storage_stats{
     %%                                          has_error = true}},
-    NewState = State,
 
     %% must reopen the original file when handling at another process:
     {ok, StorageInfo} = ?get_obj_storage_info(ObjStorageId),
     catch file:delete(StorageInfo#backend_info.tmp_file_path_raw),
     leo_backend_db_api:compact_end(MetaDBId, false),
-    {ok, NewState}.
+    {ok, State}.
 
 
 %% @doc
@@ -514,7 +514,7 @@ finish_compaction(#state{id = Id,
 
     case leo_object_storage_haystack:open(FilePath) of
         {ok, [NewWriteHandler, NewReadHandler, AVSVsnBin]} ->
-            ok = leo_object_storage_server:set_info(
+            ok = leo_object_storage_server:set_backend_info(
                    ObjStorageId, ?SERVER_OBJ_STORAGE,
                    StorageInfo#backend_info{
                      avs_version_bin_cur = AVSVsnBin,
@@ -529,7 +529,7 @@ finish_compaction(#state{id = Id,
 
 %% @doc Reduce unnecessary objects from object-container.
 %% @private
--spec(do_compact(#?METADATA{}, #compact_params{}, #state{}) ->
+-spec(do_compact(#?METADATA{}, #compaction_prms{}, #state{}) ->
              ok | {error, any()}).
 do_compact(Metadata, CompactParams, #state{obj_storage_id = ObjStorageId,
                                            meta_db_id     = MetaDBId} = State) ->
@@ -538,17 +538,17 @@ do_compact(Metadata, CompactParams, #state{obj_storage_id = ObjStorageId,
     {ok, StorageInfo} = ?get_obj_storage_info(ObjStorageId),
 
     %% execute compaction
-    case (CompactParams#compact_params.next_offset == ?AVS_SUPER_BLOCK_LEN) of
+    case (CompactParams#compaction_prms.next_offset == ?AVS_SUPER_BLOCK_LEN) of
         true ->
             do_compact_1(Metadata, CompactParams, State_1);
         false ->
             %% retrieve value
-            #compact_params{key_bin  = Key,
-                            body_bin = Body,
-                            fun_has_charge_of_node = FunHasChargeOfNode,
-                            num_of_active_objects  = NumOfActiveObjs,
-                            size_of_active_object  = SizeActive
-                           } = CompactParams,
+            #compaction_prms{key_bin  = Key,
+                             body_bin = Body,
+                             fun_has_charge_of_node = FunHasChargeOfNode,
+                             num_of_active_objects  = NumOfActiveObjs,
+                             size_of_active_object  = SizeActive
+                            } = CompactParams,
 
             %% set a flag of object of compaction
             NumOfReplicas = Metadata#?METADATA.num_of_replicas,
@@ -577,7 +577,7 @@ do_compact(Metadata, CompactParams, #state{obj_storage_id = ObjStorageId,
                                 %% calculate num of objects and total size of objects
                                 ObjectSize = leo_object_storage_haystack:calc_obj_size(Metadata_1),
                                 {Ret, Metadata_1,
-                                 CompactParams#compact_params{
+                                 CompactParams#compaction_prms{
                                    num_of_active_objects = NumOfActiveObjs + 1,
                                    size_of_active_object = SizeActive + ObjectSize}};
                             Error ->
@@ -598,7 +598,7 @@ do_compact_1(ok, Metadata, CompactParams,
     erlang:garbage_collect(self()),
     {ok, StorageInfo} = ?get_obj_storage_info(ObjStorageId),
     ReadHandler = StorageInfo#backend_info.read_handler,
-    NextOffset  = CompactParams#compact_params.next_offset,
+    NextOffset  = CompactParams#compaction_prms.next_offset,
 
     case leo_object_storage_haystack:compact_get(
            ReadHandler, NextOffset) of
@@ -606,7 +606,7 @@ do_compact_1(ok, Metadata, CompactParams,
                            NewBodyValue, NewNextOffset]} ->
             ok = output_accumulated_errors(State, NextOffset),
             do_compact(NewMetadata,
-                       CompactParams#compact_params{
+                       CompactParams#compaction_prms{
                          key_bin     = NewKeyValue,
                          body_bin    = NewBodyValue,
                          next_offset = NewNextOffset},
@@ -614,8 +614,8 @@ do_compact_1(ok, Metadata, CompactParams,
                                    set_errors = sets:new()});
         {error, eof} ->
             ok = output_accumulated_errors(State, NextOffset),
-            NumOfAcriveObjs  = CompactParams#compact_params.num_of_active_objects,
-            SizeOfActiveObjs = CompactParams#compact_params.size_of_active_object,
+            NumOfAcriveObjs  = CompactParams#compaction_prms.num_of_active_objects,
+            SizeOfActiveObjs = CompactParams#compaction_prms.size_of_active_object,
             {ok, NumOfAcriveObjs, SizeOfActiveObjs};
         {_, Cause} ->
             ErrorPosCur = State#state.error_pos,
@@ -627,7 +627,7 @@ do_compact_1(ok, Metadata, CompactParams,
                           end,
             SetErrors = sets:add_element(Cause, State#state.set_errors),
             do_compact_1(ok, Metadata,
-                         CompactParams#compact_params{next_offset = NextOffset + 1},
+                         CompactParams#compaction_prms{next_offset = NextOffset + 1},
                          State#state{error_pos  = ErrorPosNew,
                                      set_errors = SetErrors})
     end;

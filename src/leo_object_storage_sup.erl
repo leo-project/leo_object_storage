@@ -239,7 +239,6 @@ get_path(Path0) ->
 -spec(add_container(pid(), integer(), list()) ->
              ok).
 add_container(BackendDBSupPid, Id, Props) ->
-    ?debugVal(Id),
     ObjStorageId    = gen_id(obj_storage,   Id),
     MetaDBId        = gen_id(metadata,      Id),
     CompactWorkerId = gen_id(compact_worker,Id),

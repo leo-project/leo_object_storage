@@ -198,7 +198,7 @@ stats() ->
         List ->
             {ok, lists:reverse(
                    lists:foldl(fun(Id, Acc) ->
-                                       [?SERVER_MODULE:stats(Id)|Acc]
+                                       [?SERVER_MODULE:get_stats(Id)|Acc]
                                end, [], List))}
     end.
 

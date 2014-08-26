@@ -18,10 +18,6 @@
 %% specific language governing permissions and limitations
 %% under the License.
 %%
-%% ---------------------------------------------------------------------
-%% Leo Compaction Manager - FSM
-%% @doc
-%% @end
 %%======================================================================
 -module(leo_compact_fsm_controller).
 
@@ -447,7 +443,7 @@ loop(FunHasChargeOfNode, TargetId) ->
             ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, ObjStorageId},
                                   ?STATE_RUNNING_COMPACTION),
             loop(FunHasChargeOfNode, TargetId);
-        done ->
+        finish ->
             {ObjStorageId,_CompactionWorkerId} = TargetId,
             ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, ObjStorageId},
                                   ?STATE_ACTIVE),
