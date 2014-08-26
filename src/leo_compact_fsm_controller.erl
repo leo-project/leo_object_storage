@@ -36,7 +36,7 @@
 %% API
 -export([start_link/0]).
 -export([start/3, stop/1,
-         suspend/0, resume/0, status/0, done_child/2]).
+         suspend/0, resume/0, status/0, finish/2]).
 
 -export([init/1,
          handle_event/3,
@@ -114,10 +114,10 @@ status() ->
 
 
 %% @doc Terminate child
--spec(done_child(pid(), atom()) ->
+-spec(finish(pid(), atom()) ->
              term()).
-done_child(Pid, Id) ->
-    gen_fsm:send_event(?MODULE, {done_child, Pid, Id}).
+finish(Pid, Id) ->
+    gen_fsm:send_event(?MODULE, {finish, Pid, Id}).
 
 
 %%====================================================================
@@ -174,10 +174,10 @@ idle(resume, From, State) ->
     {next_state, NextState, State#state{status = NextState}}.
 
 
--spec(idle({'done_child',_,_},_) ->
+-spec(idle({'finish',_,_},_) ->
              {stop, string(), _}).
-idle({done_child,_DonePid,_Id}, State) ->
-    {stop, "receive invalid done_child", State}.
+idle({finish,_Pid,_Id}, State) ->
+    {stop, "receive an invalid message", State}.
 
 
 %% @doc State of 'running'
@@ -201,31 +201,31 @@ running(resume, From, State) ->
     {next_state, NextState, State#state{status = NextState}}.
 
 
--spec(running({done_child, pid(), atom()}, #state{}) ->
+-spec(running({finish, pid(), atom()}, #state{}) ->
              {next_state, running, #state{}}).
-running({done_child, DonePid, DoneId}, #state{pending_targets = [Id|Rest],
-                                              ongoing_targets = InProgPids} = State) ->
-    erlang:send(DonePid, {compact, Id}),
+running({finish, Pid, FinishedId}, #state{pending_targets = [Id|Rest],
+                                          ongoing_targets = InProgPids} = State) ->
+    erlang:send(Pid, {compact, Id}),
     NextState = ?COMPACTION_STATUS_RUNNING,
     {next_state, NextState,
      State#state{status = NextState,
                  pending_targets = Rest,
-                 ongoing_targets = [Id|lists:delete(DoneId, InProgPids)]}};
+                 ongoing_targets = [Id|lists:delete(FinishedId, InProgPids)]}};
 
-running({done_child, DonePid, DoneId}, #state{pending_targets = [],
-                                              ongoing_targets = [_,_|_],
-                                              child_pids      = ChildPids} = State) ->
-    erlang:send(DonePid, stop),
+running({finish, Pid, FinishedId}, #state{pending_targets = [],
+                                          ongoing_targets = [_,_|_],
+                                          child_pids      = ChildPids} = State) ->
+    erlang:send(Pid, stop),
     NextState = ?COMPACTION_STATUS_RUNNING,
     {next_state, NextState,
      State#state{status = NextState,
-                 ongoing_targets = lists:delete(DoneId, State#state.ongoing_targets),
-                 child_pids       = orddict:erase(DonePid, ChildPids)}};
+                 ongoing_targets = lists:delete(FinishedId, State#state.ongoing_targets),
+                 child_pids       = orddict:erase(Pid, ChildPids)}};
 
-running({done_child,_DonePid,_DoneId}, #state{pending_targets  = [],
-                                              ongoing_targets  = [_|_],
-                                              child_pids       = ChildPids,
-                                              reserved_targets = ReservedTargets} = State) ->
+running({finish,_Pid,_FinishedId}, #state{pending_targets  = [],
+                                          ongoing_targets  = [_|_],
+                                          child_pids       = ChildPids,
+                                          reserved_targets = ReservedTargets} = State) ->
     [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
     NextState = ?COMPACTION_STATUS_IDLE,
     PendingTargets = pending_targets(ReservedTargets),
@@ -296,35 +296,35 @@ suspend(resume, From, #state{pending_targets = [],
     {next_state, NextState, State#state{status = NextState}}.
 
 
--spec(suspend({done_child, pid(), atom()}, #state{}) ->
+-spec(suspend({finish, pid(), atom()}, #state{}) ->
              {next_state, suspend | idle, #state{}}).
-suspend({done_child, DonePid, DoneId}, #state{pending_targets = [_|_],
-                                              ongoing_targets = InProgressPids0,
-                                              child_pids      = ChildPids0} = State) ->
-    InProgressPids1 = lists:delete(DoneId, InProgressPids0),
-    ChildPids1      = orddict:store(DonePid, false, ChildPids0),
+suspend({finish, Pid, FinishedId}, #state{pending_targets = [_|_],
+                                          ongoing_targets = InProgressPids0,
+                                          child_pids      = ChildPids0} = State) ->
+    InProgressPids1 = lists:delete(FinishedId, InProgressPids0),
+    ChildPids1      = orddict:store(Pid, false, ChildPids0),
 
     NextState = ?COMPACTION_STATUS_SUSPEND,
     {next_state, NextState, State#state{status = NextState,
                                         ongoing_targets = InProgressPids1,
                                         child_pids      = ChildPids1}};
 
-suspend({done_child, DonePid, DoneId}, #state{pending_targets = [],
-                                              ongoing_targets = [_,_|_],
-                                              child_pids      = ChildPids0} = State) ->
-    erlang:send(DonePid, stop),
-    InProgressPids = lists:delete(DoneId, State#state.ongoing_targets),
-    ChildPids1     = orddict:erase(DonePid, ChildPids0),
+suspend({finish, Pid, FinishedId}, #state{pending_targets = [],
+                                          ongoing_targets = [_,_|_],
+                                          child_pids      = ChildPids0} = State) ->
+    erlang:send(Pid, stop),
+    InProgressPids = lists:delete(FinishedId, State#state.ongoing_targets),
+    ChildPids1     = orddict:erase(Pid, ChildPids0),
 
     NextState = ?COMPACTION_STATUS_SUSPEND,
     {next_state, NextState, State#state{status = NextState,
                                         ongoing_targets = InProgressPids,
                                         child_pids      = ChildPids1}};
 
-suspend({done_child,_DonePid,_DoneId}, #state{pending_targets  = [],
-                                              ongoing_targets  = [_|_],
-                                              child_pids       = ChildPids,
-                                              reserved_targets = ReservedTargets} = State) ->
+suspend({finish,_Pid,_FinishedId}, #state{pending_targets  = [],
+                                          ongoing_targets  = [_|_],
+                                          child_pids       = ChildPids,
+                                          reserved_targets = ReservedTargets} = State) ->
     [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
     NextState = ?COMPACTION_STATUS_IDLE,
     PendingTargets = pending_targets(ReservedTargets),
@@ -405,7 +405,7 @@ start_jobs_as_possible(#state{pending_targets = [Id|Rest],
                               inspect_fun = FunHasChargeOfNode,
                               child_pids  = ChildPids} = State, NumChild) when NumChild < MaxProc ->
     Pid = spawn_link(fun() ->
-                             loop_child(FunHasChargeOfNode)
+                             loop(FunHasChargeOfNode)
                      end),
     erlang:send(Pid, {compact, Id}),
 
@@ -420,39 +420,39 @@ start_jobs_as_possible(State, _NumChild) ->
 
 %% @doc Loop of job executor(child)
 %% @private
--spec(loop_child(fun()) ->
+-spec(loop(fun()) ->
              ok | {error, any()}).
-loop_child(FunHasChargeOfNode) ->
-    loop_child(FunHasChargeOfNode, undefined).
+loop(FunHasChargeOfNode) ->
+    loop(FunHasChargeOfNode, undefined).
 
--spec(loop_child(fun(), atom()) ->
+-spec(loop(fun(), atom()) ->
              ok | {error, any()}).
-loop_child(FunHasChargeOfNode, TargetId) ->
+loop(FunHasChargeOfNode, TargetId) ->
     receive
         {compact, Id} ->
             {ok, Id_1} = leo_object_storage_server:get_compaction_worker(Id),
-            ok = leo_compact_fsm_worker:run(Id_1),
+            ok = leo_compact_fsm_worker:run(Id_1, self()),
             ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id},
                                   ?STATE_RUNNING_COMPACTION),
-            loop_child(FunHasChargeOfNode, {Id, Id_1});
+            loop(FunHasChargeOfNode, {Id, Id_1});
         suspend ->
             {ObjStorageId, CompactionWorkerId} = TargetId,
             ok = leo_compact_fsm_worker:suspend(CompactionWorkerId),
             ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, ObjStorageId},
                                   ?STATE_ACTIVE),
-            loop_child(FunHasChargeOfNode, TargetId);
+            loop(FunHasChargeOfNode, TargetId);
         resume ->
             {ObjStorageId, CompactionWorkerId} = TargetId,
             ok = leo_compact_fsm_worker:resume(CompactionWorkerId),
             ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, ObjStorageId},
                                   ?STATE_RUNNING_COMPACTION),
-            loop_child(FunHasChargeOfNode, TargetId);
+            loop(FunHasChargeOfNode, TargetId);
         done ->
             {ObjStorageId,_CompactionWorkerId} = TargetId,
             ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, ObjStorageId},
                                   ?STATE_ACTIVE),
-            _  = done_child(self(), TargetId),
-            loop_child(FunHasChargeOfNode, undefined);
+            _  = finish(self(), TargetId),
+            loop(FunHasChargeOfNode, undefined);
         stop ->
             ok;
         _ ->

@@ -34,7 +34,7 @@
 
 %% API
 -export([start_link/4, stop/1]).
--export([run/1,
+-export([run/2,
          suspend/1,
          resume/1,
          state/1]).
@@ -55,14 +55,15 @@
 -compile(nowarn_deprecated_type).
 
 -record(state, {
-          id             :: atom(),
-          obj_storage_id :: atom(),
-          meta_db_id     :: atom(),
-          status         :: compaction_status(),
-          compact_pid    :: pid(),
-          callback_fun   :: function(),
-          error_pos = 0  :: non_neg_integer(),
-          set_errors     :: set(),
+          id               :: atom(),
+          obj_storage_id   :: atom(),
+          meta_db_id       :: atom(),
+          compact_pid      :: pid(),
+          compact_cntl_pid :: pid(),
+          status = ?COMPACTION_STATUS_IDLE :: compaction_status(),
+          callback_fun     :: function(),
+          error_pos = 0    :: non_neg_integer(),
+          set_errors       :: set(),
           previous_times = [] :: [{non_neg_integer(),boolean()}]
          }).
 
@@ -101,10 +102,10 @@ stop(Id) ->
 
 %% @doc Run the process
 %%
--spec(run(atom()) ->
+-spec(run(atom(), pid()) ->
              ok | {error, any()}).
-run(Id) ->
-    gen_fsm:sync_send_event(Id, run, ?DEF_TIMEOUT).
+run(Id, ControllerPid) ->
+    gen_fsm:sync_send_event(Id, {run, ControllerPid}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve an object from the object-storage
@@ -121,6 +122,14 @@ suspend(Id) ->
              ok | {error, any()}).
 resume(Id) ->
     gen_fsm:sync_send_event(Id, resume, ?DEF_TIMEOUT).
+
+
+%% @doc Remove an object from the object-storage - (logical-delete)
+%%
+-spec(finish(atom()) ->
+             ok | {error, any()}).
+finish(Id) ->
+    gen_fsm:sync_send_event(Id, finish, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve the storage stats specfied by Id
@@ -145,7 +154,6 @@ init([Id, ObjStorageId, MetaDBId, CallbackFun]) ->
     {ok, idle, #state{id = Id,
                       obj_storage_id = ObjStorageId,
                       meta_db_id     = MetaDBId,
-                      status = ?COMPACTION_STATUS_IDLE,
                       callback_fun = CallbackFun}}.
 
 %% @doc Handle events
@@ -193,49 +201,57 @@ format_status(_Opt, [_PDict, State]) ->
 %%====================================================================
 %% @doc State of 'idle'
 %%
--spec(idle('run' | 'suspend' | 'resume', _, #state{}) ->
+-spec(idle({'run', pid()} | 'suspend' | 'resume', _, #state{}) ->
              {next_state, 'idle' | 'running', #state{}}).
-idle(run, From, State) ->
-    NextState = ?COMPACTION_STATUS_RUNNING,
-    {ok, State_1} = execute(State),
+idle({run, ControllerPid}, From, State) ->
+    NextStatus = ?COMPACTION_STATUS_RUNNING,
+    State_1 = State#state{compact_cntl_pid = ControllerPid,
+                          status = NextStatus},
+    {ok, State_2} = execute(State_1),
 
     gen_fsm:reply(From, ok),
-    {next_state, NextState, State_1};
+    {next_state, NextStatus, State_2};
 
 idle(suspend, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
-    NextState = ?COMPACTION_STATUS_IDLE,
-    {next_state, NextState, State#state{status = NextState}};
+    NextStatus = ?COMPACTION_STATUS_IDLE,
+    {next_state, NextStatus, State#state{status = NextStatus}};
 
 idle(resume, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
-    NextState = ?COMPACTION_STATUS_IDLE,
-    {next_state, NextState, State#state{status = NextState}}.
+    NextStatus = ?COMPACTION_STATUS_IDLE,
+    {next_state, NextStatus, State#state{status = NextStatus}}.
 
 
--spec(running('run' | 'suspend' | 'resume', _, #state{}) ->
+-spec(running({'run', pid()} | 'suspend' | 'resume', _, #state{}) ->
              {next_state, 'suspend' | 'running', #state{}}).
-running(start, From, State) ->
+running({run,_Pid}, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
-    NextState = ?COMPACTION_STATUS_RUNNING,
-    {next_state, NextState, State#state{status = NextState}};
+    NextStatus = ?COMPACTION_STATUS_RUNNING,
+    {next_state, NextStatus, State#state{status = NextStatus}};
 
 running(suspend, From, #state{id = Id,
                               compact_pid = Pid} = State) ->
     erlang:send(Pid, {Id, 'suspend'}),
     gen_fsm:reply(From, ok),
-    NextState = ?COMPACTION_STATUS_SUSPEND,
-    {next_state, NextState, State#state{status = NextState}};
+    NextStatus = ?COMPACTION_STATUS_SUSPEND,
+    {next_state, NextStatus, State#state{status = NextStatus}};
 
 running(resume, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
-    NextState = ?COMPACTION_STATUS_RUNNING,
-    {next_state, NextState, State#state{status = NextState}}.
+    NextStatus = ?COMPACTION_STATUS_RUNNING,
+    {next_state, NextStatus, State#state{status = NextStatus}};
+
+running(finish, From, #state{compact_cntl_pid = CntlPid}= State) ->
+    gen_fsm:reply(From, ok),
+    NextStatus = ?COMPACTION_STATUS_IDLE,
+    erlang:send(CntlPid, done),
+    {next_state, NextStatus, State#state{status = NextStatus}}.
 
 
 %% @doc State of 'suspend'
 %%
--spec(suspend('start' | 'suspend' | 'resume', {_,_}, #state{}) ->
+-spec(suspend('suspend'|_, _, #state{}) ->
              {next_state, 'suspend' | 'running', #state{}}).
 suspend(resume, From, #state{id = Id,
                              compact_pid = Pid} = State) ->
@@ -246,8 +262,8 @@ suspend(resume, From, #state{id = Id,
 
 suspend(_, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
-    NextState = ?COMPACTION_STATUS_SUSPEND,
-    {next_state, NextState, State#state{status = NextState}}.
+    NextStatus = ?COMPACTION_STATUS_SUSPEND,
+    {next_state, NextStatus, State#state{status = NextStatus}}.
 
 
 %%--------------------------------------------------------------------
@@ -260,7 +276,7 @@ execute(#state{id = Id} = State) ->
     Pid = spawn_link(fun() ->
                              loop(State)
                      end),
-    erlang:send(Pid, {Id, run}),
+    erlang:send(Pid, {Id, run, Pid}),
     {ok, State#state{compact_pid = Pid}}.
 
 
@@ -269,22 +285,18 @@ execute(#state{id = Id} = State) ->
              ok | {error, any()}).
 loop(#state{id = Id} = State) ->
     receive
-        {Id, run} ->
-            ?debugVal({run, Id}),
-            {ok, _State} = compact_fun(State),
-            ok;
+        {Id, run, CompactPid} ->
+            {ok, _State} = compact_fun(State#state{compact_pid = CompactPid}),
+            loop(State);
         {Id, suspend} ->
-            ?debugVal({suspend, Id}),
-            loop(Id);
+            loop(State);
         {Id, resume} ->
-            ?debugVal({resume, Id}),
             {ok, _} = compact_fun(State),
-            loop(Id);
+            loop(State);
         {_, done} ->
-            ?debugVal({done, Id}),
-            loop(Id);
-        {Id, stop} ->
-            ?debugVal({stop, Id}),
+            loop(State);
+        {Id, finish} ->
+            finish(Id),
             ok;
         _ ->
             {error, unknown_message}
@@ -327,7 +339,7 @@ compact_fun(State) ->
                          {body, {MetaDBId, Reason}}]),
                       State
               end,
-    compact_done(State_2).
+    finish_compaction(State_2).
 
 
 %% @private
@@ -387,7 +399,6 @@ compact_fun_2(ok, #state{meta_db_id = MetaDBId,
                                                  fun_has_charge_of_node = FunHasChargeOfNode},
                                  State) of
                       Ret ->
-                          ?debugVal(Ret),
                           Ret
                   catch
                       _:Reason ->
@@ -490,10 +501,11 @@ compact_fun_3({_Error, #state{obj_storage_id = ObjStorageId,
 
 %% @doc
 %% @private
--spec(compact_done(#state{}) ->
+-spec(finish_compaction(#state{}) ->
              {ok, #state{}}).
-compact_done(#state{obj_storage_id = ObjStorageId,
-                    compact_pid = _Pid} = State) ->
+finish_compaction(#state{id = Id,
+                         obj_storage_id = ObjStorageId,
+                         compact_pid = Pid} = State) ->
     {ok, StorageInfo} = ?get_obj_storage_info(ObjStorageId),
     FilePath     = StorageInfo#backend_info.file_path,
     ReadHandler  = StorageInfo#backend_info.read_handler,
@@ -511,6 +523,7 @@ compact_done(#state{obj_storage_id = ObjStorageId,
         {error, _} ->
             void
     end,
+    erlang:send(Pid, {Id, finish}),
     {ok, State#state{compact_pid = undefined}}.
 
 
