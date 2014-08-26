@@ -163,7 +163,7 @@ put_large_bin(Index) ->
                       clock     = leo_date:clock(),
                       csize     = Len,
                       cnumber   = 100,
-                      cindex    = 0                      
+                      cindex    = 0
                      },
     {ok, _} = leo_object_storage_api:put({AddrId, Key}, Object),
     ok.
@@ -178,8 +178,8 @@ put_regular_bin_with_cmeta(Index, Counter) ->
     Key = list_to_binary(lists:append(["TEST_", integer_to_list(Index)])),
     Bin = crypto:rand_bytes(erlang:phash2(leo_date:clock(), (1024 * 1024))),
     CMetaBin = leo_object_storage_transformer:list_to_cmeta_bin(
-                         [{?PROP_CMETA_CLUSTER_ID, 'remote_cluster'},
-                          {?PROP_CMETA_NUM_OF_REPLICAS, 3}]),
+                 [{?PROP_CMETA_CLUSTER_ID, 'remote_cluster'},
+                  {?PROP_CMETA_NUM_OF_REPLICAS, 3}]),
     Object = #?OBJECT{method    = put,
                       addr_id   = AddrId,
                       key       = Key,
@@ -242,15 +242,15 @@ teardown([Path1, Path2]) ->
 
 new_([Path1, _]) ->
     %% 1-1.
-    DivCount0 = 4,
-    ok = leo_object_storage_api:start([{DivCount0, Path1}]),
+    NumOfAVS = 4,
+    ok = leo_object_storage_api:start([{NumOfAVS, Path1}]),
 
     Ref = whereis(leo_object_storage_sup),
     ?assertEqual(true, is_pid(Ref)),
 
     [{specs,_},{active,Active0},{supervisors,_},{workers,Workers0}] = supervisor:count_children(Ref),
-    ?assertEqual(DivCount0 + 2, Active0),  % +2 for compaction manager + backend_db_sup
-    ?assertEqual(DivCount0 + 2, Workers0), % +2 for compaction manager + backend_db_sup
+    ?assertEqual((NumOfAVS * 2) + 2, Active0),  % +2 for compaction manager + backend_db_sup
+    ?assertEqual((NumOfAVS * 2) + 2, Workers0), % +2 for compaction manager + backend_db_sup
     {ok, ?AVS_HEADER_VSN_TOBE} =
         leo_object_storage_server:get_avs_version_bin(
           leo_object_storage_api:get_object_storage_pid_first()),
@@ -646,7 +646,6 @@ compact_test_() ->
              ?assertEqual(13, SumTotal2),
              ?assertEqual(13, SumActive2),
              ?assertEqual(true, SumTotalSize2 =:= SumActiveSize2),
-
 
              %% confirm whether first compaction have broken avs files or not
              ok = leo_compact_fsm_controller:start(TargetPids, 2, FunHasChargeOfNode),

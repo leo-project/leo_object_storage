@@ -404,7 +404,6 @@ start_jobs_as_possible(#state{pending_targets = [Id|Rest],
                              loop(FunHasChargeOfNode)
                      end),
     erlang:send(Pid, {compact, Id}),
-
     start_jobs_as_possible(
       State#state{pending_targets = Rest,
                   ongoing_targets = [Id|InProgPids],

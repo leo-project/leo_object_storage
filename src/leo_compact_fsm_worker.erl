@@ -197,7 +197,7 @@ format_status(_Opt, [_PDict, State]) ->
 %%====================================================================
 %% @doc State of 'idle'
 %%
--spec(idle({'run', pid()} | 'suspend' | 'resume', _, #state{}) ->
+-spec(idle({'run', pid()} | _, _, #state{}) ->
              {next_state, 'idle' | 'running', #state{}}).
 idle({run, ControllerPid}, From, State) ->
     NextStatus = ?COMPACTION_STATUS_RUNNING,
@@ -208,12 +208,7 @@ idle({run, ControllerPid}, From, State) ->
     gen_fsm:reply(From, ok),
     {next_state, NextStatus, State_2};
 
-idle(suspend, From, State) ->
-    gen_fsm:reply(From, {error, badstate}),
-    NextStatus = ?COMPACTION_STATUS_IDLE,
-    {next_state, NextStatus, State#state{status = NextStatus}};
-
-idle(resume, From, State) ->
+idle(_, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
     NextStatus = ?COMPACTION_STATUS_IDLE,
     {next_state, NextStatus, State#state{status = NextStatus}}.
@@ -252,9 +247,9 @@ running(finish, From, #state{compact_cntl_pid = CntlPid}= State) ->
 suspend(resume, From, #state{id = Id,
                              compact_pid = Pid} = State) ->
     gen_fsm:reply(From, ok),
-    erlang:send(Pid, {Id, 'resume'}),
+    erlang:send(Pid, {Id, 'resume', Pid}),
     NextStatus = ?COMPACTION_STATUS_RUNNING,
-    {next_state, NextStatus, State};
+    {next_state, NextStatus, State#state{status = NextStatus}};
 
 suspend(_, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
@@ -282,15 +277,16 @@ execute(#state{id = Id} = State) ->
 loop(#state{id = Id} = State) ->
     receive
         {Id, run, CompactPid} ->
-            {ok, _State} = compact_fun(State#state{compact_pid = CompactPid}),
-            loop(State);
+            State_1 = State#state{compact_pid = CompactPid},
+            {ok,_} = compact_fun(State_1),
+            loop(State_1);
         {Id, suspend} ->
-            loop(State);
-        {Id, resume} ->
-            {ok, _} = compact_fun(State),
-            loop(State);
-        {_, done} ->
-            loop(State);
+            receive
+                {Id, resume, CompactPid} ->
+                    State_1 = State#state{compact_pid = CompactPid},
+                    {ok,_} = compact_fun(State_1),
+                    loop(State_1)
+            end;
         {Id, finish} ->
             finish(Id),
             ok;
