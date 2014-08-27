@@ -38,7 +38,8 @@
 -export([put/2, get/4, delete/2, head/2, fetch/4, store/3,
          get_stats/1, set_stats/2,
          get_avs_version_bin/1,
-         head_with_calc_md5/3, close/1,
+         head_with_calc_md5/3,
+         open/1, close/1,
          get_backend_info/2, set_backend_info/3,
          get_compaction_worker/1
         ]).
@@ -189,7 +190,13 @@ head_with_calc_md5(Id, Key, MD5Context) ->
     gen_server:call(Id, {head_with_calc_md5, Key, MD5Context}, ?DEF_TIMEOUT).
 
 
-%% @doc Close a storage
+%% @doc Open the object-container
+%%
+open(Id) ->
+    gen_server:call(Id, open, ?DEF_TIMEOUT).
+
+
+%% @doc Close the object-container
 %%
 close(Id) ->
     gen_server:call(Id, close, ?DEF_TIMEOUT).
@@ -439,6 +446,11 @@ handle_call({head_with_calc_md5, {AddrId, Key}, MD5Context},
     erlang:garbage_collect(self()),
     {reply, Reply, NewState};
 
+%% Open the object-container
+handle_call(open, _From, State) ->
+    State_1 = open_container(State),
+    {reply, ok, State_1};
+
 %% Close the object-container
 handle_call(close, _From,
             #state{id = Id,
@@ -517,22 +529,31 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% object operations.
 %%--------------------------------------------------------------------
-%% @doc
+%% @doc Open the conatainer
 %% @private
-after_proc(Ret, #state{object_storage = #backend_info{file_path = FilePath}} = State) ->
+open_container(#state{object_storage =
+                           #backend_info{
+                              file_path = FilePath}} = State) ->
+    case leo_object_storage_haystack:open(FilePath) of
+        {ok, [NewWriteHandler, NewReadHandler, AVSVsnBin]} ->
+            BackendInfo = State#state.object_storage,
+            State#state{
+              object_storage =
+                  BackendInfo#backend_info{
+                    avs_version_bin_cur = AVSVsnBin,
+                    write_handler       = NewWriteHandler,
+                    read_handler        = NewReadHandler}};
+        {error, _} ->
+            State
+    end.
+
+
+%% @doc After object-operations
+%% @private
+after_proc(Ret, State) ->
     case Ret of
         {error, ?ERROR_FD_CLOSED} ->
-            case leo_object_storage_haystack:open(FilePath) of
-                {ok, [NewWriteHandler, NewReadHandler, AVSVsnBin]} ->
-                    BackendInfo = State#state.object_storage,
-                    State#state{
-                      object_storage = BackendInfo#backend_info{
-                                         avs_version_bin_cur = AVSVsnBin,
-                                         write_handler       = NewWriteHandler,
-                                         read_handler        = NewReadHandler}};
-                {error, _} ->
-                    State
-            end;
+            open_container(State);
         _Other ->
             State
     end.

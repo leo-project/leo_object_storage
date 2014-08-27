@@ -232,7 +232,6 @@ running({finish,_Pid,_FinishedId}, #state{pending_targets  = [],
                                         reserved_targets = []}}.
 
 
-
 %% @doc State of 'suspend'
 %%
 -spec(suspend({'start',_,_,_} | 'suspend' | 'resume', {_,_}, #state{}) ->
@@ -446,7 +445,7 @@ loop(FunHasChargeOfNode, TargetId) ->
             {ObjStorageId,_CompactionWorkerId} = TargetId,
             ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, ObjStorageId},
                                   ?STATE_ACTIVE),
-            _  = finish(self(), TargetId),
+            _  = finish(self(), ObjStorageId),
             loop(FunHasChargeOfNode, undefined);
         stop ->
             ok;

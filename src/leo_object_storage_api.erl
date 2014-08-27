@@ -196,11 +196,9 @@ stats() ->
         [] ->
             not_found;
         List ->
-            {ok, lists:reverse(
-                   lists:foldl(fun(Id, Acc) ->
-                                       [?SERVER_MODULE:get_stats(Id)|Acc]
-                               end, [], List))}
+            {ok, [?SERVER_MODULE:get_stats(Id) || Id <- List]}
     end.
+
 
 -ifdef(TEST).
 %% @doc Add incorrect datas on debug purpose

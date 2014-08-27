@@ -251,7 +251,8 @@ add_container(BackendDBSupPid, Id, Props) ->
            lists:append([Path, ?DEF_METADATA_STORAGE_SUB_DIR, integer_to_list(Id)])),
 
     %% %% Launch compact_fsm_worker
-    case add_container_1(leo_compact_fsm_worker, CompactWorkerId, ObjStorageId, MetaDBId) of
+    case add_container_1(leo_compact_fsm_worker,
+                         CompactWorkerId, ObjStorageId, MetaDBId) of
         ok ->
             %% Launch object-storage
             add_container_1(leo_object_storage_server, Id, ObjStorageId,
@@ -265,7 +266,8 @@ add_container(BackendDBSupPid, Id, Props) ->
 add_container_1(leo_compact_fsm_worker = Mod, Id, ObjStorageId, MetaDBId) ->
     %% @TODO
     ChildSpec = {Id,
-                   {Mod, start_link, [Id, ObjStorageId, MetaDBId, fun(_,_)-> true end]},
+                   {Mod, start_link,
+                    [Id, ObjStorageId, MetaDBId, fun(_,_)-> true end]},
                    permanent, 2000, worker, [Mod]},
     case supervisor:start_child(?MODULE, ChildSpec) of
         {ok,_} ->
