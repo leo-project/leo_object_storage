@@ -45,11 +45,27 @@
          code_change/4,
          format_status/2]).
 
--export([idle/3,
+-export([idling/3,
          running/2, running/3,
-         suspend/2, suspend/3]).
+         suspending/2, suspending/3]).
 
 -compile(nowarn_deprecated_type).
+
+-define(ST_IDLING,     'idling').
+-define(ST_RUNNING,    'running').
+-define(ST_SUSPENDING, 'suspending').
+-type(state_of_compaction() :: ?ST_IDLING  |
+                               ?ST_RUNNING |
+                               ?ST_SUSPENDING).
+
+-define(EVENT_RUN,     'run').
+-define(EVENT_SUSPEND, 'suspend').
+-define(EVENT_RESUME,  'resume').
+-define(EVENT_FINISH,  'finish').
+%% -type(event_of_compaction() :: ?EVENT_RUN     |
+%%                                ?EVENT_SUSPEND |
+%%                                ?EVENT_RESUME  |
+%%                                ?EVENT_FINISH).
 
 -record(compaction_prms, {
           key_bin  = <<>> :: binary(),
@@ -66,17 +82,15 @@
           obj_storage_id   :: atom(),
           meta_db_id       :: atom(),
           compact_cntl_pid :: pid(),
-          status = ?COMPACTION_STATUS_IDLE :: compaction_status(),
+          status = ?ST_IDLING :: state_of_compaction(),
           error_pos = 0    :: non_neg_integer(),
           set_errors       :: set(),
           previous_times = [] :: [{non_neg_integer(),boolean()}],
           compaction_prms = #compaction_prms{} :: #compaction_prms{}
          }).
 
--define(NUM_OF_COMPACTION_OBJS,    100).
--define(MAX_COMPACT_HISTORIES,      10).
+-define(MAX_COMPACT_HISTORIES, 10).
 -define(DEF_TIMEOUT, timer:seconds(30)).
-
 
 
 %%====================================================================
@@ -104,12 +118,12 @@ stop(Id) ->
 -spec(run(atom()) ->
              ok | {error, any()}).
 run(Id) ->
-    gen_fsm:send_event(Id, run).
+    gen_fsm:send_event(Id, ?EVENT_RUN).
 
 -spec(run(atom(), pid()) ->
              ok | {error, any()}).
 run(Id, ControllerPid) ->
-    gen_fsm:sync_send_event(Id, {run, ControllerPid}, ?DEF_TIMEOUT).
+    gen_fsm:sync_send_event(Id, {?EVENT_RUN, ControllerPid}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve an object from the object-storage
@@ -117,7 +131,7 @@ run(Id, ControllerPid) ->
 -spec(suspend(atom()) ->
              ok | {error, any()}).
 suspend(Id) ->
-    gen_fsm:send_event(Id, suspend).
+    gen_fsm:send_event(Id, ?EVENT_SUSPEND).
 
 
 %% @doc Remove an object from the object-storage - (logical-delete)
@@ -125,7 +139,7 @@ suspend(Id) ->
 -spec(resume(atom()) ->
              ok | {error, any()}).
 resume(Id) ->
-    gen_fsm:sync_send_event(Id, resume, ?DEF_TIMEOUT).
+    gen_fsm:sync_send_event(Id, ?EVENT_RESUME, ?DEF_TIMEOUT).
 
 
 %% @doc Remove an object from the object-storage - (logical-delete)
@@ -133,7 +147,7 @@ resume(Id) ->
 -spec(finish(atom()) ->
              ok | {error, any()}).
 finish(Id) ->
-    gen_fsm:sync_send_event(Id, finish, ?DEF_TIMEOUT).
+    gen_fsm:send_event(Id, ?EVENT_FINISH).
 
 
 %% @doc Retrieve the storage stats specfied by Id
@@ -155,18 +169,18 @@ state(Id) ->
 %%                         {stop, Reason}
 %% Description: Initiates the server
 init([Id, ObjStorageId, MetaDBId, CallbackFun]) ->
-    {ok, idle, #state{id = Id,
-                      obj_storage_id = ObjStorageId,
-                      meta_db_id     = MetaDBId,
-                      compaction_prms = #compaction_prms{
-                                           key_bin  = <<>>,
-                                           body_bin = <<>>,
-                                           metadata = #?METADATA{},
-                                           next_offset = 0,
-                                           num_of_active_objs  = 0,
-                                           size_of_active_objs = 0,
-                                           callback_fun = CallbackFun}
-                     }}.
+    {ok, ?ST_IDLING, #state{id = Id,
+                            obj_storage_id = ObjStorageId,
+                            meta_db_id     = MetaDBId,
+                            compaction_prms = #compaction_prms{
+                                                 key_bin  = <<>>,
+                                                 body_bin = <<>>,
+                                                 metadata = #?METADATA{},
+                                                 next_offset = 0,
+                                                 num_of_active_objs  = 0,
+                                                 size_of_active_objs = 0,
+                                                 callback_fun = CallbackFun}
+                           }}.
 
 %% @doc Handle events
 handle_event(_Event, StateName, State) ->
@@ -209,15 +223,16 @@ format_status(_Opt, [_PDict, State]) ->
 
 
 %%====================================================================
-%%
+%% CALLBACKS
 %%====================================================================
 %% @doc State of 'idle'
 %%
--spec(idle({'run', pid()} | 'finish' | _, _, #state{}) ->
-             {next_state, 'idle' | 'running', #state{}}).
-idle({'run', ControllerPid}, From, #state{id = Id,
-                                          compaction_prms = CompactionPrms} = State) ->
-    NextStatus = ?COMPACTION_STATUS_RUNNING,
+-spec(idling({?EVENT_RUN, pid()} | _, _, #state{}) ->
+             {next_state, ?ST_IDLING | ?ST_RUNNING, #state{}}).
+idling({?EVENT_RUN, ControllerPid}, From,#state{id = Id,
+                                                compaction_prms =
+                                                    CompactionPrms} = State) ->
+    NextStatus = ?ST_RUNNING,
     State_1 = State#state{compact_cntl_pid = ControllerPid,
                           status     = NextStatus,
                           error_pos  = 0,
@@ -238,90 +253,79 @@ idle({'run', ControllerPid}, From, #state{id = Id,
             {next_state, NextStatus, State_1};
         {error, Cause} ->
             gen_fsm:reply(From, {error, Cause}),
-            {next_state, ?COMPACTION_STATUS_IDLE, State}
+            {next_state, ?ST_IDLING, State}
     end;
-
-idle('finish', From, #state{compact_cntl_pid = CntlPid}= State) ->
-    gen_fsm:reply(From, ok),
-
-    ok = finish_fun(State),
-    erlang:send(CntlPid, finish),
-    NextStatus = ?COMPACTION_STATUS_IDLE,
-    {next_state, NextStatus, State#state{status = NextStatus}};
-
-idle(_, From, State) ->
+idling(_, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
-    NextStatus = ?COMPACTION_STATUS_IDLE,
+    NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
 
 
--spec(running('run', #state{}) ->
-             {next_state, 'running', #state{}}).
-running('run', #state{id = Id} = State) ->
-    {NextStatus, State_3} =
+-spec(running(?EVENT_RUN, #state{}) ->
+             {next_state, ?ST_RUNNING, #state{}}).
+running(?EVENT_RUN, #state{id = Id} = State) ->
+    NextStatus = ?ST_RUNNING,
+    State_3 =
         case catch execute(State) of
             {ok, {next, State_1}} ->
                 ok = run(Id),
-                {?COMPACTION_STATUS_RUNNING, State_1};
+                State_1;
             {'EXIT', Cause} ->
-                _ = timer:apply_after(timer:seconds(1),
-                                      ?MODULE, finish, [Id]),
+                ok = finish(Id),
                 {_,State_2} = after_execute({error, Cause}, State),
-                {?COMPACTION_STATUS_IDLE, State_2};
+                State_2;
             {ok, {eof, State_1}} ->
-                _ = timer:apply_after(timer:seconds(1),
-                                      ?MODULE, finish, [Id]),
+                ok = finish(Id),
                 {_,State_2} = after_execute(ok, State_1),
-                {?COMPACTION_STATUS_IDLE, State_2};
+                State_2;
             {{error, Cause}, State_1} ->
-                _ = timer:apply_after(timer:seconds(1),
-                                      ?MODULE, finish, [Id]),
+                ok = finish(Id),
                 {_,State_2} = after_execute({error, Cause}, State_1),
-                {?COMPACTION_STATUS_IDLE, State_2}
+                State_2
         end,
     {next_state, NextStatus, State_3#state{status = NextStatus}};
 
-running('suspend', State) ->
-    NextStatus = ?COMPACTION_STATUS_SUSPEND,
+running(?EVENT_SUSPEND, State) ->
+    NextStatus = ?ST_SUSPENDING,
+    {next_state, NextStatus, State#state{status = NextStatus}};
+
+running(?EVENT_FINISH, #state{compact_cntl_pid = CntlPid}= State) ->
+    ok = finish_fun(State),
+    erlang:send(CntlPid, finish),
+    NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus}};
 
 running(_, State) ->
-    NextStatus = ?COMPACTION_STATUS_RUNNING,
+    NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
 
 
-
--spec(running({'run', pid()} | _, _, #state{}) ->
+-spec(running( _, _, #state{}) ->
              {next_state, 'suspend' | 'running', #state{}}).
-running({'run',_Pid}, From, State) ->
-    gen_fsm:reply(From, {error, badstate}),
-    NextStatus = ?COMPACTION_STATUS_RUNNING,
-    {next_state, NextStatus, State#state{status = NextStatus}};
-
 running(_, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
-    NextStatus = ?COMPACTION_STATUS_RUNNING,
+    NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
 
 
 %% @doc State of 'suspend'
 %%
-suspend('run', State) ->
-    NextStatus = ?COMPACTION_STATUS_SUSPEND,
+suspending(?EVENT_RUN, State) ->
+    NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
 
--spec(suspend('resume'|_, _, #state{}) ->
-             {next_state, 'suspend' | 'running', #state{}}).
-suspend('resume', From, #state{id = Id} = State) ->
+-spec(suspending(?EVENT_RESUME|_, _, #state{}) ->
+             {next_state, ?ST_SUSPENDING | ?ST_RUNNING, #state{}}).
+suspending(?EVENT_RESUME, From, #state{id = Id} = State) ->
     gen_fsm:reply(From, ok),
     ok = run(Id),
 
-    NextStatus = ?COMPACTION_STATUS_RUNNING,
+    NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{status = NextStatus}};
 
-suspend(_, From, State) ->
+suspending(_, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
-    NextStatus = ?COMPACTION_STATUS_SUSPEND,
+    NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
 
 

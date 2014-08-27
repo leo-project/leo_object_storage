@@ -57,7 +57,7 @@
                 ongoing_targets  = []     :: list(),
                 child_pids       = []     :: orddict:orddict(), %% {Chid :: pid(), hasJob :: boolean()}
                 start_datetime   = 0      :: non_neg_integer(), %% gregory-sec
-                status = ?COMPACTION_STATUS_IDLE :: compaction_status()
+                status = ?C_STATE_IDLE :: compaction_status()
                }).
 
 -define(DEF_TIMEOUT, 5).
@@ -125,7 +125,7 @@ init([]) ->
     AllTargets = leo_object_storage_api:get_object_storage_pid('all'),
     TotalNumOfTargets = erlang:length(AllTargets),
 
-    {ok, idle, #state{status = ?COMPACTION_STATUS_IDLE,
+    {ok, idle, #state{status = ?C_STATE_IDLE,
                       total_num_of_targets = TotalNumOfTargets,
                       pending_targets      = AllTargets}}.
 
@@ -148,7 +148,7 @@ idle({start, TargetPids, MaxConNum, InspectFun}, From, State) ->
                               lists:subtract(PendingTargets, TargetPids)
                       end,
 
-    NextState = ?COMPACTION_STATUS_RUNNING,
+    NextState = ?C_STATE_RUNNING,
     {ok, NewState} = start_jobs_as_possible(
                        State#state{status = NextState,
                                    pending_targets       = TargetPids,
@@ -161,12 +161,12 @@ idle({start, TargetPids, MaxConNum, InspectFun}, From, State) ->
 
 idle(suspend, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
-    NextState = ?COMPACTION_STATUS_IDLE,
+    NextState = ?C_STATE_IDLE,
     {next_state, NextState, State#state{status = NextState}};
 
 idle(resume, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
-    NextState = ?COMPACTION_STATUS_IDLE,
+    NextState = ?C_STATE_IDLE,
     {next_state, NextState, State#state{status = NextState}}.
 
 
@@ -182,18 +182,18 @@ idle({finish,_Pid,_Id}, State) ->
              {next_state, 'suspend' | 'running', #state{}}).
 running({start,_,_,_}, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
-    NextState = ?COMPACTION_STATUS_RUNNING,
+    NextState = ?C_STATE_RUNNING,
     {next_state, NextState, State#state{status = NextState}};
 
 running(suspend, From, #state{child_pids = ChildPids} = State) ->
     [erlang:send(Pid, suspend) || {Pid, _} <- orddict:to_list(ChildPids)],
     gen_fsm:reply(From, ok),
-    NextState = ?COMPACTION_STATUS_SUSPEND,
+    NextState = ?C_STATE_SUSPEND,
     {next_state, NextState, State#state{status = NextState}};
 
 running(resume, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
-    NextState = ?COMPACTION_STATUS_RUNNING,
+    NextState = ?C_STATE_RUNNING,
     {next_state, NextState, State#state{status = NextState}}.
 
 
@@ -202,7 +202,7 @@ running(resume, From, State) ->
 running({finish, Pid, FinishedId}, #state{pending_targets = [Id|Rest],
                                           ongoing_targets = InProgPids} = State) ->
     erlang:send(Pid, {compact, Id}),
-    NextState = ?COMPACTION_STATUS_RUNNING,
+    NextState = ?C_STATE_RUNNING,
     {next_state, NextState,
      State#state{status = NextState,
                  pending_targets = Rest,
@@ -212,7 +212,7 @@ running({finish, Pid, FinishedId}, #state{pending_targets = [],
                                           ongoing_targets = [_,_|_],
                                           child_pids      = ChildPids} = State) ->
     erlang:send(Pid, stop),
-    NextState = ?COMPACTION_STATUS_RUNNING,
+    NextState = ?C_STATE_RUNNING,
     {next_state, NextState,
      State#state{status = NextState,
                  ongoing_targets = lists:delete(FinishedId, State#state.ongoing_targets),
@@ -223,7 +223,7 @@ running({finish,_Pid,_FinishedId}, #state{pending_targets  = [],
                                           child_pids       = ChildPids,
                                           reserved_targets = ReservedTargets} = State) ->
     [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
-    NextState = ?COMPACTION_STATUS_IDLE,
+    NextState = ?C_STATE_IDLE,
     PendingTargets = pending_targets(ReservedTargets),
     {next_state, NextState, State#state{status = NextState,
                                         pending_targets  = PendingTargets,
@@ -238,12 +238,12 @@ running({finish,_Pid,_FinishedId}, #state{pending_targets  = [],
              {next_state, 'idle' | 'suspend' | 'running', #state{}}).
 suspend({start,_,_,_}, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
-    NextState = ?COMPACTION_STATUS_SUSPEND,
+    NextState = ?C_STATE_SUSPEND,
     {next_state, NextState, State#state{status = NextState}};
 
 suspend(suspend, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
-    NextState = ?COMPACTION_STATUS_SUSPEND,
+    NextState = ?C_STATE_SUSPEND,
     {next_state, NextState, State#state{status = NextState}};
 
 suspend(resume, From, #state{pending_targets = [_|_],
@@ -271,7 +271,7 @@ suspend(resume, From, #state{pending_targets = [_|_],
           end, {TargetPids, InProgPids, ChildPids}, ChildPids),
 
     gen_fsm:reply(From, ok),
-    NextState = ?COMPACTION_STATUS_RUNNING,
+    NextState = ?C_STATE_RUNNING,
     {next_state, NextState, State#state{status = NextState,
                                         pending_targets = NewTargetPids,
                                         ongoing_targets = NewInProgPids,
@@ -280,14 +280,14 @@ suspend(resume, From, #state{pending_targets = [_|_],
 suspend(resume, From, #state{pending_targets = [],
                              ongoing_targets = [_|_]} = State) ->
     gen_fsm:reply(From, ok),
-    NextState = ?COMPACTION_STATUS_RUNNING,
+    NextState = ?C_STATE_RUNNING,
     {next_state, NextState, State#state{status = NextState}};
 
 suspend(resume, From, #state{pending_targets = [],
                              ongoing_targets = []} = State) ->
     %% never hapend
     gen_fsm:reply(From, ok),
-    NextState = ?COMPACTION_STATUS_IDLE,
+    NextState = ?C_STATE_IDLE,
     {next_state, NextState, State#state{status = NextState}}.
 
 
@@ -299,7 +299,7 @@ suspend({finish, Pid, FinishedId}, #state{pending_targets = [_|_],
     InProgressPids1 = lists:delete(FinishedId, InProgressPids0),
     ChildPids1      = orddict:store(Pid, false, ChildPids0),
 
-    NextState = ?COMPACTION_STATUS_SUSPEND,
+    NextState = ?C_STATE_SUSPEND,
     {next_state, NextState, State#state{status = NextState,
                                         ongoing_targets = InProgressPids1,
                                         child_pids      = ChildPids1}};
@@ -311,7 +311,7 @@ suspend({finish, Pid, FinishedId}, #state{pending_targets = [],
     InProgressPids = lists:delete(FinishedId, State#state.ongoing_targets),
     ChildPids1     = orddict:erase(Pid, ChildPids0),
 
-    NextState = ?COMPACTION_STATUS_SUSPEND,
+    NextState = ?C_STATE_SUSPEND,
     {next_state, NextState, State#state{status = NextState,
                                         ongoing_targets = InProgressPids,
                                         child_pids      = ChildPids1}};
@@ -321,7 +321,7 @@ suspend({finish,_Pid,_FinishedId}, #state{pending_targets  = [],
                                           child_pids       = ChildPids,
                                           reserved_targets = ReservedTargets} = State) ->
     [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
-    NextState = ?COMPACTION_STATUS_IDLE,
+    NextState = ?C_STATE_IDLE,
     PendingTargets = pending_targets(ReservedTargets),
     {next_state, NextState, State#state{status = NextState,
                                         pending_targets  = PendingTargets,

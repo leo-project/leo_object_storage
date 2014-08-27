@@ -247,15 +247,15 @@
 -type(compaction_history() :: {integer(), integer()}).
 -type(compaction_histories() :: [compaction_history()]).
 
--define(COMPACTION_STATUS_IDLE,    'idle').
--define(COMPACTION_STATUS_RUNNING, 'running').
--define(COMPACTION_STATUS_SUSPEND, 'suspend').
--type(compaction_status() :: ?COMPACTION_STATUS_IDLE |
-                             ?COMPACTION_STATUS_RUNNING |
-                             ?COMPACTION_STATUS_SUSPEND).
+-define(C_STATE_IDLE,       'idle').
+-define(C_STATE_RUNNING,    'running').
+-define(C_STATE_SUSPEND,    'suspend').
+-type(compaction_status() :: ?C_STATE_IDLE |
+                             ?C_STATE_RUNNING |
+                             ?C_STATE_SUSPEND).
 
 -record(compaction_stats, {
-          status = ?COMPACTION_STATUS_IDLE :: compaction_status(),
+          status = ?C_STATE_IDLE :: compaction_status(),
           total_num_of_targets    = 0  :: non_neg_integer(),
           num_of_reserved_targets = 0  :: non_neg_integer(),
           num_of_pending_targets  = 0  :: non_neg_integer(),
