@@ -44,6 +44,38 @@
 -define(STATE_ACTIVE,             'active').
 -type(storage_status() :: ?STATE_RUNNING_COMPACTION | ?STATE_ACTIVE).
 
+-define(ST_IDLING,     'idling').
+-define(ST_RUNNING,    'running').
+-define(ST_SUSPENDING, 'suspending').
+-type(state_of_compaction() :: ?ST_IDLING  |
+                               ?ST_RUNNING |
+                               ?ST_SUSPENDING).
+
+-define(EVENT_RUN,     'run').
+-define(EVENT_SUSPEND, 'suspend').
+-define(EVENT_RESUME,  'resume').
+-define(EVENT_FINISH,  'finish').
+%% -type(event_of_compaction() :: ?EVENT_RUN     |
+%%                                ?EVENT_SUSPEND |
+%%                                ?EVENT_RESUME  |
+%%                                ?EVENT_FINISH).
+
+%% @doc Compaction related definitions
+-type(compaction_history() :: {integer(), integer()}).
+-type(compaction_histories() :: [compaction_history()]).
+
+-record(compaction_stats, {
+          status = ?ST_IDLING :: state_of_compaction(),
+          total_num_of_targets    = 0  :: non_neg_integer(),
+          num_of_reserved_targets = 0  :: non_neg_integer(),
+          num_of_pending_targets  = 0  :: non_neg_integer(),
+          num_of_ongoing_targets  = 0  :: non_neg_integer(),
+          reserved_targets = []        :: list(),
+          pending_targets  = []        :: list(),
+          ongoing_targets  = []        :: list(),
+          latest_exec_datetime = 0     :: non_neg_integer()
+         }).
+
 %% Error Constants
 %%
 -define(ERROR_FD_CLOSED,                "already closed file-descriptor").
@@ -242,30 +274,6 @@
           compaction_histories = []    :: compaction_histories(),
           has_error            = false :: boolean()
          }).
-
-%% @doc Compaction related definitions
--type(compaction_history() :: {integer(), integer()}).
--type(compaction_histories() :: [compaction_history()]).
-
--define(C_STATE_IDLE,       'idle').
--define(C_STATE_RUNNING,    'running').
--define(C_STATE_SUSPEND,    'suspend').
--type(compaction_status() :: ?C_STATE_IDLE |
-                             ?C_STATE_RUNNING |
-                             ?C_STATE_SUSPEND).
-
--record(compaction_stats, {
-          status = ?C_STATE_IDLE :: compaction_status(),
-          total_num_of_targets    = 0  :: non_neg_integer(),
-          num_of_reserved_targets = 0  :: non_neg_integer(),
-          num_of_pending_targets  = 0  :: non_neg_integer(),
-          num_of_ongoing_targets  = 0  :: non_neg_integer(),
-          reserved_targets = []        :: list(),
-          pending_targets  = []        :: list(),
-          ongoing_targets  = []        :: list(),
-          latest_exec_datetime = 0     :: non_neg_integer()
-         }).
-
 
 %% apllication-env
 -define(env_metadata_db(),

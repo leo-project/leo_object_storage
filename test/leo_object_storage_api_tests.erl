@@ -81,7 +81,9 @@ compact() ->
     ok = leo_compact_fsm_controller:start(TargetPids, 1, FunHasChargeOfNode),
 
     %% Check comaction status
+    ?debugVal(ok),
     ok = check_status(),
+    ?debugVal(ok),
 
     %% Check # of active objects and total of objects
     timer:sleep(1000),
@@ -95,8 +97,8 @@ compact() ->
 
 check_status() ->
     timer:sleep(100),
-    case leo_compact_fsm_controller:status() of
-        {ok, #compaction_stats{status = 'idle'}} ->
+    case leo_compact_fsm_controller:state() of
+        {ok, #compaction_stats{status = ?ST_IDLING}} ->
             ok;
         {ok, _} ->
             check_status();
@@ -569,7 +571,7 @@ compact_2() ->
     ok = put_test_data(10006, <<"air/on/g/string/1/6">>, <<"JSB0-1">>),
 
     AllTargets = leo_object_storage_api:get_object_storage_pid('all'),
-    ?assertEqual({ok, #compaction_stats{status = 'idle',
+    ?assertEqual({ok, #compaction_stats{status = ?ST_IDLING,
                                         total_num_of_targets    = 8,
                                         num_of_reserved_targets = 0,
                                         num_of_pending_targets  = 8,
@@ -578,7 +580,7 @@ compact_2() ->
                                         pending_targets  = AllTargets,
                                         ongoing_targets  = [],
                                         latest_exec_datetime = 0
-                                       }}, leo_compact_fsm_controller:status()),
+                                       }}, leo_compact_fsm_controller:state()),
     AddrId = 4095,
     Key    = <<"air/on/g/string/7">>,
     Object = #?OBJECT{method    = delete,
@@ -612,15 +614,15 @@ compact_2() ->
     ok = leo_compact_fsm_controller:start(TargetPids, 2, FunHasChargeOfNode),
     timer:sleep(100),
 
-    {ok, CompactionStats} = leo_compact_fsm_controller:status(),
-    ?assertEqual('running', CompactionStats#compaction_stats.status),
+    {ok, CompactionStats} = leo_compact_fsm_controller:state(),
+    ?assertEqual(?ST_RUNNING, CompactionStats#compaction_stats.status),
     ?assertEqual(8, CompactionStats#compaction_stats.total_num_of_targets),
     ?assertEqual(true, 0 < CompactionStats#compaction_stats.num_of_pending_targets),
     ?assertEqual(true, 0 < CompactionStats#compaction_stats.num_of_ongoing_targets),
 
     ?assertEqual(ok, leo_compact_fsm_controller:suspend()),
-    {ok, CompactionStats2} = leo_compact_fsm_controller:status(),
-    ?assertEqual('suspend', CompactionStats2#compaction_stats.status),
+    {ok, CompactionStats2} = leo_compact_fsm_controller:state(),
+    ?assertEqual(?ST_SUSPENDING, CompactionStats2#compaction_stats.status),
     %% keep # of ongoing/pending fixed during suspend
     Pending = CompactionStats2#compaction_stats.num_of_pending_targets,
     Ongoing = CompactionStats2#compaction_stats.num_of_ongoing_targets,

@@ -51,22 +51,6 @@
 
 -compile(nowarn_deprecated_type).
 
--define(ST_IDLING,     'idling').
--define(ST_RUNNING,    'running').
--define(ST_SUSPENDING, 'suspending').
--type(state_of_compaction() :: ?ST_IDLING  |
-                               ?ST_RUNNING |
-                               ?ST_SUSPENDING).
-
--define(EVENT_RUN,     'run').
--define(EVENT_SUSPEND, 'suspend').
--define(EVENT_RESUME,  'resume').
--define(EVENT_FINISH,  'finish').
-%% -type(event_of_compaction() :: ?EVENT_RUN     |
-%%                                ?EVENT_SUSPEND |
-%%                                ?EVENT_RESUME  |
-%%                                ?EVENT_FINISH).
-
 -record(compaction_prms, {
           key_bin  = <<>> :: binary(),
           body_bin = <<>> :: binary(),
@@ -187,8 +171,8 @@ handle_event(_Event, StateName, State) ->
     {next_state, StateName, State}.
 
 %% @doc Handle 'status' event
-handle_sync_event(status, _From, StateName, #state{} = State) ->
-    {reply, {ok, []}, StateName, State};
+handle_sync_event(state, _From, StateName, State) ->
+    {reply, {ok, StateName}, StateName, State};
 
 %% @doc Handle 'stop' event
 handle_sync_event(stop, _From, _StateName, Status) ->
