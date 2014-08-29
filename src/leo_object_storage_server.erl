@@ -40,7 +40,8 @@
          get_avs_version_bin/1,
          head_with_calc_md5/3,
          open/1, close/1,
-         get_backend_info/2, set_backend_info/3,
+         get_backend_info/2,
+         switch_container/4,
          get_compaction_worker/1
         ]).
 
@@ -201,17 +202,17 @@ open(Id) ->
 close(Id) ->
     gen_server:call(Id, close, ?DEF_TIMEOUT).
 
-
 %% @doc Retrieve object-storage/metadata-storage info
 %%
 get_backend_info(Id, ServerType) ->
     gen_server:call(Id, {get_backend_info, ServerType}, ?DEF_TIMEOUT).
 
-
-%% @doc Retrieve object-storage/metadata-storage info
+%% @doc Open the object-container
 %%
-set_backend_info(Id, ServerType, BackendInfo) ->
-    gen_server:call(Id, {set_backend_info, ServerType, BackendInfo}, ?DEF_TIMEOUT).
+switch_container(Id, FilePath, NumOfActiveObjs, SizeOfActiveObjs) ->
+    ?debugVal({FilePath, NumOfActiveObjs, SizeOfActiveObjs}),
+    gen_server:call(Id, {switch_container, FilePath,
+                         NumOfActiveObjs, SizeOfActiveObjs}, ?DEF_TIMEOUT).
 
 %% @doc Retrieve the compaction worker
 %%
@@ -262,11 +263,11 @@ init([Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath, IsStrictCheck]) ->
             case leo_object_storage_haystack:open(ObjectStorageRawPath) of
                 {ok, [ObjectWriteHandler, ObjectReadHandler, AVSVsnBin]} ->
                     StorageInfo = #backend_info{
-                                     file_path           = ObjectStoragePath,
-                                     file_path_raw       = ObjectStorageRawPath,
-                                     write_handler       = ObjectWriteHandler,
-                                     read_handler        = ObjectReadHandler,
-                                     avs_version_bin_cur = AVSVsnBin},
+                                     linked_path    = ObjectStoragePath,
+                                     file_path  = ObjectStorageRawPath,
+                                     write_handler  = ObjectWriteHandler,
+                                     read_handler   = ObjectReadHandler,
+                                     avs_ver_cur    = AVSVsnBin},
                     {ok, #state{id = Id,
                                 meta_db_id           = MetaDBId,
                                 compaction_worker_id = CompactionWorkerId,
@@ -299,7 +300,7 @@ handle_call(stop, _From, State) ->
 handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
                                          object_storage = StorageInfo,
                                          storage_stats  = StorageStats} = State) ->
-    Key = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
+    Key = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                            Object#?OBJECT.addr_id,
                            Object#?OBJECT.key),
     {DiffRec, OldSize} =
@@ -332,7 +333,7 @@ handle_call({get, {AddrId, Key}, StartPos, EndPos},
             _From, #state{meta_db_id      = MetaDBId,
                           object_storage  = StorageInfo,
                           is_strict_check = IsStrictCheck} = State) ->
-    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
+    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                   AddrId, Key),
     Reply = leo_object_storage_haystack:get(
               MetaDBId, StorageInfo, BackendKey, StartPos, EndPos, IsStrictCheck),
@@ -346,7 +347,7 @@ handle_call({get, {AddrId, Key}, StartPos, EndPos},
 handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
                                             object_storage = StorageInfo,
                                             storage_stats  = StorageStats} = State) ->
-    Key = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
+    Key = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                            Object#?OBJECT.addr_id,
                            Object#?OBJECT.key),
     {DiffRec, OldSize} =
@@ -377,7 +378,7 @@ handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
 handle_call({head, {AddrId, Key}},
             _From, #state{meta_db_id = MetaDBId,
                           object_storage = StorageInfo} = State) ->
-    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
+    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                   AddrId, Key),
     Reply = leo_object_storage_haystack:head(MetaDBId, BackendKey),
     {reply, Reply, State};
@@ -386,7 +387,7 @@ handle_call({head, {AddrId, Key}},
 handle_call({fetch, {AddrId, Key}, Fun, MaxKeys},
             _From, #state{meta_db_id     = MetaDBId,
                           object_storage = StorageInfo} = State) ->
-    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
+    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                   AddrId, Key),
     Reply = leo_object_storage_haystack:fetch(MetaDBId, BackendKey, Fun, MaxKeys),
     {reply, Reply, State};
@@ -396,7 +397,7 @@ handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
                                                   object_storage = StorageInfo,
                                                   storage_stats  = StorageStats} = State) ->
     Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
-    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
+    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                   Metadata_1#?METADATA.addr_id,
                                   Metadata_1#?METADATA.key),
     {DiffRec, OldSize} =
@@ -430,14 +431,14 @@ handle_call({set_stats, StorageStats}, _From, State) ->
 
 %% Retrieve the avs version
 handle_call(get_avs_version_bin, _From, #state{object_storage = StorageInfo} = State) ->
-    Reply = {ok, StorageInfo#backend_info.avs_version_bin_cur},
+    Reply = {ok, StorageInfo#backend_info.avs_ver_cur},
     {reply, Reply, State};
 
 %% Retrieve hash of the object with head-verb
 handle_call({head_with_calc_md5, {AddrId, Key}, MD5Context},
             _From, #state{meta_db_id      = MetaDBId,
                           object_storage  = StorageInfo} = State) ->
-    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_version_bin_cur,
+    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                   AddrId, Key),
     Reply = leo_object_storage_haystack:head_with_calc_md5(
               MetaDBId, StorageInfo, BackendKey, MD5Context),
@@ -450,6 +451,29 @@ handle_call({head_with_calc_md5, {AddrId, Key}, MD5Context},
 handle_call(open, _From, State) ->
     State_1 = open_container(State),
     {reply, ok, State_1};
+
+%% Open the object-container
+handle_call({switch_container, FilePath,
+             NumOfActiveObjs, SizeOfActiveObjs}, _From,
+            #state{object_storage = ObjectStorage,
+                   storage_stats  = StorageStats} = State) ->
+    %% Delete the old container
+    ?debugVal(ObjectStorage#backend_info.file_path),
+    ok = file:delete(ObjectStorage#backend_info.file_path),
+    State_1 = State#state{object_storage =
+                              ObjectStorage#backend_info{
+                               file_path = FilePath},
+                          storage_stats =
+                              StorageStats#storage_stats{
+                                total_sizes  = SizeOfActiveObjs,
+                                active_sizes = SizeOfActiveObjs,
+                                total_num    = NumOfActiveObjs,
+                                active_num   = NumOfActiveObjs
+                                }
+                         },
+    %% Open the new container
+    State_2 = open_container(State_1),
+    {reply, ok, State_2};
 
 %% Close the object-container
 handle_call(close, _From,
@@ -467,10 +491,6 @@ handle_call(close, _From,
 handle_call({get_backend_info, ?SERVER_OBJ_STORAGE}, _From,
             #state{object_storage = ObjectStorage} = State) ->
     {reply, {ok, ObjectStorage}, State};
-
-%% Set the backend info/configuration
-handle_call({set_backend_info, ?SERVER_OBJ_STORAGE, BackendInfo}, _From, State) ->
-    {reply, ok, State#state{object_storage = BackendInfo}};
 
 %% Retrieve the compaction worker
 handle_call(get_compaction_worker, _From,
@@ -533,16 +553,16 @@ code_change(_OldVsn, State, _Extra) ->
 %% @private
 open_container(#state{object_storage =
                            #backend_info{
-                              file_path = FilePath}} = State) ->
+                              linked_path = FilePath}} = State) ->
     case leo_object_storage_haystack:open(FilePath) of
         {ok, [NewWriteHandler, NewReadHandler, AVSVsnBin]} ->
             BackendInfo = State#state.object_storage,
             State#state{
               object_storage =
                   BackendInfo#backend_info{
-                    avs_version_bin_cur = AVSVsnBin,
-                    write_handler       = NewWriteHandler,
-                    read_handler        = NewReadHandler}};
+                    avs_ver_cur   = AVSVsnBin,
+                    write_handler = NewWriteHandler,
+                    read_handler  = NewReadHandler}};
         {error, _} ->
             State
     end.

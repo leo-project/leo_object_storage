@@ -32,7 +32,7 @@
 -include_lib("kernel/include/file.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--export([open/1, close/2,
+-export([open/1, open/2, close/2,
          put/3, get/3, get/6, delete/3, head/2,
          fetch/4, store/4]).
 
@@ -81,20 +81,54 @@ calc_obj_size(KSize, DSize) ->
     erlang:round(?BLEN_HEADER/8 + KSize + DSize + ?LEN_PADDING).
 
 
--spec(open(FilePath::string) ->
+-spec(open(FilePath::string()) ->
              {ok, port(), port(), binary()} | {error, any()}).
 open(FilePath) ->
+    open(FilePath, read_and_write).
+
+-spec(open(FilePath::string(), read_and_write|read|write) ->
+             {ok, port(), port(), binary()} | {error, any()}).
+open(FilePath, read_and_write) ->
     case create_file(FilePath) of
         {ok, WriteHandler} ->
-            case open_fun(FilePath) of
-                {ok, ReadHandler} ->
-                    case file:read_line(ReadHandler) of
-                        {ok, Bin} ->
-                            {ok, [WriteHandler, ReadHandler,
-                                  binary:part(Bin, 0, size(Bin) - 1)]};
-                        Error ->
-                            Error
-                    end;
+            case open_read_handler(FilePath) of
+                {ok, [ReadHandler, Bin]} ->
+                    {ok, [WriteHandler, ReadHandler, Bin]};
+                Error ->
+                    Error
+            end;
+        Error ->
+            Error
+    end;
+open(FilePath, read) ->
+    case open_read_handler(FilePath) of
+        {ok, [ReadHandler, Bin]} ->
+            {ok, [undefined, ReadHandler, Bin]};
+        Error ->
+            Error
+    end;
+open(FilePath, write) ->
+    case create_file(FilePath) of
+        {ok, WriteHandler} ->
+            case open_read_handler(FilePath) of
+                {ok, [ReadHandler, Bin]} ->
+                    ok = close(undefined, ReadHandler),
+                    {ok, [WriteHandler, undefined, Bin]};
+                Error ->
+                    Error
+            end;
+        Error ->
+            Error
+    end.
+
+%% @private
+open_read_handler(FilePath) ->
+    case open_fun(FilePath) of
+        {ok, ReadHandler} ->
+            case file:read_line(ReadHandler) of
+                {ok, Bin} ->
+                    {ok, [ReadHandler,
+                          binary:part(Bin, 0, size(Bin) - 1)]};
                 Error ->
                     Error
             end;
@@ -108,8 +142,16 @@ open(FilePath) ->
 -spec(close(port()|_, port()|_) ->
              ok).
 close(WriteHandler, ReadHandler) ->
-    catch file:close(WriteHandler),
-    catch file:close(ReadHandler),
+    case WriteHandler of
+        undefined -> void;
+        _ ->
+            catch file:close(WriteHandler)
+    end,
+    case ReadHandler of
+        undefined -> void;
+        _ ->
+            catch file:close(ReadHandler)
+    end,
     ok.
 
 
@@ -514,8 +556,8 @@ put_fun_3(MetaDBId, StorageInfo, Needle, #?METADATA{key      = Key,
                                                     addr_id  = AddrId,
                                                     offset   = Offset,
                                                     checksum = Checksum} = Meta) ->
-    #backend_info{write_handler       = WriteHandler,
-                  avs_version_bin_cur = AVSVsnBin} = StorageInfo,
+    #backend_info{write_handler = WriteHandler,
+                  avs_ver_cur   = AVSVsnBin} = StorageInfo,
 
     Key4BackendDB = ?gen_backend_key(AVSVsnBin, AddrId, Key),
     case file:pwrite(WriteHandler, Offset, Needle) of
