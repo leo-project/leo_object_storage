@@ -686,8 +686,6 @@ compact_2() ->
     ?assertEqual(0,            Obj1#?OBJECT.del),
     ok.
 
-
-
 %% proper_test_() ->
 %%     {timeout, 60000, ?_assertEqual([], proper:module(leo_object_storage_api_prop))}.
 
@@ -700,15 +698,10 @@ get_avs_stats_summary(ResStats) ->
       fun({ok, #storage_stats{file_path  = _ObjPath,
                               total_sizes = TotalSize,
                               active_sizes = ActiveSize,
-                              has_error = HasError,
                               total_num  = Total,
-                              active_num = Active} = SS},
+                              active_num = Active} = StorageStats},
           {SumTotal, SumActive, SumTotalSize, SumActiveSize}) ->
-              io:format(user, "[debug] ~p~n",[SS]),
-              case TotalSize of
-                  0 -> void;
-                  _ -> ?assertEqual(false, HasError)
-              end,
+              io:format(user, "[debug] ~p~n",[StorageStats]),
               {SumTotal      + Total,
                SumActive     + Active,
                SumTotalSize  + TotalSize,

@@ -29,8 +29,8 @@
 -include_lib("eunit/include/eunit.hrl").
 
 %% API
--export([start_link/4, stop/1]).
--export([run/1, run/2,
+-export([start_link/3, stop/1]).
+-export([run/1, run/3,
          suspend/1,
          resume/1,
          finish/1,
@@ -50,6 +50,12 @@
          suspending/2, suspending/3]).
 
 -compile(nowarn_deprecated_type).
+-define(DEF_TIMEOUT, timer:seconds(30)).
+-define(RET_SUCCESS, 'success').
+-define(RET_FAIL,    'fail').
+-type(compaction_ret() :: ?RET_SUCCESS |
+                          ?RET_FAIL |
+                          undefined).
 
 -record(compaction_prms, {
           key_bin  = <<>> :: binary(),
@@ -72,11 +78,10 @@
           error_pos = 0    :: non_neg_integer(),
           set_errors       :: set(),
           previous_times = [] :: [{non_neg_integer(),boolean()}],
-          compaction_prms = #compaction_prms{} :: #compaction_prms{}
+          compaction_prms = #compaction_prms{} :: #compaction_prms{},
+          start_datetime = 0  :: non_neg_integer(),
+          result :: compaction_ret()
          }).
-
--define(MAX_COMPACT_HISTORIES, 10).
--define(DEF_TIMEOUT, timer:seconds(30)).
 
 
 %%====================================================================
@@ -84,10 +89,10 @@
 %%====================================================================
 %% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
 %% Description: Starts the server
--spec(start_link(atom(), atom(), atom(), function()) ->
+-spec(start_link(atom(), atom(), atom()) ->
              {ok, pid()} | {error, any()}).
-start_link(Id, ObjStorageId, MetaDBId, CallbackFun) ->
-    gen_fsm:start_link({local, Id}, ?MODULE, [Id, ObjStorageId, MetaDBId, CallbackFun], []).
+start_link(Id, ObjStorageId, MetaDBId) ->
+    gen_fsm:start_link({local, Id}, ?MODULE, [Id, ObjStorageId, MetaDBId], []).
 
 %% @doc Stop this server
 %%
@@ -106,10 +111,10 @@ stop(Id) ->
 run(Id) ->
     gen_fsm:send_event(Id, ?EVENT_RUN).
 
--spec(run(atom(), pid()) ->
+-spec(run(atom(), pid(), function()) ->
              ok | {error, any()}).
-run(Id, ControllerPid) ->
-    gen_fsm:sync_send_event(Id, {?EVENT_RUN, ControllerPid}, ?DEF_TIMEOUT).
+run(Id, ControllerPid, CallbackFun) ->
+    gen_fsm:sync_send_event(Id, {?EVENT_RUN, ControllerPid, CallbackFun}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve an object from the object-storage
@@ -154,7 +159,7 @@ state(Id) ->
 %%                         ignore               |
 %%                         {stop, Reason}
 %% Description: Initiates the server
-init([Id, ObjStorageId, MetaDBId, CallbackFun]) ->
+init([Id, ObjStorageId, MetaDBId]) ->
     {ok, ?ST_IDLING, #state{id = Id,
                             obj_storage_id = ObjStorageId,
                             meta_db_id     = MetaDBId,
@@ -164,8 +169,7 @@ init([Id, ObjStorageId, MetaDBId, CallbackFun]) ->
                                                  metadata = #?METADATA{},
                                                  next_offset = 0,
                                                  num_of_active_objs  = 0,
-                                                 size_of_active_objs = 0,
-                                                 callback_fun = CallbackFun}
+                                                 size_of_active_objs = 0}
                            }}.
 
 %% @doc Handle events
@@ -213,11 +217,11 @@ format_status(_Opt, [_PDict, State]) ->
 %%====================================================================
 %% @doc State of 'idle'
 %%
--spec(idling({?EVENT_RUN, pid()} | _, _, #state{}) ->
+-spec(idling({?EVENT_RUN, pid(), function()} | _, _, #state{}) ->
              {next_state, ?ST_IDLING | ?ST_RUNNING, #state{}}).
-idling({?EVENT_RUN, ControllerPid}, From,#state{id = Id,
-                                                compaction_prms =
-                                                    CompactionPrms} = State) ->
+idling({?EVENT_RUN, ControllerPid, CallbackFun}, From,#state{id = Id,
+                                                             compaction_prms =
+                                                                 CompactionPrms} = State) ->
     NextStatus = ?ST_RUNNING,
     State_1 = State#state{compact_cntl_pid = ControllerPid,
                           status     = NextStatus,
@@ -227,14 +231,14 @@ idling({?EVENT_RUN, ControllerPid}, From,#state{id = Id,
                               CompactionPrms#compaction_prms{
                                 num_of_active_objs  = 0,
                                 size_of_active_objs = 0,
-                                next_offset = ?AVS_SUPER_BLOCK_LEN}
+                                next_offset = ?AVS_SUPER_BLOCK_LEN,
+                                callback_fun = CallbackFun
+                               },
+                          start_datetime = leo_date:now()
                          },
     case prepare(State_1) of
         {ok, State_2} ->
             gen_fsm:reply(From, ok),
-            %% @TODO
-            %% NewHist = compact_add_history(
-            %%             start, StorageStats#storage_stats.compaction_histories),
             ok = run(Id),
             {next_state, NextStatus, State_2};
         {{error, Cause},_State} ->
@@ -275,10 +279,32 @@ running(?EVENT_SUSPEND, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}};
 
-running(?EVENT_FINISH, #state{compact_cntl_pid = CntlPid}= State) ->
+running(?EVENT_FINISH, #state{compact_cntl_pid = CntlPid,
+                              obj_storage_info = #backend_info{file_path = FilePath},
+                              start_datetime = StartDateTime,
+                              result = Ret} = State) ->
+    EndDateTime = leo_date:now(),
+    Duration = EndDateTime - StartDateTime,
+    StartDateTime_1 = lists:flatten(leo_date:date_format(StartDateTime)),
+    EndDateTime_1   = lists:flatten(leo_date:date_format(EndDateTime)),
+    error_logger:info_msg("~p,~p,~p,~p~n",
+                          [{module, ?MODULE_STRING}, {function, "running/2"},
+                           {line, ?LINE}, {body, [{file_path, FilePath},
+                                                  {start_datetime, StartDateTime_1},
+                                                  {end_datetime,   EndDateTime_1},
+                                                  {duration, Duration},
+                                                  {result, Ret}
+                                                 ]}]),
     erlang:send(CntlPid, finish),
     NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#state{status = NextStatus}};
+    {next_state, NextStatus, State#state{status = NextStatus,
+                                         error_pos = 0,
+                                         set_errors = sets:new(),
+                                         obj_storage_info = #backend_info{},
+                                         compaction_prms = #compaction_prms{},
+                                         start_datetime = 0,
+                                         result = undefined
+                                        }};
 
 running(_, State) ->
     NextStatus = ?ST_RUNNING,
@@ -434,12 +460,17 @@ execute(#state{meta_db_id       = MetaDBId,
         false ->
             #compaction_prms{key_bin  = Key,
                              body_bin = Body,
-                             callback_fun = FunHasChargeOfNode,
+                             callback_fun = CallbackFun,
                              num_of_active_objs  = NumOfActiveObjs,
                              size_of_active_objs = SizeActive
                             } = CompactionPrms,
-            NumOfReplicas = Metadata#?METADATA.num_of_replicas,
-            HasChargeOfNode = FunHasChargeOfNode(Key, NumOfReplicas),
+            NumOfReplicas   = Metadata#?METADATA.num_of_replicas,
+            HasChargeOfNode = case (CallbackFun == undefined) of
+                                  true ->
+                                      true;
+                                  false ->
+                                      CallbackFun(Key, NumOfReplicas)
+                              end,
 
             case (is_deleted_rec(MetaDBId, StorageInfo, Metadata)
                   orelse HasChargeOfNode == false) of
@@ -552,8 +583,6 @@ after_execute(Ret, #state{obj_storage_info = StorageInfo} = State) ->
     catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
 
     %% Finish compaction
-    %% @TODO add history(end datetime)
-    %% NewHist2 = compact_add_history(finish, NewHist),
     after_execute_1({Ret, State}).
 
 
@@ -578,27 +607,19 @@ after_execute_1({ok, #state{meta_db_id       = MetaDBId,
                    ObjStorageId, FilePath, NumActiveObjs, SizeActiveObjs),
             ok = leo_backend_db_api:compact_end(MetaDBId, true),
 
-            {ok, State#state{obj_storage_info = #backend_info{}}};
+            {ok, State#state{result = ?RET_SUCCESS}};
         {error, Cause} ->
             leo_backend_db_api:compact_end(MetaDBId, false),
-            %% @TODO
-            %% NewState = State#state{
-            %%              storage_stats = StorageStats#storage_stats{
-            %%                                has_error = true}},
-            {{error, Cause}, State}
+            {{error, Cause}, State#state{result = ?RET_FAIL}}
     end;
 
 %% @doc Rollback - delete the tmp-files
 after_execute_1({_Error, #state{meta_db_id       = MetaDBId,
                                 obj_storage_info = StorageInfo} = State}) ->
-    %% @TODO
-    %% NewState = State#state{storage_stats = StorageStats#storage_stats{
-    %%                                          has_error = true}},
-
     %% must reopen the original file when handling at another process:
     catch file:delete(StorageInfo#backend_info.file_path),
     leo_backend_db_api:compact_end(MetaDBId, false),
-    {ok, State}.
+    {ok, State#state{result = ?RET_FAIL}}.
 
 
 %% @doc Output accumulated errors to logger

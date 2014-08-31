@@ -78,10 +78,10 @@ start_link() ->
 %% @doc start compaction
 -spec(start([string()|atom()], non_neg_integer(), function()) ->
              term()).
-start(TargetPids, MaxConNum, InspectFun) ->
+start(TargetPids, MaxConNum, CallbackFun) ->
     gen_fsm:sync_send_event(
       ?MODULE, {?EVENT_RUN, TargetPids,
-                MaxConNum, InspectFun}, ?DEF_TIMEOUT).
+                MaxConNum, CallbackFun}, ?DEF_TIMEOUT).
 
 -spec(stop(_) ->
              term()).
@@ -134,7 +134,7 @@ init([]) ->
 %%
 -spec(idling({?EVENT_RUN, [], non_neg_integer(), function()}|_, _, #state{}) ->
              {next_state, ?ST_RUNNING|?ST_IDLING, #state{}}).
-idling({?EVENT_RUN, TargetPids, MaxConNum, InspectFun}, From, State) ->
+idling({?EVENT_RUN, TargetPids, MaxConNum, CallbackFun}, From, State) ->
     AllTargets     = leo_object_storage_api:get_object_storage_pid('all'),
     PendingTargets = State#state.pending_targets,
 
@@ -153,7 +153,7 @@ idling({?EVENT_RUN, TargetPids, MaxConNum, InspectFun}, From, State) ->
                                    pending_targets       = TargetPids,
                                    reserved_targets      = ReservedTargets,
                                    max_num_of_concurrent = MaxConNum,
-                                   callback_fun          = InspectFun,
+                                   callback_fun          = CallbackFun,
                                    start_datetime        = leo_date:now()}),
     gen_fsm:reply(From, ok),
     {next_state, NextState, NewState};
@@ -408,7 +408,7 @@ loop(CallbackFun, TargetId) ->
     receive
         {run, Id} ->
             {ok, Id_1} = leo_object_storage_server:get_compaction_worker(Id),
-            ok = leo_compact_fsm_worker:run(Id_1, self()),
+            ok = leo_compact_fsm_worker:run(Id_1, self(), CallbackFun),
             ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id},
                                   ?STATE_RUNNING_COMPACTION),
             loop(CallbackFun, {Id, Id_1});

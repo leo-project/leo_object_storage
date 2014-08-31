@@ -61,7 +61,7 @@
 %%                                ?EVENT_FINISH).
 
 %% @doc Compaction related definitions
--type(compaction_history() :: {integer(), integer()}).
+-type(compaction_history()   :: {integer(), integer(), boolean()}).
 -type(compaction_histories() :: [compaction_history()]).
 
 -record(compaction_stats, {
@@ -263,13 +263,12 @@
 -define(OBJECT, 'object_1').
 
 -record(storage_stats, {
-          file_path            = []    :: string(),
-          total_sizes          = 0     :: non_neg_integer(),
-          active_sizes         = 0     :: non_neg_integer(),
-          total_num            = 0     :: non_neg_integer(),
-          active_num           = 0     :: non_neg_integer(),
-          compaction_histories = []    :: compaction_histories(),
-          has_error            = false :: boolean()
+          file_path            = [] :: string(),
+          total_sizes          = 0  :: non_neg_integer(),
+          active_sizes         = 0  :: non_neg_integer(),
+          total_num            = 0  :: non_neg_integer(),
+          active_num           = 0  :: non_neg_integer(),
+          compaction_histories = [] :: compaction_histories()
          }).
 
 %% apllication-env
@@ -297,7 +296,7 @@
 
 %% @doc Generate a raw file path
 -define(gen_raw_file_path(_FilePath),
-            lists:append([_FilePath, "_", integer_to_list(leo_date:now())])).
+        lists:append([_FilePath, "_", integer_to_list(leo_date:now())])).
 
 %% @doc Retrieve object-storage info
 -define(get_obj_storage_info(_ObjStorageId),

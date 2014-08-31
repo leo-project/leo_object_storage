@@ -60,13 +60,14 @@
 -endif.
 
 -record(state, {
-          id                   :: atom(),
-          meta_db_id           :: atom(),
+          id :: atom(),
+          meta_db_id :: atom(),
           compaction_worker_id :: atom(),
-          object_storage       :: #backend_info{},
-          storage_stats        :: #storage_stats{},
-          state_filepath       :: string(),
-          is_strict_check      :: boolean()
+          object_storage = #backend_info{}  :: #backend_info{},
+          storage_stats  = #storage_stats{} :: #storage_stats{},
+          state_filepath :: string(),
+          is_strict_check = false :: boolean(),
+          is_locked = false       :: boolean()
          }).
 
 -define(DEF_TIMEOUT, 30000).
@@ -210,7 +211,6 @@ get_backend_info(Id, ServerType) ->
 %% @doc Open the object-container
 %%
 switch_container(Id, FilePath, NumOfActiveObjs, SizeOfActiveObjs) ->
-    ?debugVal({FilePath, NumOfActiveObjs, SizeOfActiveObjs}),
     gen_server:call(Id, {switch_container, FilePath,
                          NumOfActiveObjs, SizeOfActiveObjs}, ?DEF_TIMEOUT).
 
@@ -251,9 +251,8 @@ init([Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath, IsStrictCheck]) ->
                    total_sizes  = leo_misc:get_value('total_sizes',  Props, 0),
                    active_sizes = leo_misc:get_value('active_sizes', Props, 0),
                    total_num    = leo_misc:get_value('total_num',    Props, 0),
-                   active_num   = leo_misc:get_value('active_num',   Props, 0),
-                   %% compaction_histories = leo_misc:get_value('compaction_histories', Props, []),
-                   has_error            = leo_misc:get_value('has_error', Props, false)};
+                   active_num   = leo_misc:get_value('active_num',   Props, 0)
+                  };
             _ -> #storage_stats{file_path = ObjectStoragePath}
         end,
 
@@ -458,7 +457,6 @@ handle_call({switch_container, FilePath,
             #state{object_storage = ObjectStorage,
                    storage_stats  = StorageStats} = State) ->
     %% Delete the old container
-    ?debugVal(ObjectStorage#backend_info.file_path),
     ok = file:delete(ObjectStorage#backend_info.file_path),
     State_1 = State#state{object_storage =
                               ObjectStorage#backend_info{
@@ -624,9 +622,8 @@ close_storage(Id, MetaDBId, StateFilePath,
            {total_sizes,  StorageStats#storage_stats.total_sizes},
            {active_sizes, StorageStats#storage_stats.active_sizes},
            {total_num,    StorageStats#storage_stats.total_num},
-           {active_num,   StorageStats#storage_stats.active_num},
-           %% {compaction_histories, StorageStats#storage_stats.compaction_histories},
-           {has_error,            StorageStats#storage_stats.has_error}]),
+           {active_num,   StorageStats#storage_stats.active_num}
+          ]),
     ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
     ok = leo_backend_db_server:close(MetaDBId),
     ok;
