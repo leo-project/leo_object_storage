@@ -39,8 +39,9 @@
          get_stats/1, set_stats/2,
          get_avs_version_bin/1,
          head_with_calc_md5/3,
-         open/1, close/1,
+         close/1,
          get_backend_info/2,
+         lock/1,
          switch_container/4,
          get_compaction_worker/1
         ]).
@@ -192,12 +193,6 @@ head_with_calc_md5(Id, Key, MD5Context) ->
     gen_server:call(Id, {head_with_calc_md5, Key, MD5Context}, ?DEF_TIMEOUT).
 
 
-%% @doc Open the object-container
-%%
-open(Id) ->
-    gen_server:call(Id, open, ?DEF_TIMEOUT).
-
-
 %% @doc Close the object-container
 %%
 close(Id) ->
@@ -207,6 +202,13 @@ close(Id) ->
 %%
 get_backend_info(Id, ServerType) ->
     gen_server:call(Id, {get_backend_info, ServerType}, ?DEF_TIMEOUT).
+
+
+%% @doc Retrieve object-storage/metadata-storage info
+%%
+lock(Id) ->
+    gen_server:call(Id, lock, ?DEF_TIMEOUT).
+
 
 %% @doc Open the object-container
 %%
@@ -273,7 +275,8 @@ init([Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath, IsStrictCheck]) ->
                                 object_storage       = StorageInfo,
                                 storage_stats        = StorageStats,
                                 state_filepath       = StateFilePath,
-                                is_strict_check      = IsStrictCheck
+                                is_strict_check      = IsStrictCheck,
+                                is_locked = false
                                }};
                 {error, Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
@@ -296,6 +299,8 @@ handle_call(stop, _From, State) ->
 
 
 %% Insert an object
+handle_call({put, _}, _From, #state{is_locked = true} = State) ->
+    {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
 handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
                                          object_storage = StorageInfo,
                                          storage_stats  = StorageStats} = State) ->
@@ -343,6 +348,8 @@ handle_call({get, {AddrId, Key}, StartPos, EndPos},
     {reply, Reply, NewState};
 
 %% Remove an object
+handle_call({delete, _}, _From, #state{is_locked = true} = State) ->
+    {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
 handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
                                             object_storage = StorageInfo,
                                             storage_stats  = StorageStats} = State) ->
@@ -392,6 +399,8 @@ handle_call({fetch, {AddrId, Key}, Fun, MaxKeys},
     {reply, Reply, State};
 
 %% Store an object
+handle_call({store, _,_}, _From, #state{is_locked = true} = State) ->
+    {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
 handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
                                                   object_storage = StorageInfo,
                                                   storage_stats  = StorageStats} = State) ->
@@ -446,10 +455,26 @@ handle_call({head_with_calc_md5, {AddrId, Key}, MD5Context},
     erlang:garbage_collect(self()),
     {reply, Reply, NewState};
 
-%% Open the object-container
-handle_call(open, _From, State) ->
-    State_1 = open_container(State),
-    {reply, ok, State_1};
+%% Close the object-container
+handle_call(close, _From,
+            #state{id = Id,
+                   meta_db_id = MetaDBId,
+                   state_filepath = StateFilePath,
+                   storage_stats  = StorageStats,
+                   object_storage = #backend_info{write_handler = WriteHandler,
+                                                  read_handler  = ReadHandler}} = State) ->
+    ok = close_storage(Id, MetaDBId, StateFilePath,
+                       StorageStats, WriteHandler, ReadHandler),
+    {reply, ok, State};
+
+%% Retrieve the backend info/configuration
+handle_call({get_backend_info, ?SERVER_OBJ_STORAGE}, _From,
+            #state{object_storage = ObjectStorage} = State) ->
+    {reply, {ok, ObjectStorage}, State};
+
+%% Lock the object-container
+handle_call(lock, _From, State) ->
+    {reply, ok, State#state{is_locked = true}};
 
 %% Open the object-container
 handle_call({switch_container, FilePath,
@@ -472,23 +497,6 @@ handle_call({switch_container, FilePath,
     %% Open the new container
     State_2 = open_container(State_1),
     {reply, ok, State_2};
-
-%% Close the object-container
-handle_call(close, _From,
-            #state{id = Id,
-                   meta_db_id = MetaDBId,
-                   state_filepath = StateFilePath,
-                   storage_stats  = StorageStats,
-                   object_storage = #backend_info{write_handler = WriteHandler,
-                                                  read_handler  = ReadHandler}} = State) ->
-    ok = close_storage(Id, MetaDBId, StateFilePath,
-                       StorageStats, WriteHandler, ReadHandler),
-    {reply, ok, State};
-
-%% Retrieve the backend info/configuration
-handle_call({get_backend_info, ?SERVER_OBJ_STORAGE}, _From,
-            #state{object_storage = ObjectStorage} = State) ->
-    {reply, {ok, ObjectStorage}, State};
 
 %% Retrieve the compaction worker
 handle_call(get_compaction_worker, _From,
@@ -560,7 +568,9 @@ open_container(#state{object_storage =
                   BackendInfo#backend_info{
                     avs_ver_cur   = AVSVsnBin,
                     write_handler = NewWriteHandler,
-                    read_handler  = NewReadHandler}};
+                    read_handler  = NewReadHandler},
+              is_locked = false
+             };
         {error, _} ->
             State
     end.

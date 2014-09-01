@@ -52,6 +52,7 @@
                                ?ST_SUSPENDING).
 
 -define(EVENT_RUN,     'run').
+-define(EVENT_LOCK,    'lock').
 -define(EVENT_SUSPEND, 'suspend').
 -define(EVENT_RESUME,  'resume').
 -define(EVENT_FINISH,  'finish').
@@ -70,9 +71,10 @@
           num_of_reserved_targets = 0  :: non_neg_integer(),
           num_of_pending_targets  = 0  :: non_neg_integer(),
           num_of_ongoing_targets  = 0  :: non_neg_integer(),
-          reserved_targets = []        :: list(),
-          pending_targets  = []        :: list(),
-          ongoing_targets  = []        :: list(),
+          reserved_targets = []        :: [atom()],
+          pending_targets  = []        :: [atom()],
+          ongoing_targets  = []        :: [atom()],
+          locked_targets   = []        :: [atom()],
           latest_exec_datetime = 0     :: non_neg_integer()
          }).
 
@@ -86,6 +88,7 @@
 -define(ERROR_COMPACT_RESUME_FAILURE,   "comaction-resume filure").
 -define(ERROR_PROCESS_NOT_FOUND,        "server process not found").
 -define(ERROR_COULD_NOT_GET_MOUNT_PATH, "could not get mout path").
+-define(ERROR_LOCKED_CONTAINER,          "locked obj-conatainer").
 
 
 -define(DEL_TRUE,  1).

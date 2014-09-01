@@ -40,9 +40,9 @@
 
 -export([calc_obj_size/1,
          calc_obj_size/2,
-         compact_put/4,
-         compact_get/1,
-         compact_get/2
+         put_obj_to_new_cntnr/4,
+         get_obj_for_new_cntnr/1,
+         get_obj_for_new_cntnr/2
         ]).
 
 -ifdef(TEST).
@@ -593,9 +593,9 @@ put_fun_3(MetaDBId, StorageInfo, Needle, #?METADATA{key      = Key,
 %%--------------------------------------------------------------------
 %% @doc Insert an object into the object-container when compacting
 %%
--spec(compact_put(pid(), #?METADATA{}, binary(), binary()) ->
+-spec(put_obj_to_new_cntnr(pid(), #?METADATA{}, binary(), binary()) ->
              ok | {error, any()}).
-compact_put(WriteHandler, Metadata, KeyBin, BodyBin) ->
+put_obj_to_new_cntnr(WriteHandler, Metadata, KeyBin, BodyBin) ->
     case file:position(WriteHandler, eof) of
         {ok, Offset} ->
             Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
@@ -609,20 +609,20 @@ compact_put(WriteHandler, Metadata, KeyBin, BodyBin) ->
                 {'EXIT', Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING},
-                                            {function, "compact_put/4"},
+                                            {function, "put_obj_to_new_cntnr/4"},
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause};
                 {error, Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING},
-                                            {function, "compact_put/4"},
+                                            {function, "put_obj_to_new_cntnr/4"},
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause}
             end;
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
-                                    {function, "compact_put/4"},
+                                    {function, "put_obj_to_new_cntnr/4"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
@@ -630,21 +630,21 @@ compact_put(WriteHandler, Metadata, KeyBin, BodyBin) ->
 
 %% @doc Retrieve a file from object-container when compacting.
 %%
--spec(compact_get(pid()) ->
+-spec(get_obj_for_new_cntnr(pid()) ->
              ok | {error, any()}).
-compact_get(ReadHandler) ->
-    compact_get(ReadHandler, byte_size(?AVS_SUPER_BLOCK)).
+get_obj_for_new_cntnr(ReadHandler) ->
+    get_obj_for_new_cntnr(ReadHandler, byte_size(?AVS_SUPER_BLOCK)).
 
--spec(compact_get(pid(), integer()) ->
+-spec(get_obj_for_new_cntnr(pid(), integer()) ->
              ok | {error, any()}).
-compact_get(ReadHandler, Offset) ->
+get_obj_for_new_cntnr(ReadHandler, Offset) ->
     HeaderSize = erlang:round(?BLEN_HEADER/8),
 
     case file:pread(ReadHandler, Offset, HeaderSize) of
         {ok, HeaderBin} ->
             case byte_size(HeaderBin) of
                 HeaderSize ->
-                    compact_get(ReadHandler, Offset, HeaderSize, HeaderBin);
+                    get_obj_for_new_cntnr(ReadHandler, Offset, HeaderSize, HeaderBin);
                 _ ->
                     {error, {?LINE,?ERROR_DATA_SIZE_DID_NOT_MATCH}}
             end;
@@ -653,28 +653,28 @@ compact_get(ReadHandler, Offset) ->
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
-                                    {function, "compact_get/2"},
+                                    {function, "get_obj_for_new_cntnr/2"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
 
 %% @private
--spec(compact_get(pid(), integer(), integer(), binary()) ->
+-spec(get_obj_for_new_cntnr(pid(), integer(), integer(), binary()) ->
              ok | {error, any()}).
-compact_get(ReadHandler, Offset, HeaderSize, HeaderBin) ->
+get_obj_for_new_cntnr(ReadHandler, Offset, HeaderSize, HeaderBin) ->
     case leo_object_storage_transformer:header_bin_to_metadata(HeaderBin) of
         {error, Cause} ->
             {error, Cause};
         Metadata ->
-            compact_get(Metadata, ReadHandler,
-                        Offset, HeaderSize, HeaderBin)
+            get_obj_for_new_cntnr(Metadata, ReadHandler,
+                                  Offset, HeaderSize, HeaderBin)
     end.
 
 %% @private
-compact_get(#?METADATA{ksize = KSize,
-                       dsize = DSize,
-                       cnumber = CNum} = Metadata, ReadHandler,
-            Offset, HeaderSize, HeaderBin) ->
+get_obj_for_new_cntnr(#?METADATA{ksize = KSize,
+                                 dsize = DSize,
+                                 cnumber = CNum} = Metadata, ReadHandler,
+                      Offset, HeaderSize, HeaderBin) ->
     DSize4Read = case (CNum > 0) of
                      true  -> 0;
                      false -> DSize
@@ -691,9 +691,9 @@ compact_get(#?METADATA{ksize = KSize,
                         case byte_size(RemainBin) of
                             RemainSize ->
                                 TotalSize = Offset + HeaderSize + RemainSize,
-                                compact_get_1(ReadHandler,
-                                              HeaderBin, Metadata#?METADATA{offset = Offset},
-                                              DSize4Read, RemainBin, TotalSize);
+                                get_obj_for_new_cntnr_1(ReadHandler,
+                                                        HeaderBin, Metadata#?METADATA{offset = Offset},
+                                                        DSize4Read, RemainBin, TotalSize);
                             _ ->
                                 {error, {?LINE,?ERROR_DATA_SIZE_DID_NOT_MATCH}}
                         end;
@@ -709,17 +709,17 @@ compact_get(#?METADATA{ksize = KSize,
     end.
 
 %% @private
-compact_get_1(_ReadHandler,_HeaderBin, #?METADATA{ksize = 0},_DSize,_Bin,_TotalSize) ->
+get_obj_for_new_cntnr_1(_ReadHandler,_HeaderBin, #?METADATA{ksize = 0},_DSize,_Bin,_TotalSize) ->
     {error, {?LINE, ?ERROR_DATA_SIZE_DID_NOT_MATCH}};
-compact_get_1(ReadHandler, HeaderBin, #?METADATA{ksize = KSize} = Metadata,
-              DSize, Bin, TotalSize) ->
+get_obj_for_new_cntnr_1(ReadHandler, HeaderBin, #?METADATA{ksize = KSize} = Metadata,
+                        DSize, Bin, TotalSize) ->
     << KeyBin:KSize/binary,
        BodyBin:DSize/binary,
        _Footer/binary>> = Bin,
-    compact_get_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, TotalSize).
+    get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, TotalSize).
 
 %% @private
-compact_get_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, TotalSize) ->
+get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, TotalSize) ->
     Checksum = Metadata#?METADATA.checksum,
     Checksum_1 = leo_hex:raw_binary_to_integer(crypto:hash(md5, BodyBin)),
     Metadata_1 = Metadata#?METADATA{key = KeyBin},

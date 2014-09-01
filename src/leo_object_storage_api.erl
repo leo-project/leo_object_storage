@@ -272,19 +272,6 @@ get_object_storage_pid_first() ->
     Id.
 
 
-%% @doc Retrieve the status of object of pid
-%% @private
--spec(get_status_by_id(atom()) ->
-             storage_status()).
-get_status_by_id(Pid) ->
-    case leo_misc:get_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Pid}) of
-        {ok, Status} ->
-            Status;
-        _ ->
-            ?STATE_ACTIVE
-    end.
-
-
 %% @doc Request an operation
 %% @private
 -spec(do_request(type_of_method(), list(_)) ->
@@ -307,12 +294,7 @@ do_request(store, [Metadata, Bin]) ->
                key     = Key} = Metadata_1,
     case get_object_storage_pid(term_to_binary({AddrId, Key})) of
         [Pid|_] ->
-            case get_status_by_id(Pid) of
-                ?STATE_ACTIVE ->
-                    ?SERVER_MODULE:store(Pid, Metadata_1, Bin);
-                ?STATE_RUNNING_COMPACTION ->
-                    {error, doing_compaction}
-            end;
+            ?SERVER_MODULE:store(Pid, Metadata_1, Bin);
         _ ->
             {error, ?ERROR_PROCESS_NOT_FOUND}
     end;
@@ -320,12 +302,7 @@ do_request(put, [Key, Object]) ->
     KeyBin = term_to_binary(Key),
     case get_object_storage_pid(KeyBin) of
         [Pid|_] ->
-            case get_status_by_id(Pid) of
-                ?STATE_ACTIVE ->
-                    ?SERVER_MODULE:put(Pid, Object);
-                ?STATE_RUNNING_COMPACTION ->
-                    {error, doing_compaction}
-            end;
+            ?SERVER_MODULE:put(Pid, Object);
         _ ->
             {error, ?ERROR_PROCESS_NOT_FOUND}
     end;
@@ -333,12 +310,7 @@ do_request(delete, [Key, Object]) ->
     KeyBin = term_to_binary(Key),
     case get_object_storage_pid(KeyBin) of
     [Pid|_] ->
-            case get_status_by_id(Pid) of
-                ?STATE_ACTIVE ->
-                    ?SERVER_MODULE:delete(Pid, Object);
-                ?STATE_RUNNING_COMPACTION ->
-                    {error, doing_compaction}
-            end;
+            ?SERVER_MODULE:delete(Pid, Object);
         _ ->
             {error, ?ERROR_PROCESS_NOT_FOUND}
     end;
@@ -354,7 +326,8 @@ do_request(head_with_calc_md5, [{AddrId, Key}, MD5Context]) ->
     KeyBin = term_to_binary({AddrId, Key}),
     case get_object_storage_pid(KeyBin) of
         [Pid|_] ->
-            ?SERVER_MODULE:head_with_calc_md5(Pid, {AddrId, Key}, MD5Context);
+            ?SERVER_MODULE:head_with_calc_md5(
+               Pid, {AddrId, Key}, MD5Context);
         _ ->
             {error, ?ERROR_PROCESS_NOT_FOUND}
     end.

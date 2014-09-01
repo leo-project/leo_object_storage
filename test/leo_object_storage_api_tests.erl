@@ -40,7 +40,7 @@
 compaction_test_() ->
     {setup,
      fun ( ) ->
-             ?debugVal("***** COMPACTION.START *****"),
+             ?debugVal("### COMPACTION.START ###"),
              os:cmd("rm -rf " ++ ?AVS_DIR_FOR_COMPACTION),
              application:start(sasl),
              application:start(os_mon),
@@ -52,8 +52,8 @@ compaction_test_() ->
              application:stop(crypto),
              application:stop(os_mon),
              application:stop(sasl),
-             timer:sleep(5000),
-             ?debugVal("***** COMPACTION.END *****"),
+             timer:sleep(1000),
+             ?debugVal("### COMPACTION.END ###"),
              ok
      end,
      [
@@ -80,27 +80,36 @@ compact() ->
     TargetPids = leo_object_storage_api:get_object_storage_pid(all),
     ok = leo_compact_fsm_controller:start(TargetPids, 1, FunHasChargeOfNode),
 
+    %% Insert objects during the compaction
+    ok = put_regular_bin(200, 25),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin_with_cmeta(225, 15),
+    ok = put_regular_bin(240, 10),
+
+    %%
+
     %% Check comaction status
-    ?debugVal(ok),
     ok = check_status(),
-    ?debugVal(ok),
 
     %% Check # of active objects and total of objects
     timer:sleep(1000),
     {ok, [{_,#storage_stats{total_num  = TotalNum,
                             active_num = ActiveNum
                            }}|_]} = leo_object_storage_api:stats(),
-    ?debugVal({TotalNum, ActiveNum}),
-    ?assertEqual(101, TotalNum),
+    ?assertEqual(151, TotalNum),
     ?assertEqual(TotalNum, ActiveNum),
     ok.
 
 check_status() ->
-    timer:sleep(100),
+    timer:sleep(250),
     case leo_compact_fsm_controller:state() of
         {ok, #compaction_stats{status = ?ST_IDLING}} ->
             ok;
-        {ok, _} ->
+        {ok, #compaction_stats{locked_targets = []}} ->
+            check_status();
+        {ok, #compaction_stats{locked_targets = ['leo_compact_worker_0'|_]}} ->
+            Ret = put_regular_bin_1(300),
+            ?assertEqual({error, ?ERROR_LOCKED_CONTAINER}, Ret),
             check_status();
         Error ->
             Error
@@ -111,6 +120,10 @@ check_status() ->
 put_regular_bin(_, 0) ->
     ok;
 put_regular_bin(Index, Counter) ->
+    {ok,_} = put_regular_bin_1(Index),
+    put_regular_bin(Index + 1, Counter -1).
+
+put_regular_bin_1(Index) ->
     AddrId = 1,
     Key = list_to_binary(lists:append(["TEST_", integer_to_list(Index)])),
     Bin = crypto:rand_bytes(erlang:phash2(leo_date:clock(), (1024 * 1024))),
@@ -124,8 +137,7 @@ put_regular_bin(Index, Counter) ->
                       timestamp = leo_date:now(),
                       clock     = leo_date:clock()
                      },
-    {ok, _} = leo_object_storage_api:put({AddrId, Key}, Object),
-    put_regular_bin(Index + 1, Counter -1).
+    leo_object_storage_api:put({AddrId, Key}, Object).
 
 
 put_large_bin(Index) ->
@@ -520,7 +532,7 @@ compaction_2_test_() ->
              application:stop(crypto),
              application:stop(os_mon),
              application:stop(sasl),
-             timer:sleep(5000),
+             timer:sleep(1000),
              ?debugVal("***** COMPACTION-2.END *****"),
              ok
      end,
@@ -605,7 +617,6 @@ compact_2() ->
     timer:sleep(250),
 
     FunHasChargeOfNode = fun(_Key_,_NumOfReplicas_) ->
-                                 ?debugVal({_Key_,_NumOfReplicas_}),
                                  true
                          end,
     TargetPids = leo_object_storage_api:get_object_storage_pid(all),

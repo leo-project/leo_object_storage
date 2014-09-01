@@ -32,7 +32,9 @@
 %% API
 -export([start_link/0]).
 -export([start/3, stop/1,
-         suspend/0, resume/0, state/0, finish/2]).
+         lock/1,
+         suspend/0, resume/0,
+         state/0, finish/2]).
 
 -export([init/1,
          handle_event/3,
@@ -52,9 +54,10 @@
 -record(state, {max_num_of_concurrent = 1 :: non_neg_integer(),
                 callback_fun              :: function() | undefined,
                 total_num_of_targets = 0  :: non_neg_integer(),
-                reserved_targets = []     :: list(),
-                pending_targets  = []     :: list(),
-                ongoing_targets  = []     :: list(),
+                reserved_targets = []     :: [atom()],
+                pending_targets  = []     :: [atom()],
+                ongoing_targets  = []     :: [atom()],
+                locked_targets   = []     :: [atom()],
                 child_pids       = []     :: orddict:orddict(), %% {Chid :: pid(), hasJob :: boolean()}
                 start_datetime   = 0      :: non_neg_integer(), %% gregory-sec
                 status = ?ST_IDLING :: state_of_compaction()
@@ -87,6 +90,13 @@ start(TargetPids, MaxConNum, CallbackFun) ->
              term()).
 stop(_Id) ->
     gen_fsm:sync_send_all_state_event(?MODULE, stop, ?DEF_TIMEOUT).
+
+
+%% @doc Terminate child
+-spec(lock(atom()) ->
+             term()).
+lock(Id) ->
+    gen_fsm:send_event(?MODULE, {?EVENT_LOCK, Id}).
 
 
 %% @doc Suspend compaction
@@ -191,8 +201,14 @@ running(_, From, State) ->
     {next_state, NextState, State#state{status = NextState}}.
 
 
--spec(running({?EVENT_FINISH, pid(), atom()}, #state{}) ->
+-spec(running({?EVENT_LOCK, atom()}|{?EVENT_FINISH, pid(), atom()}, #state{}) ->
              {next_state, running, #state{}}).
+running({?EVENT_LOCK, Id}, #state{locked_targets = LockedTargets} = State) ->
+    NextState = ?ST_RUNNING,
+    {next_state, NextState,
+     State#state{status = NextState,
+                 locked_targets = [Id|LockedTargets]}};
+
 running({?EVENT_FINISH, Pid, FinishedId}, #state{pending_targets = [Id|Rest],
                                                  ongoing_targets = InProgPids} = State) ->
     %% Execute data-compaction of a pending target
@@ -221,10 +237,12 @@ running({?EVENT_FINISH,_Pid,_FinishedId}, #state{pending_targets  = [],
     NextState = ?ST_IDLING,
     PendingTargets = pending_targets(ReservedTargets),
     {next_state, NextState, State#state{status = NextState,
+                                        reserved_targets = [],
                                         pending_targets  = PendingTargets,
                                         ongoing_targets  = [],
                                         child_pids       = [],
-                                        reserved_targets = []}}.
+                                        locked_targets   = []
+                                       }}.
 
 
 %% @doc State of 'suspend'
@@ -322,10 +340,11 @@ handle_event(_Event, StateName, State) ->
 %% @doc Handle 'state' event
 handle_sync_event(state, _From, StateName, #state{status = Status,
                                                   total_num_of_targets = TotalNumOfTargets,
-                                                   reserved_targets     = ReservedTargets,
-                                                   pending_targets      = PendingTargets,
-                                                   ongoing_targets      = OngoingTargets,
-                                                   start_datetime       = LastestExecDate} = State) ->
+                                                  reserved_targets     = ReservedTargets,
+                                                  pending_targets      = PendingTargets,
+                                                  ongoing_targets      = OngoingTargets,
+                                                  locked_targets       = LockedTargets,
+                                                  start_datetime       = LastestExecDate} = State) ->
     {reply, {ok, #compaction_stats{status = Status,
                                    total_num_of_targets    = TotalNumOfTargets,
                                    num_of_reserved_targets = length(ReservedTargets),
@@ -334,6 +353,7 @@ handle_sync_event(state, _From, StateName, #state{status = Status,
                                    reserved_targets        = ReservedTargets,
                                    pending_targets         = PendingTargets,
                                    ongoing_targets         = OngoingTargets,
+                                   locked_targets          = LockedTargets,
                                    latest_exec_datetime    = LastestExecDate}}, StateName, State};
 
 %% @doc Handle 'stop' event
@@ -377,11 +397,12 @@ format_status(_Opt, [_PDict, State]) ->
 start_jobs_as_possible(State) ->
     start_jobs_as_possible(State#state{child_pids = []}, 0).
 
-start_jobs_as_possible(#state{pending_targets = [Id|Rest],
-                              ongoing_targets = InProgPids,
-                              max_num_of_concurrent = MaxProc,
-                              callback_fun = CallbackFun,
-                              child_pids   = ChildPids} = State, NumChild) when NumChild < MaxProc ->
+start_jobs_as_possible(#state{
+                          pending_targets = [Id|Rest],
+                          ongoing_targets = InProgPids,
+                          max_num_of_concurrent = MaxProc,
+                          callback_fun = CallbackFun,
+                          child_pids   = ChildPids} = State, NumChild) when NumChild < MaxProc ->
     Pid = spawn_link(fun() ->
                              loop(CallbackFun)
                      end),
@@ -409,25 +430,20 @@ loop(CallbackFun, TargetId) ->
         {run, Id} ->
             {ok, Id_1} = leo_object_storage_server:get_compaction_worker(Id),
             ok = leo_compact_fsm_worker:run(Id_1, self(), CallbackFun),
-            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, Id},
-                                  ?STATE_RUNNING_COMPACTION),
             loop(CallbackFun, {Id, Id_1});
+        {lock, Id} ->
+            ok = lock(Id),
+            loop(CallbackFun, TargetId);
         suspend ->
-            {ObjStorageId, CompactionWorkerId} = TargetId,
+            {_ObjStorageId, CompactionWorkerId} = TargetId,
             ok = leo_compact_fsm_worker:suspend(CompactionWorkerId),
-            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, ObjStorageId},
-                                  ?STATE_ACTIVE),
             loop(CallbackFun, TargetId);
         resume ->
-            {ObjStorageId, CompactionWorkerId} = TargetId,
+            {_ObjStorageId, CompactionWorkerId} = TargetId,
             ok = leo_compact_fsm_worker:resume(CompactionWorkerId),
-            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, ObjStorageId},
-                                  ?STATE_RUNNING_COMPACTION),
             loop(CallbackFun, TargetId);
         finish ->
             {ObjStorageId,_CompactionWorkerId} = TargetId,
-            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, ObjStorageId},
-                                  ?STATE_ACTIVE),
             _  = finish(self(), ObjStorageId),
             loop(CallbackFun, TargetId);
         stop ->

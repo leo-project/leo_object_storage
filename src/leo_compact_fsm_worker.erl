@@ -69,17 +69,18 @@
          }).
 
 -record(state, {
-          id               :: atom(),
-          obj_storage_id   :: atom(),
-          meta_db_id       :: atom(),
+          id :: atom(),
+          obj_storage_id :: atom(),
+          meta_db_id     :: atom(),
           obj_storage_info = #backend_info{} :: #backend_info{},
           compact_cntl_pid :: pid(),
           status = ?ST_IDLING :: state_of_compaction(),
-          error_pos = 0    :: non_neg_integer(),
-          set_errors       :: set(),
-          previous_times = [] :: [{non_neg_integer(),boolean()}],
+          is_locked = false   :: boolean(),
+          waiting_time = 0    :: non_neg_integer(),
           compaction_prms = #compaction_prms{} :: #compaction_prms{},
-          start_datetime = 0  :: non_neg_integer(),
+          start_datetime = 0 :: non_neg_integer(),
+          error_pos = 0 :: non_neg_integer(),
+          set_errors    :: set(),
           result :: compaction_ret()
          }).
 
@@ -114,7 +115,8 @@ run(Id) ->
 -spec(run(atom(), pid(), function()) ->
              ok | {error, any()}).
 run(Id, ControllerPid, CallbackFun) ->
-    gen_fsm:sync_send_event(Id, {?EVENT_RUN, ControllerPid, CallbackFun}, ?DEF_TIMEOUT).
+    gen_fsm:sync_send_event(Id, {?EVENT_RUN, ControllerPid,
+                                 CallbackFun}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve an object from the object-storage
@@ -253,21 +255,48 @@ idling(_, From, State) ->
 
 -spec(running(?EVENT_RUN, #state{}) ->
              {next_state, ?ST_RUNNING, #state{}}).
-running(?EVENT_RUN, #state{id = Id} = State) ->
+running(?EVENT_RUN, #state{id = Id,
+                           obj_storage_id   = ObjStorageId,
+                           compact_cntl_pid = CompactCntlPid,
+                           compaction_prms  =
+                               #compaction_prms{
+                                  start_lock_offset = StartLockOffset
+                                 }} = State) ->
     NextStatus = ?ST_RUNNING,
     State_3 =
         case catch execute(State) of
+            %% Lock the object-storage in order to
+            %%     reject requests during the data-compaction
+            {ok, {next, #state{is_locked = IsLocked,
+                               compaction_prms =
+                                   #compaction_prms{
+                                      next_offset = NextOffset}
+                              } = State_1}} when NextOffset > StartLockOffset ->
+                State_2 = case IsLocked of
+                              true ->
+                                  State_1;
+                              false ->
+                                  ok = leo_object_storage_server:lock(ObjStorageId),
+                                  erlang:send(CompactCntlPid, {lock, Id}),
+                                  State_1#state{is_locked = true}
+                          end,
+                ok = run(Id),
+                State_2;
+            %% Execute the data-compaction repeatedly
             {ok, {next, State_1}} ->
                 ok = run(Id),
                 State_1;
+            %% An unxepected error has occured
             {'EXIT', Cause} ->
                 ok = finish(Id),
                 {_,State_2} = after_execute({error, Cause}, State),
                 State_2;
+            %% Reached end of the object-container
             {ok, {eof, State_1}} ->
                 ok = finish(Id),
                 {_,State_2} = after_execute(ok, State_1),
                 State_2;
+            %% An epected error has occured
             {{error, Cause}, State_1} ->
                 ok = finish(Id),
                 {_,State_2} = after_execute({error, Cause}, State_1),
@@ -411,7 +440,7 @@ prepare_1(LinkedPath, FilePath, #state{meta_db_id = MetaDBId,
                     ok = file:advise(WriteHandler, 0, FileSize, dont_need),
                     ok = file:advise(ReadHandler,  0, FileSize, sequential),
 
-                    case leo_backend_db_api:compact_start(MetaDBId) of
+                    case leo_backend_db_api:run_compaction(MetaDBId) of
                         ok ->
                             {ok, State#state{
                                    obj_storage_info =
@@ -446,12 +475,21 @@ prepare_1(LinkedPath, FilePath, #state{meta_db_id = MetaDBId,
              {ok, #state{}} | {{error, any()}, #state{}}).
 execute(#state{meta_db_id       = MetaDBId,
                obj_storage_info = StorageInfo,
+               waiting_time     = WaitingTime,
                compaction_prms  = CompactionPrms} = State) ->
     %% Initialize set-error property
     State_1 = State#state{set_errors = sets:new()},
 
     Offset   = CompactionPrms#compaction_prms.next_offset,
     Metadata = CompactionPrms#compaction_prms.metadata,
+
+    %% Temporally suspend the compaction in order to decrease i/o load
+    case (WaitingTime == 0) of
+        true  ->
+            void;
+        false ->
+            timer:sleep(WaitingTime)
+    end,
 
     %% Execute compaction
     case (Offset == ?AVS_SUPER_BLOCK_LEN) of
@@ -479,7 +517,7 @@ execute(#state{meta_db_id       = MetaDBId,
                 false ->
                     %% Insert into the temporary object-container.
                     {Ret_1, NewState} =
-                        case leo_object_storage_haystack:compact_put(
+                        case leo_object_storage_haystack:put_obj_to_new_cntnr(
                                StorageInfo#backend_info.write_handler, Metadata, Key, Body) of
                             {ok, Offset_1} ->
                                 Metadata_1 = Metadata#?METADATA{offset = Offset_1},
@@ -487,7 +525,7 @@ execute(#state{meta_db_id       = MetaDBId,
                                                 StorageInfo#backend_info.avs_ver_cur,
                                                 Metadata#?METADATA.addr_id,
                                                 Metadata#?METADATA.key),
-                                Ret = leo_backend_db_api:compact_put(
+                                Ret = leo_backend_db_api:put_value_to_new_db(
                                         MetaDBId, KeyOfMeta, term_to_binary(Metadata_1)),
 
                                 %% Calculate num of objects and total size of objects
@@ -520,7 +558,7 @@ execute_1(ok, #state{obj_storage_info = StorageInfo,
     ReadHandler = StorageInfo#backend_info.read_handler,
     NextOffset  = CompactionPrms#compaction_prms.next_offset,
 
-    case leo_object_storage_haystack:compact_get(
+    case leo_object_storage_haystack:get_obj_for_new_cntnr(
            ReadHandler, NextOffset) of
         {ok, NewMetadata, [_HeaderValue, NewKeyValue,
                            NewBodyValue, NewNextOffset]} ->
@@ -605,11 +643,11 @@ after_execute_1({ok, #state{meta_db_id       = MetaDBId,
         ok ->
             ok = leo_object_storage_server:switch_container(
                    ObjStorageId, FilePath, NumActiveObjs, SizeActiveObjs),
-            ok = leo_backend_db_api:compact_end(MetaDBId, true),
+            ok = leo_backend_db_api:finish_compaction(MetaDBId, true),
 
             {ok, State#state{result = ?RET_SUCCESS}};
         {error, Cause} ->
-            leo_backend_db_api:compact_end(MetaDBId, false),
+            leo_backend_db_api:finish_compaction(MetaDBId, false),
             {{error, Cause}, State#state{result = ?RET_FAIL}}
     end;
 
@@ -618,7 +656,7 @@ after_execute_1({_Error, #state{meta_db_id       = MetaDBId,
                                 obj_storage_info = StorageInfo} = State}) ->
     %% must reopen the original file when handling at another process:
     catch file:delete(StorageInfo#backend_info.file_path),
-    leo_backend_db_api:compact_end(MetaDBId, false),
+    leo_backend_db_api:finish_compaction(MetaDBId, false),
     {ok, State#state{result = ?RET_FAIL}}.
 
 
