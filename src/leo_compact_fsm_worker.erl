@@ -34,7 +34,7 @@
          suspend/1,
          resume/1,
          finish/1,
-         state/1]).
+         state/2]).
 
 %% gen_fsm callbacks
 -export([init/1,
@@ -45,17 +45,12 @@
          code_change/4,
          format_status/2]).
 
--export([idling/3,
+-export([idling/2, idling/3,
          running/2, running/3,
          suspending/2, suspending/3]).
 
 -compile(nowarn_deprecated_type).
 -define(DEF_TIMEOUT, timer:seconds(30)).
--define(RET_SUCCESS, 'success').
--define(RET_FAIL,    'fail').
--type(compaction_ret() :: ?RET_SUCCESS |
-                          ?RET_FAIL |
-                          undefined).
 
 -record(compaction_prms, {
           key_bin  = <<>> :: binary(),
@@ -146,11 +141,10 @@ finish(Id) ->
 %% @doc Retrieve the storage stats specfied by Id
 %%      which contains number of objects and so on.
 %%
--spec(state(atom()) ->
-             {ok, #storage_stats{}} |
-             {error, any()}).
-state(Id) ->
-    gen_fsm:sync_send_all_state_event(Id, state, ?DEF_TIMEOUT).
+-spec(state(atom(), pid()) ->
+             ok | {error, any()}).
+state(Id, Client) ->
+    gen_fsm:send_event(Id, {state, Client}).
 
 
 %%====================================================================
@@ -221,9 +215,9 @@ format_status(_Opt, [_PDict, State]) ->
 %%
 -spec(idling({?EVENT_RUN, pid(), function()} | _, _, #state{}) ->
              {next_state, ?ST_IDLING | ?ST_RUNNING, #state{}}).
-idling({?EVENT_RUN, ControllerPid, CallbackFun}, From,#state{id = Id,
-                                                             compaction_prms =
-                                                                 CompactionPrms} = State) ->
+idling({?EVENT_RUN, ControllerPid, CallbackFun}, From, #state{id = Id,
+                                                              compaction_prms =
+                                                                  CompactionPrms} = State) ->
     NextStatus = ?ST_RUNNING,
     State_1 = State#state{compact_cntl_pid = ControllerPid,
                           status     = NextStatus,
@@ -249,6 +243,16 @@ idling({?EVENT_RUN, ControllerPid, CallbackFun}, From,#state{id = Id,
     end;
 idling(_, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
+    NextStatus = ?ST_IDLING,
+    {next_state, NextStatus, State#state{status = NextStatus}}.
+
+-spec(idling({?EVENT_STATE, pid()}|_, #state{}) ->
+             {next_state, ?ST_IDLING, #state{}}).
+idling({?EVENT_STATE, Client}, State) ->
+    NextStatus = ?ST_IDLING,
+    erlang:send(Client, NextStatus),
+    {next_state, NextStatus, State#state{status = NextStatus}};
+idling(_, State) ->
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
 
@@ -308,7 +312,8 @@ running(?EVENT_SUSPEND, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}};
 
-running(?EVENT_FINISH, #state{compact_cntl_pid = CntlPid,
+running(?EVENT_FINISH, #state{obj_storage_id   = ObjStorageId,
+                              compact_cntl_pid = CntlPid,
                               obj_storage_info = #backend_info{file_path = FilePath},
                               start_datetime = StartDateTime,
                               result = Ret} = State) ->
@@ -316,6 +321,11 @@ running(?EVENT_FINISH, #state{compact_cntl_pid = CntlPid,
     Duration = EndDateTime - StartDateTime,
     StartDateTime_1 = lists:flatten(leo_date:date_format(StartDateTime)),
     EndDateTime_1   = lists:flatten(leo_date:date_format(EndDateTime)),
+    ok = leo_object_storage_server:append_compaction_history(
+           ObjStorageId, #compaction_hist{start_datetime = StartDateTime_1,
+                                          end_datetime   = EndDateTime_1,
+                                          duration       = Duration,
+                                          result = Ret}),
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "running/2"},
                            {line, ?LINE}, {body, [{file_path, FilePath},
@@ -334,14 +344,17 @@ running(?EVENT_FINISH, #state{compact_cntl_pid = CntlPid,
                                          start_datetime = 0,
                                          result = undefined
                                         }};
-
+running({?EVENT_STATE, Client}, State) ->
+    NextStatus = ?ST_RUNNING,
+    erlang:send(Client, NextStatus),
+    {next_state, NextStatus, State#state{status = NextStatus}};
 running(_, State) ->
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
 
 
 -spec(running( _, _, #state{}) ->
-             {next_state, 'suspend' | 'running', #state{}}).
+             {next_state, ?ST_SUSPENDING|?ST_RUNNING, #state{}}).
 running(_, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
     NextStatus = ?ST_RUNNING,
@@ -350,7 +363,16 @@ running(_, From, State) ->
 
 %% @doc State of 'suspend'
 %%
+-spec(suspending(?EVENT_RUN|{?EVENT_STATE, pid()}|_, #state{}) ->
+             {next_state, ?ST_SUSPENDING, #state{}}).
 suspending(?EVENT_RUN, State) ->
+    NextStatus = ?ST_SUSPENDING,
+    {next_state, NextStatus, State#state{status = NextStatus}};
+suspending({?EVENT_STATE, Client}, State) ->
+    NextStatus = ?ST_SUSPENDING,
+    erlang:send(Client, NextStatus),
+    {next_state, NextStatus, State#state{status = NextStatus}};
+suspending(_, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
 

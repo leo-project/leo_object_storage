@@ -86,8 +86,6 @@ compact() ->
     ok = put_regular_bin_with_cmeta(225, 15),
     ok = put_regular_bin(240, 10),
 
-    %%
-
     %% Check comaction status
     ok = check_status(),
 
@@ -101,15 +99,25 @@ compact() ->
     ok.
 
 check_status() ->
-    timer:sleep(250),
+    timer:sleep(100),
+    ID = 'leo_compact_worker_0',
     case leo_compact_fsm_controller:state() of
         {ok, #compaction_stats{status = ?ST_IDLING}} ->
             ok;
         {ok, #compaction_stats{locked_targets = []}} ->
             check_status();
-        {ok, #compaction_stats{locked_targets = ['leo_compact_worker_0'|_]}} ->
-            Ret = put_regular_bin_1(300),
-            ?assertEqual({error, ?ERROR_LOCKED_CONTAINER}, Ret),
+        {ok, #compaction_stats{locked_targets = [ID|_]}} ->
+            ok = leo_compact_fsm_worker:state(ID, self()),
+            receive
+                idling ->
+                    void;
+                _Status ->
+                    ?debugVal(_Status),
+                    Ret = put_regular_bin_1(300),
+                    ?assertEqual({error, ?ERROR_LOCKED_CONTAINER}, Ret)
+            end,
+            check_status();
+        {ok, _} ->
             check_status();
         Error ->
             Error

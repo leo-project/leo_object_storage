@@ -43,6 +43,7 @@
          get_backend_info/2,
          lock/1,
          switch_container/4,
+         append_compaction_history/2,
          get_compaction_worker/1
         ]).
 
@@ -216,6 +217,13 @@ switch_container(Id, FilePath, NumOfActiveObjs, SizeOfActiveObjs) ->
     gen_server:call(Id, {switch_container, FilePath,
                          NumOfActiveObjs, SizeOfActiveObjs}, ?DEF_TIMEOUT).
 
+
+%% @doc Append the history in the state
+%%
+append_compaction_history(Id, History) ->
+    gen_server:call(Id, {append_compaction_history, History}, ?DEF_TIMEOUT).
+
+
 %% @doc Retrieve the compaction worker
 %%
 get_compaction_worker(Id) ->
@@ -250,12 +258,14 @@ init([Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath, IsStrictCheck]) ->
             {ok, Props} ->
                 #storage_stats{
                    file_path    = ObjectStoragePath,
-                   total_sizes  = leo_misc:get_value('total_sizes',  Props, 0),
-                   active_sizes = leo_misc:get_value('active_sizes', Props, 0),
-                   total_num    = leo_misc:get_value('total_num',    Props, 0),
-                   active_num   = leo_misc:get_value('active_num',   Props, 0)
+                   total_sizes     = leo_misc:get_value('total_sizes',     Props, 0),
+                   active_sizes    = leo_misc:get_value('active_sizes',    Props, 0),
+                   total_num       = leo_misc:get_value('total_num',       Props, 0),
+                   active_num      = leo_misc:get_value('active_num',      Props, 0),
+                   compaction_hist = leo_misc:get_value('compaction_hist', Props, [])
                   };
-            _ -> #storage_stats{file_path = ObjectStoragePath}
+            _ ->
+                #storage_stats{file_path = ObjectStoragePath}
         end,
 
     %% open object-storage.
@@ -498,6 +508,27 @@ handle_call({switch_container, FilePath,
     State_2 = open_container(State_1),
     {reply, ok, State_2};
 
+%% Append the history in the state
+handle_call({append_compaction_history, History}, _From,
+            #state{storage_stats = StorageStats} = State) ->
+    %% Retrieve the current compaciton-histories
+    CurCompactHist = StorageStats#storage_stats.compaction_hist,
+    Len = length(CurCompactHist),
+
+    NewCompactHist = case CurCompactHist of
+                         [] ->
+                             [History];
+                         [_|Rest] when Len > ?MAX_LEN_HIST ->
+                             Rest ++ History;
+                         _ ->
+                             CurCompactHist ++ History
+                     end,
+    {reply, ok, State#state{
+                  storage_stats =
+                      StorageStats#storage_stats{
+                        compaction_hist = NewCompactHist}
+                 }};
+
 %% Retrieve the compaction worker
 handle_call(get_compaction_worker, _From,
             #state{compaction_worker_id = CompactionWorkerId} = State) ->
@@ -629,10 +660,11 @@ close_storage(Id, MetaDBId, StateFilePath,
     _ = leo_file:file_unconsult(
           StateFilePath,
           [{id, Id},
-           {total_sizes,  StorageStats#storage_stats.total_sizes},
-           {active_sizes, StorageStats#storage_stats.active_sizes},
-           {total_num,    StorageStats#storage_stats.total_num},
-           {active_num,   StorageStats#storage_stats.active_num}
+           {total_sizes,     StorageStats#storage_stats.total_sizes},
+           {active_sizes,    StorageStats#storage_stats.active_sizes},
+           {total_num,       StorageStats#storage_stats.total_num},
+           {active_num,      StorageStats#storage_stats.active_num},
+           {compaction_hist, StorageStats#storage_stats.compaction_hist}
           ]),
     ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
     ok = leo_backend_db_server:close(MetaDBId),

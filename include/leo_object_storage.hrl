@@ -56,14 +56,23 @@
 -define(EVENT_SUSPEND, 'suspend').
 -define(EVENT_RESUME,  'resume').
 -define(EVENT_FINISH,  'finish').
-%% -type(event_of_compaction() :: ?EVENT_RUN     |
-%%                                ?EVENT_SUSPEND |
-%%                                ?EVENT_RESUME  |
-%%                                ?EVENT_FINISH).
+-define(EVENT_STATE,   'state').
 
 %% @doc Compaction related definitions
--type(compaction_history()   :: {integer(), integer(), boolean()}).
--type(compaction_histories() :: [compaction_history()]).
+-define(RET_SUCCESS, 'success').
+-define(RET_FAIL,    'fail').
+-type(compaction_ret() :: ?RET_SUCCESS |
+                          ?RET_FAIL |
+                          undefined).
+
+-define(MAX_LEN_HIST, 50).
+
+-record(compaction_hist, {
+          start_datetime = [] :: string(),
+          end_datetime   = [] :: string(),
+          duration = 0 :: non_neg_integer(),
+          result :: compaction_ret()
+         }).
 
 -record(compaction_stats, {
           status = ?ST_IDLING :: state_of_compaction(),
@@ -266,12 +275,12 @@
 -define(OBJECT, 'object_1').
 
 -record(storage_stats, {
-          file_path            = [] :: string(),
-          total_sizes          = 0  :: non_neg_integer(),
-          active_sizes         = 0  :: non_neg_integer(),
-          total_num            = 0  :: non_neg_integer(),
-          active_num           = 0  :: non_neg_integer(),
-          compaction_histories = [] :: compaction_histories()
+          file_path       = [] :: string(),
+          total_sizes     = 0  :: non_neg_integer(),
+          active_sizes    = 0  :: non_neg_integer(),
+          total_num       = 0  :: non_neg_integer(),
+          active_num      = 0  :: non_neg_integer(),
+          compaction_hist = [] :: [#compaction_hist{}]
          }).
 
 %% apllication-env
