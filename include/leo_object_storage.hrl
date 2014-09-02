@@ -68,8 +68,8 @@
 -define(MAX_LEN_HIST, 50).
 
 -record(compaction_hist, {
-          start_datetime = [] :: string(),
-          end_datetime   = [] :: string(),
+          start_datetime = 0 :: non_neg_integer(),
+          end_datetime   = 0 :: non_neg_integer(),
           duration = 0 :: non_neg_integer(),
           result :: compaction_ret()
          }).
