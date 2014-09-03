@@ -25,20 +25,67 @@
 -define(APP_NAME, 'leo_object_storage').
 
 %% Default Values
+-define(AVS_FILE_EXT, ".avs").
 -define(DEF_METADATA_DB,              'bitcask').
 -define(DEF_OBJECT_STORAGE_SUB_DIR,   "object/").
 -define(DEF_METADATA_STORAGE_SUB_DIR, "metadata/").
 -define(DEF_STATE_SUB_DIR,            "state/").
+
+-define(SERVER_OBJ_STORAGE, 'object_storage').
+-define(SERVER_METADATA_DB, 'metadata_db').
 
 %% ETS-Table
 -define(ETS_CONTAINERS_TABLE, 'leo_object_storage_containers').
 -define(ETS_INFO_TABLE,       'leo_object_storage_info').
 
 %% regarding compaction
--define(ENV_COMPACTION_STATUS, 'compaction_status').
--define(STATE_COMPACTING,      'compacting').
--define(STATE_ACTIVE,          'active').
--type(storage_status() :: ?STATE_COMPACTING | ?STATE_ACTIVE).
+-define(ENV_COMPACTION_STATUS,    'compaction_status').
+-define(STATE_RUNNING_COMPACTION, 'compacting').
+-define(STATE_ACTIVE,             'active').
+-type(storage_status() :: ?STATE_RUNNING_COMPACTION | ?STATE_ACTIVE).
+
+-define(ST_IDLING,     'idling').
+-define(ST_RUNNING,    'running').
+-define(ST_SUSPENDING, 'suspending').
+-type(state_of_compaction() :: ?ST_IDLING  |
+                               ?ST_RUNNING |
+                               ?ST_SUSPENDING).
+
+-define(EVENT_RUN,     'run').
+-define(EVENT_LOCK,    'lock').
+-define(EVENT_SUSPEND, 'suspend').
+-define(EVENT_RESUME,  'resume').
+-define(EVENT_FINISH,  'finish').
+-define(EVENT_STATE,   'state').
+
+%% @doc Compaction related definitions
+-define(RET_SUCCESS, 'success').
+-define(RET_FAIL,    'fail').
+-type(compaction_ret() :: ?RET_SUCCESS |
+                          ?RET_FAIL |
+                          undefined).
+
+-define(MAX_LEN_HIST, 50).
+
+-record(compaction_hist, {
+          start_datetime = 0 :: non_neg_integer(),
+          end_datetime   = 0 :: non_neg_integer(),
+          duration = 0 :: non_neg_integer(),
+          result :: compaction_ret()
+         }).
+
+-record(compaction_stats, {
+          status = ?ST_IDLING :: state_of_compaction(),
+          total_num_of_targets    = 0  :: non_neg_integer(),
+          num_of_reserved_targets = 0  :: non_neg_integer(),
+          num_of_pending_targets  = 0  :: non_neg_integer(),
+          num_of_ongoing_targets  = 0  :: non_neg_integer(),
+          reserved_targets = []        :: [atom()],
+          pending_targets  = []        :: [atom()],
+          ongoing_targets  = []        :: [atom()],
+          locked_targets   = []        :: [atom()],
+          latest_exec_datetime = 0     :: non_neg_integer()
+         }).
 
 %% Error Constants
 %%
@@ -50,6 +97,7 @@
 -define(ERROR_COMPACT_RESUME_FAILURE,   "comaction-resume filure").
 -define(ERROR_PROCESS_NOT_FOUND,        "server process not found").
 -define(ERROR_COULD_NOT_GET_MOUNT_PATH, "could not get mout path").
+-define(ERROR_LOCKED_CONTAINER,          "locked obj-conatainer").
 
 
 -define(DEL_TRUE,  1).
@@ -122,16 +170,13 @@
 %% Records
 %%--------------------------------------------------------------------
 -record(backend_info, {
-          backend             :: atom(),
-          avs_version_bin_cur :: binary(),
-          avs_version_bin_prv :: binary(), %% need to know during compaction
-          file_path           :: string(),
-          file_path_raw       :: string(),
-          write_handler       :: pid(),
-          read_handler        :: pid(),
-          tmp_file_path_raw   :: string(),
-          tmp_write_handler   :: pid(),
-          tmp_read_handler    :: pid()
+          backend                    :: atom(),
+          avs_ver_cur = <<>> :: binary(),
+          avs_ver_prv = <<>> :: binary(), %% need to know during compaction
+          linked_path = []   :: string(),
+          file_path   = []   :: string(),
+          write_handler      :: pid(),
+          read_handler       :: pid()
          }).
 
 -record(metadata, { %% - leofs-v1.0.0-pre3
@@ -230,38 +275,13 @@
 -define(OBJECT, 'object_1').
 
 -record(storage_stats, {
-          file_path            = []    :: string(),
-          total_sizes          = 0     :: non_neg_integer(),
-          active_sizes         = 0     :: non_neg_integer(),
-          total_num            = 0     :: non_neg_integer(),
-          active_num           = 0     :: non_neg_integer(),
-          compaction_histories = []    :: compaction_histories(),
-          has_error            = false :: boolean()
+          file_path       = [] :: string(),
+          total_sizes     = 0  :: non_neg_integer(),
+          active_sizes    = 0  :: non_neg_integer(),
+          total_num       = 0  :: non_neg_integer(),
+          active_num      = 0  :: non_neg_integer(),
+          compaction_hist = [] :: [#compaction_hist{}]
          }).
-
-%% @doc Compaction related definitions
--type(compaction_history() :: {integer(), integer()}).
--type(compaction_histories() :: [compaction_history()]).
-
--define(COMPACTION_STATUS_IDLE,    'idle').
--define(COMPACTION_STATUS_RUNNING, 'running').
--define(COMPACTION_STATUS_SUSPEND, 'suspend').
--type(compaction_status() :: ?COMPACTION_STATUS_IDLE |
-                             ?COMPACTION_STATUS_RUNNING |
-                             ?COMPACTION_STATUS_SUSPEND).
-
--record(compaction_stats, {
-          status = ?COMPACTION_STATUS_IDLE :: compaction_status(),
-          total_num_of_targets    = 0  :: non_neg_integer(),
-          num_of_reserved_targets = 0  :: non_neg_integer(),
-          num_of_pending_targets  = 0  :: non_neg_integer(),
-          num_of_ongoing_targets  = 0  :: non_neg_integer(),
-          reserved_targets = []        :: list(),
-          pending_targets  = []        :: list(),
-          ongoing_targets  = []        :: list(),
-          latest_exec_datetime = 0     :: non_neg_integer()
-         }).
-
 
 %% apllication-env
 -define(env_metadata_db(),
@@ -284,3 +304,12 @@
 -define(PROP_CMETA_CLUSTER_ID, 'cluster_id').
 -define(PROP_CMETA_NUM_OF_REPLICAS, 'num_of_replicas').
 -define(PROP_CMETA_VER, 'ver').
+
+
+%% @doc Generate a raw file path
+-define(gen_raw_file_path(_FilePath),
+        lists:append([_FilePath, "_", integer_to_list(leo_date:now())])).
+
+%% @doc Retrieve object-storage info
+-define(get_obj_storage_info(_ObjStorageId),
+        leo_object_storage_server:get_backend_info(_ObjStorageId, ?SERVER_OBJ_STORAGE)).
