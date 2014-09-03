@@ -491,6 +491,12 @@ handle_call({switch_container, FilePath,
              NumOfActiveObjs, SizeOfActiveObjs}, _From,
             #state{object_storage = ObjectStorage,
                    storage_stats  = StorageStats} = State) ->
+    %% Close the handlers
+    #backend_info{
+       write_handler = WriteHandler,
+       read_handler  = ReadHandler} = ObjectStorage,
+    catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
+
     %% Delete the old container
     ok = file:delete(ObjectStorage#backend_info.file_path),
     State_1 = State#state{object_storage =
@@ -512,21 +518,21 @@ handle_call({switch_container, FilePath,
 handle_call({append_compaction_history, History}, _From,
             #state{storage_stats = StorageStats} = State) ->
     %% Retrieve the current compaciton-histories
-    CurCompactHist = StorageStats#storage_stats.compaction_hist,
-    Len = length(CurCompactHist),
+    CurHist = StorageStats#storage_stats.compaction_hist,
+    Len = length(CurHist),
 
-    NewCompactHist = case CurCompactHist of
-                         [] ->
-                             [History];
-                         [_|Rest] when Len > ?MAX_LEN_HIST ->
-                             Rest ++ History;
-                         _ ->
-                             CurCompactHist ++ History
-                     end,
+    NewHist = case CurHist of
+                  [] ->
+                      [History];
+                  [_|_] when Len > ?MAX_LEN_HIST ->
+                      [History|lists:sublist(CurHist, (?MAX_LEN_HIST - 1))];
+                  _ ->
+                      [History|CurHist]
+              end,
     {reply, ok, State#state{
                   storage_stats =
                       StorageStats#storage_stats{
-                        compaction_hist = NewCompactHist}
+                        compaction_hist = NewHist}
                  }};
 
 %% Retrieve the compaction worker
