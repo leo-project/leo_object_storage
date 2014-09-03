@@ -491,6 +491,12 @@ handle_call({switch_container, FilePath,
              NumOfActiveObjs, SizeOfActiveObjs}, _From,
             #state{object_storage = ObjectStorage,
                    storage_stats  = StorageStats} = State) ->
+    %% Close the handlers
+    #backend_info{
+       write_handler = WriteHandler,
+       read_handler  = ReadHandler} = ObjectStorage,
+    catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
+
     %% Delete the old container
     ok = file:delete(ObjectStorage#backend_info.file_path),
     State_1 = State#state{object_storage =
