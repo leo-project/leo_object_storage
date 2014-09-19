@@ -57,6 +57,12 @@
 -define(EVENT_RESUME,  'resume').
 -define(EVENT_FINISH,  'finish').
 -define(EVENT_STATE,   'state').
+-type(event_of_compaction() ::?EVENT_RUN |
+                              ?EVENT_LOCK |
+                              ?EVENT_SUSPEND |
+                              ?EVENT_RESUME |
+                              ?EVENT_FINISH |
+                              ?EVENT_STATE).
 
 %% @doc Compaction related definitions
 -define(RET_SUCCESS, 'success').
@@ -165,6 +171,7 @@
 -define(BLEN_HEADER,      1024). %% 128 Byte
 -define(LEN_PADDING,         8). %% footer
 
+-type(addrid_and_key() :: {non_neg_integer(), binary()}).
 
 %%--------------------------------------------------------------------
 %% Records

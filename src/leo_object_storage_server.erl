@@ -21,6 +21,7 @@
 %% ---------------------------------------------------------------------
 %% Leo Object Storage - Server
 %% @doc
+%% @reference
 %% @end
 %%======================================================================
 -module(leo_object_storage_server).
@@ -86,22 +87,35 @@
 %%====================================================================
 %% API
 %%====================================================================
-%% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
-%% Description: Starts the server
--spec(start_link(atom(), non_neg_integer(), atom(), atom(), string()) ->
-             {ok, pid()} | {error, any()}).
+%% @doc Starts the server
+%%
+-spec(start_link(Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath) ->
+             {ok, pid()} | {error, any()} when Id::atom(),
+                                               SeqNo::non_neg_integer(),
+                                               MetaDBId::atom(),
+                                               CompactionWorkerId::atom(),
+                                               RootPath::string()).
 start_link(Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath) ->
     start_link(Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath, false).
 
--spec(start_link(atom(), non_neg_integer(), atom(), atom(), string(), boolean()) ->
-             {ok, pid()} | {error, any()}).
+%% @doc Starts the server with strict-check
+%%
+-spec(start_link(Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath, IsStrictCheck) ->
+             {ok, pid()} | {error, any()} when Id::atom(),
+                                               SeqNo::non_neg_integer(),
+                                               MetaDBId::atom(),
+                                               CompactionWorkerId::atom(),
+                                               RootPath::string(),
+                                               IsStrictCheck::boolean()).
 start_link(Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath, IsStrictCheck) ->
     gen_server:start_link({local, Id}, ?MODULE,
                           [Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath, IsStrictCheck], []).
 
+
 %% @doc Stop this server
 %%
--spec(stop(atom()) -> ok).
+-spec(stop(Id) ->
+             ok when Id::atom()).
 stop(Id) ->
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "stop/1"},
@@ -114,48 +128,63 @@ stop(Id) ->
 %%--------------------------------------------------------------------
 %% @doc Insert an object and an object's metadata into the object-storage
 %%
--spec(put(atom(), #?OBJECT{}) ->
-             ok | {error, any()}).
+-spec(put(Id, Object) ->
+             ok | {error, any()} when Id::atom(),
+                                      Object::#?OBJECT{}).
 put(Id, Object) ->
     gen_server:call(Id, {put, Object}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve an object from the object-storage
 %%
--spec(get(atom(), tuple(), integer(), integer()) ->
-             {ok, #?METADATA{}, #?OBJECT{}} | not_found | {error, any()}).
-get(Id, Key, StartPos, EndPos) ->
-    gen_server:call(Id, {get, Key, StartPos, EndPos}, ?DEF_TIMEOUT).
+-spec(get(Id, AddrIdAndKey, StartPos, EndPos) ->
+             {ok, #?METADATA{}, #?OBJECT{}} |
+             not_found |
+             {error, any()} when Id::atom(),
+                                 AddrIdAndKey::addrid_and_key(),
+                                 StartPos::non_neg_integer(),
+                                 EndPos::non_neg_integer()).
+get(Id, AddrIdAndKey, StartPos, EndPos) ->
+    gen_server:call(Id, {get, AddrIdAndKey, StartPos, EndPos}, ?DEF_TIMEOUT).
 
 
 %% @doc Remove an object from the object-storage - (logical-delete)
 %%
--spec(delete(atom(), #?OBJECT{}) ->
-             ok | {error, any()}).
+-spec(delete(Id, Object) ->
+             ok | {error, any()} when Id::atom(),
+                                      Object::#?OBJECT{}).
 delete(Id, Object) ->
     gen_server:call(Id, {delete, Object}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve an object's metadata from the object-storage
 %%
--spec(head(atom(), tuple()) ->
-             {ok, binary()} | not_found | {error, any()}).
+-spec(head(Id, AddrIdAndKey) ->
+             {ok, binary()} |
+             not_found |
+             {error, any()} when Id::atom(),
+                                 AddrIdAndKey::addrid_and_key()).
 head(Id, Key) ->
     gen_server:call(Id, {head, Key}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve objects from the object-storage by Key and Function
 %%
--spec(fetch(atom(), any(), fun(), non_neg_integer()|undefined) ->
-             {ok, list()} | {error, any()}).
+-spec(fetch(Id, Key, Fun, MaxKeys) ->
+             {ok, list()} | {error, any()} when Id::atom(),
+                                                Key::any(),
+                                                Fun::function(),
+                                                MaxKeys::non_neg_integer()|undefined).
 fetch(Id, Key, Fun, MaxKeys) ->
     gen_server:call(Id, {fetch, Key, Fun, MaxKeys}, ?DEF_TIMEOUT).
 
 
 %% @doc Store metadata and data
 %%
--spec(store(atom(), #?METADATA{}, binary()) ->
-             ok | {error, any()}).
+-spec(store(Id, Metadata, Bin) ->
+             ok | {error, any()} when Id::atom(),
+                                      Metadata::#?METADATA{},
+                                      Bin::binary()).
 store(Id, Metadata, Bin) ->
     gen_server:call(Id, {store, Metadata, Bin}, ?DEF_TIMEOUT).
 
@@ -163,9 +192,9 @@ store(Id, Metadata, Bin) ->
 %% @doc Retrieve the storage stats specfied by Id
 %%      which contains number of objects and so on.
 %%
--spec(get_stats(atom()) ->
+-spec(get_stats(Id) ->
              {ok, #storage_stats{}} |
-             {error, any()}).
+             {error, any()} when Id::atom()).
 get_stats(Id) ->
     gen_server:call(Id, get_stats, ?DEF_TIMEOUT).
 
@@ -173,14 +202,16 @@ get_stats(Id) ->
 %% @doc Retrieve the storage stats specfied by Id
 %%      which contains number of objects and so on.
 %%
--spec(set_stats(atom(), #storage_stats{}) ->
-             ok).
+-spec(set_stats(Id, StorageStats) ->
+             ok when Id::atom(),
+                     StorageStats::#storage_stats{}).
 set_stats(Id, StorageStats) ->
     gen_server:call(Id, {set_stats, StorageStats}, ?DEF_TIMEOUT).
 
 
-%% @doc Get AVS format version binary like <<"LeoFS AVS-2.2">>
--spec(get_avs_version_bin(atom()) -> ok).
+%% @doc Get AVS format version binary like "LeoFS AVS-2.2"
+-spec(get_avs_version_bin(Id) ->
+             ok when Id::atom()).
 get_avs_version_bin(Id) ->
     gen_server:call(Id, get_avs_version_bin, ?DEF_TIMEOUT).
 
@@ -188,31 +219,46 @@ get_avs_version_bin(Id) ->
 %% @doc Retrieve a metada/data from backend_db/object-storage
 %%      AND calc MD5 based on the body data
 %%
--spec(head_with_calc_md5(atom(), tuple(), any()) ->
-             {ok, #?METADATA{}, any()} | {error, any()}).
+-spec(head_with_calc_md5(Id, Key, MD5Context) ->
+             {ok, #?METADATA{}, any()} | {error, any()} when Id::atom(),
+                                                             Key::tuple(),
+                                                             MD5Context::any()).
 head_with_calc_md5(Id, Key, MD5Context) ->
     gen_server:call(Id, {head_with_calc_md5, Key, MD5Context}, ?DEF_TIMEOUT).
 
 
 %% @doc Close the object-container
 %%
+-spec(close(Id) ->
+             ok when Id::atom()).
 close(Id) ->
     gen_server:call(Id, close, ?DEF_TIMEOUT).
 
+
 %% @doc Retrieve object-storage/metadata-storage info
 %%
+-spec(get_backend_info(Id, ServerType) ->
+             {ok, #backend_info{}} when Id::atom(),
+                                        ServerType::?SERVER_OBJ_STORAGE).
 get_backend_info(Id, ServerType) ->
     gen_server:call(Id, {get_backend_info, ServerType}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve object-storage/metadata-storage info
 %%
+-spec(lock(Id) ->
+             ok when Id::atom()).
 lock(Id) ->
     gen_server:call(Id, lock, ?DEF_TIMEOUT).
 
 
 %% @doc Open the object-container
 %%
+-spec(switch_container(Id, FilePath, NumOfActiveObjs, SizeOfActiveObjs) ->
+             ok when Id::atom(),
+                     FilePath::string(),
+                     NumOfActiveObjs::non_neg_integer(),
+                     SizeOfActiveObjs::non_neg_integer()).
 switch_container(Id, FilePath, NumOfActiveObjs, SizeOfActiveObjs) ->
     gen_server:call(Id, {switch_container, FilePath,
                          NumOfActiveObjs, SizeOfActiveObjs}, ?DEF_TIMEOUT).
@@ -220,12 +266,18 @@ switch_container(Id, FilePath, NumOfActiveObjs, SizeOfActiveObjs) ->
 
 %% @doc Append the history in the state
 %%
+-spec(append_compaction_history(Id, History) ->
+             ok when Id::atom(),
+                     History::tuple()).
 append_compaction_history(Id, History) ->
     gen_server:call(Id, {append_compaction_history, History}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve the compaction worker
 %%
+-spec(get_compaction_worker(Id) ->
+              {ok, CompactionWorkerId} when Id::atom(),
+                                            CompactionWorkerId::atom()).
 get_compaction_worker(Id) ->
     gen_server:call(Id, get_compaction_worker, ?DEF_TIMEOUT).
 
@@ -243,11 +295,7 @@ add_incorrect_data(Id, Bin) ->
 %%====================================================================
 %% GEN_SERVER CALLBACKS
 %%====================================================================
-%% Function: init(Args) -> {ok, State}          |
-%%                         {ok, State, Timeout} |
-%%                         ignore               |
-%%                         {stop, Reason}
-%% Description: Initiates the server
+%% @doc Initiates the server
 init([Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath, IsStrictCheck]) ->
     ObjectStorageDir  = lists:append([RootPath, ?DEF_OBJECT_STORAGE_SUB_DIR]),
     ObjectStoragePath = lists:append([ObjectStorageDir, integer_to_list(SeqNo), ?AVS_FILE_EXT]),
@@ -304,6 +352,7 @@ init([Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath, IsStrictCheck]) ->
     end.
 
 
+%% @doc gen_server callback - Module:handle_call(Request, From, State) -> Result
 handle_call(stop, _From, State) ->
     {stop, shutdown, ok, State};
 
@@ -547,26 +596,24 @@ handle_call({add_incorrect_data,_Bin},
     {reply, ok, State}.
 
 
-%% Function: handle_cast(Msg, State) -> {noreply, State}          |
-%%                                      {noreply, State, Timeout} |
-%%                                      {stop, Reason, State}
-%% Description: Handling cast message
+%% @doc Handling cast message
+%% <p>
+%% gen_server callback - Module:handle_cast(Request, State) -> Result.
+%% </p>
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
 
-%% Function: handle_info(Info, State) -> {noreply, State}          |
-%%                                       {noreply, State, Timeout} |
-%%                                       {stop, Reason, State}
-%% Description: Handling all non call/cast messages
+%% @doc Handling all non call/cast messages
+%% <p>
+%% gen_server callback - Module:handle_info(Info, State) -> Result.
+%% </p>
 handle_info(_Info, State) ->
     {noreply, State}.
 
-%% Function: terminate(Reason, State) -> void()
-%% Description: This function is called by a gen_server when it is about to
-%% terminate. It should be the opposite of Module:init/1 and do any necessary
-%% cleaning up. When it returns, the gen_server terminates with Reason.
-%% The return value is ignored.
+%% @doc This function is called by a gen_server when it is about to
+%%      terminate. It should be the opposite of Module:init/1 and do any necessary
+%%      cleaning up. When it returns, the gen_server terminates with Reason.
 terminate(_Reason, #state{id = Id,
                           meta_db_id = MetaDBId,
                           state_filepath = StateFilePath,
@@ -580,8 +627,7 @@ terminate(_Reason, #state{id = Id,
                        StorageStats, WriteHandler, ReadHandler),
     ok.
 
-%% Func: code_change(OldVsn, State, Extra) -> {ok, NewState}
-%% Description: Convert process state when code is changed
+%% @doc Convert process state when code is changed
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 

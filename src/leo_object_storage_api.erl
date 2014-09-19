@@ -21,6 +21,7 @@
 %% ---------------------------------------------------------------------
 %% Leo Object Storage - API
 %% @doc
+%% @reference
 %% @end
 %%======================================================================
 -module(leo_object_storage_api).
@@ -54,14 +55,14 @@
 %%--------------------------------------------------------------------
 %% @doc Create object-storage processes
 %%
--spec(start([tuple()]) ->
-             ok | {error, any()}).
+-spec(start(Option) ->
+             ok | {error, any()} when Option::[{pos_integer(), string()}]).
 start([]) ->
     {error, badarg};
-start(ObjectStorageInfo) ->
+start(Option) ->
     case start_app() of
         ok ->
-            leo_object_storage_sup:start_child(ObjectStorageInfo);
+            leo_object_storage_sup:start_child(Option);
         {error, Cause} ->
             {error, Cause}
     end.
@@ -70,55 +71,71 @@ start(ObjectStorageInfo) ->
 %% @doc Insert an object into the object-storage
 %% @param Key = {$VNODE_ID, $OBJ_KEY}
 %%
--spec(put(tuple(), #?OBJECT{}) ->
-             {ok, integer()} | {error, any()}).
+-spec(put(AddrIdAndKey, Object) ->
+             {ok, integer()} | {error, any()} when AddrIdAndKey::addrid_and_key(),
+                                                   Object::#?OBJECT{}).
 put(AddrIdAndKey, Object) ->
     do_request(put, [AddrIdAndKey, Object]).
 
 
 %% @doc Retrieve an object and a metadata from the object-storage
 %%
--spec(get(tuple()) ->
-             {ok, list()} | not_found | {error, any()}).
+-spec(get(AddrIdAndKey) ->
+             {ok, list()} | not_found | {error, any()} when AddrIdAndKey::addrid_and_key()).
 get(AddrIdAndKey) ->
     get(AddrIdAndKey, 0, 0).
 
--spec(get(tuple(), integer(), integer()) ->
-             {ok, #?METADATA{}, #?OBJECT{}} | not_found | {error, any()}).
+-spec(get(AddrIdAndKey, StartPos, EndPos) ->
+             {ok, #?METADATA{}, #?OBJECT{}} |
+             not_found |
+             {error, any()} when AddrIdAndKey::addrid_and_key(),
+                                 StartPos::non_neg_integer(),
+                                 EndPos::non_neg_integer()).
 get(AddrIdAndKey, StartPos, EndPos) ->
     do_request(get, [AddrIdAndKey, StartPos, EndPos]).
 
 
 %% @doc Remove an object from the object-storage
 %%
--spec(delete(tuple(), #?OBJECT{}) ->
-             ok | {error, any()}).
+-spec(delete(AddrIdAndKey, Object) ->
+             ok | {error, any()} when AddrIdAndKey::addrid_and_key(),
+                                      Object::#?OBJECT{}).
 delete(AddrIdAndKey, Object) ->
     do_request(delete, [AddrIdAndKey, Object]).
 
 
 %% @doc Retrieve a metadata from the object-storage
 %%
--spec(head(tuple()) ->
-             {ok, binary()} | not_found | {error, any()}).
+-spec(head(AddrIdAndKey) ->
+             {ok, binary()} |
+             not_found |
+             {error, any()} when AddrIdAndKey::addrid_and_key()).
 head(AddrIdAndKey) ->
     do_request(head, [AddrIdAndKey]).
+
 
 %% @doc Retrieve a metada/data from backend_db/object-storage
 %%      AND calc MD5 based on the body data
 %%
--spec(head_with_calc_md5(tuple(), any()) ->
-             {ok, metadata, any()} | {error, any()}).
+-spec(head_with_calc_md5(AddrIdAndKey, MD5Context) ->
+             {ok, metadata, any()} | {error, any()} when AddrIdAndKey::addrid_and_key(),
+                                                         MD5Context::any()).
 head_with_calc_md5(AddrIdAndKey, MD5Context) ->
     do_request(head_with_calc_md5, [AddrIdAndKey, MD5Context]).
 
 
 %% @doc Fetch objects by ring-address-id
 %%
--spec(fetch_by_addr_id(_, fun()) ->
-             {ok, []} | not_found).
+-spec(fetch_by_addr_id(AddrId, Fun) ->
+             {ok, []} | not_found when AddrId::non_neg_integer(),
+                                       Fun::function()).
 fetch_by_addr_id(AddrId, Fun) ->
     fetch_by_addr_id(AddrId, Fun, undefined).
+
+-spec(fetch_by_addr_id(AddrId, Fun, MaxKeys) ->
+             {ok, []} | not_found when AddrId::non_neg_integer(),
+                                       Fun::function(),
+                                       MaxKeys::non_neg_integer()).
 fetch_by_addr_id(AddrId, Fun, MaxKeys) ->
     case get_object_storage_pid(all) of
         [] ->
@@ -139,7 +156,7 @@ fetch_by_addr_id_1([],_,_,_,Acc) ->
     lists:reverse(lists:flatten(Acc));
 fetch_by_addr_id_1([H|T], AddrId, Fun, MaxKeys, Acc) ->
     Acc_1 = case ?SERVER_MODULE:fetch(
-                          H, {AddrId, <<>>}, Fun, MaxKeys) of
+                    H, {AddrId, <<>>}, Fun, MaxKeys) of
                 {ok, Val} ->
                     [Val|Acc];
                 _ ->
@@ -149,12 +166,16 @@ fetch_by_addr_id_1([H|T], AddrId, Fun, MaxKeys, Acc) ->
 
 %% @doc Fetch objects by key (object-name)
 %%
--spec(fetch_by_key(binary(), function()) ->
-             {ok, list()} | not_found).
+-spec(fetch_by_key(Key, Fun) ->
+             {ok, list()} | not_found when Key::binary(),
+                                           Fun::function()).
 fetch_by_key(Key, Fun) ->
     fetch_by_key(Key, Fun, undefined).
--spec(fetch_by_key(binary(), function(), pos_integer()|undefined) ->
-             {ok, list()} | not_found).
+
+-spec(fetch_by_key(Key, Fun, MaxKeys) ->
+             {ok, list()} | not_found when Key::binary(),
+                                           Fun::function(),
+                                           MaxKeys::non_neg_integer()|undefined).
 fetch_by_key(Key, Fun, MaxKeys) ->
     case get_object_storage_pid(all) of
         [] ->
@@ -181,8 +202,9 @@ fetch_by_key(Key, Fun, MaxKeys) ->
 
 %% @doc Store metadata and data
 %%
--spec(store(#?METADATA{}, binary()) ->
-             ok | {error, any()}).
+-spec(store(Metadata, Bin) ->
+             ok | {error, any()} when Metadata::#?METADATA{},
+                                      Bin::binary()).
 store(Metadata, Bin) ->
     do_request(store, [Metadata, Bin]).
 
@@ -309,7 +331,7 @@ do_request(put, [Key, Object]) ->
 do_request(delete, [Key, Object]) ->
     KeyBin = term_to_binary(Key),
     case get_object_storage_pid(KeyBin) of
-    [Pid|_] ->
+        [Pid|_] ->
             ?SERVER_MODULE:delete(Pid, Object);
         _ ->
             {error, ?ERROR_PROCESS_NOT_FOUND}

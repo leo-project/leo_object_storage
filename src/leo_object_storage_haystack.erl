@@ -21,6 +21,7 @@
 %% ---------------------------------------------------------------------
 %% Leo Object Storage - Haystack.
 %% @doc
+%% @reference
 %% @end
 %%======================================================================
 -module(leo_object_storage_haystack).
@@ -57,8 +58,8 @@
 %%--------------------------------------------------------------------
 %% @doc Open and clreate a file.
 %%
--spec(calc_obj_size(#?METADATA{}|#?OBJECT{}) ->
-             non_neg_integer()).
+-spec(calc_obj_size(MetadataOrObject) ->
+             non_neg_integer() when MetadataOrObject::#?METADATA{}|#?OBJECT{}).
 calc_obj_size(#?METADATA{ksize = KSize,
                          dsize = DSize,
                          cnumber = 0}) ->
@@ -75,19 +76,23 @@ calc_obj_size(#?OBJECT{key  = Key}) ->
     KSize = byte_size(Key),
     calc_obj_size(KSize, 0).
 
--spec(calc_obj_size(non_neg_integer(), non_neg_integer()) ->
-             integer()).
+-spec(calc_obj_size(KSize, DSize) ->
+             non_neg_integer() when KSize::non_neg_integer(),
+                                    DSize::non_neg_integer()).
 calc_obj_size(KSize, DSize) ->
     erlang:round(?BLEN_HEADER/8 + KSize + DSize + ?LEN_PADDING).
 
 
--spec(open(FilePath::string()) ->
-             {ok, port(), port(), binary()} | {error, any()}).
+%% @doc Open a new or existing datastore
+-spec(open(FilePath) ->
+             {ok, port(), port(), binary()} | {error, any()} when FilePath::string()).
 open(FilePath) ->
     open(FilePath, read_and_write).
 
--spec(open(FilePath::string(), read_and_write|read|write) ->
-             {ok, port(), port(), binary()} | {error, any()}).
+-spec(open(FilePath, Option) ->
+             {ok, port(), port(), binary()} |
+             {error, any()} when FilePath::string(),
+                                 Option::read_and_write|read|write).
 open(FilePath, read_and_write) ->
     case create_file(FilePath) of
         {ok, WriteHandler} ->
@@ -139,8 +144,9 @@ open_read_handler(FilePath) ->
 
 %% @doc Close file handlers.
 %%
--spec(close(port()|_, port()|_) ->
-             ok).
+-spec(close(WriteHandler, ReadHandler) ->
+             ok when WriteHandler::port()|any(),
+                     ReadHandler::port()|any()).
 close(WriteHandler, ReadHandler) ->
     case WriteHandler of
         undefined -> void;
@@ -157,27 +163,44 @@ close(WriteHandler, ReadHandler) ->
 
 %% @doc Insert an object and a metadata into the object-storage
 %%
--spec(put(atom(), #backend_info{}, #?OBJECT{}) ->
-             {ok, integer()} | {error, any()}).
+-spec(put(MetaDBId, StorageInfo, Object) ->
+             {ok, integer()} | {error, any()} when MetaDBId::atom(),
+                                                   StorageInfo::#backend_info{},
+                                                   Object::#?OBJECT{}).
 put(MetaDBId, StorageInfo, Object) ->
     put_fun_1(MetaDBId, StorageInfo, Object).
 
 
-%% @doc Retrieve an object and a metadata from the object-storage
+%% @doc Retrieve an object and a metadata
 %%
--spec(get(atom(), #backend_info{}, binary()) ->
-             {ok, #?METADATA{}, #?OBJECT{}} | {error, any()}).
+-spec(get(MetaDBId, StorageInfo, Key) ->
+             {ok, #?METADATA{}, #?OBJECT{}} |
+             {error, any()} when MetaDBId::atom(),
+                                 StorageInfo::#backend_info{},
+                                 Key::binary()).
 get(MetaDBId, StorageInfo, Key) ->
     get(MetaDBId, StorageInfo, Key, 0, 0, false).
 
+%% @doc Retrieve part of an object and a metadata
+%%
+-spec(get(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck) ->
+             {ok, #?METADATA{}, #?OBJECT{}} |
+             {error, any()} when MetaDBId::atom(),
+                                 StorageInfo::#backend_info{},
+                                 Key::binary(),
+                                 StartPos::non_neg_integer(),
+                                 EndPos::non_neg_integer(),
+                                 IsStrictCheck::boolean()).
 get(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck) ->
     get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck).
 
 
 %% @doc Remove an object and a metadata from the object-storage
 %%
--spec(delete(atom(), #backend_info{}, #?OBJECT{}) ->
-             ok | {error, any()}).
+-spec(delete(MetaDBId, StorageInfo, Object) ->
+             ok | {error, any()} when MetaDBId::atom(),
+                                      StorageInfo::#backend_info{},
+                                      Object::#?OBJECT{}).
 delete(MetaDBId, StorageInfo, Object) ->
     case put_fun_1(MetaDBId, StorageInfo, Object) of
         {ok, _Checksum} ->
@@ -189,8 +212,9 @@ delete(MetaDBId, StorageInfo, Object) ->
 
 %% @doc Retrieve a metada from backend_db from the object-storage
 %%
--spec(head(atom(), binary()) ->
-             {ok, binary()} | not_found | {error, any()}).
+-spec(head(MetaDBId, Key) ->
+             {ok, binary()} | not_found | {error, any()} when MetaDBId::atom(),
+                                                              Key::binary()).
 head(MetaDBId, Key) ->
     case catch leo_backend_db_api:get(MetaDBId, Key) of
         {ok, MetadataBin} ->
@@ -211,8 +235,13 @@ head(MetaDBId, Key) ->
 %% @doc Retrieve a metada/data from backend_db/object-storage
 %%      AND calc MD5 based on the body data
 %%
--spec(head_with_calc_md5(atom(), #backend_info{}, binary(), any()) ->
-             {ok, #?METADATA{}} | not_found | {error, any()}).
+-spec(head_with_calc_md5(MetaDBId, StorageInfo, Key, MD5Context) ->
+             {ok, #?METADATA{}} |
+             not_found |
+             {error, any()} when MetaDBId::atom(),
+                                 StorageInfo::#backend_info{},
+                                 Key:: binary(),
+                                 MD5Context::any()).
 head_with_calc_md5(MetaDBId, StorageInfo, Key, MD5Context) ->
     case get_fun(MetaDBId, StorageInfo, Key, 0, 0, false) of
         {ok, #?METADATA{cnumber = 0} = Meta, #?OBJECT{data = Bin}} ->
@@ -227,8 +256,13 @@ head_with_calc_md5(MetaDBId, StorageInfo, Key, MD5Context) ->
 
 %% @doc Fetch objects from the object-storage
 %%
--spec(fetch(atom(), binary(), function(), pos_integer()|undefined) ->
-             {ok, list()} | not_found | {error, any()}).
+-spec(fetch(MetaDBId, Key, Fun, MaxKeys) ->
+             {ok, list()} |
+             not_found |
+             {error, any()} when MetaDBId::atom(),
+                                 Key::binary(),
+                                 Fun::function(),
+                                 MaxKeys::pos_integer()|undefined).
 fetch(MetaDBId, Key, Fun, undefined) ->
     leo_backend_db_api:fetch(MetaDBId, Key, Fun);
 fetch(MetaDBId, Key, Fun, MaxKeys) ->
@@ -237,8 +271,11 @@ fetch(MetaDBId, Key, Fun, MaxKeys) ->
 
 %% @doc Store metadata and binary
 %%
--spec(store(atom(), #backend_info{}, #?METADATA{}, binary()) ->
-             ok | {error, any()}).
+-spec(store(MetaDBId, StorageInfo, Metadata, Bin) ->
+             ok | {error, any()} when MetaDBId::atom(),
+                                      StorageInfo::#backend_info{},
+                                      Metadata::#?METADATA{},
+                                      Bin::binary()).
 store(MetaDBId, StorageInfo, Metadata, Bin) ->
     Object_1 = leo_object_storage_transformer:metadata_to_object(Metadata),
     Object_2 = Object_1#?OBJECT{data = Bin},

@@ -21,6 +21,7 @@
 %% ---------------------------------------------------------------------
 %% Leo Object Storage - Supervisor
 %% @doc
+%% @reference
 %% @end
 %%======================================================================
 -module(leo_object_storage_sup).
@@ -94,7 +95,7 @@ init([]) ->
 %% ---------------------------------------------------------------------
 %% API-2
 %% ---------------------------------------------------------------------
--spec(start_child([tuple()]) ->
+-spec(start_child([{pos_integer(), string()}]) ->
              ok | no_return()).
 start_child(ObjectStorageInfo) ->
     %% initialize ets-tables
