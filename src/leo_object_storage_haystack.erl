@@ -379,7 +379,9 @@ open_fun(_FilePath, 3) ->
 open_fun(FilePath, RetryTimes) ->
     timer:sleep(100),
 
-    case filelib:is_file(FilePath) of
+    case catch filelib:is_file(FilePath) of
+        {'EXIT', Cause} ->
+            {error, Cause};
         false ->
             case file:open(FilePath, [raw, write,  binary, append]) of
                 {ok, FileHandler} ->

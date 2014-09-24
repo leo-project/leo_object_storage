@@ -34,7 +34,9 @@
 
 %% API
 -export([start_link/0]).
--export([start/3, stop/1,
+-export([run/3,
+         diagnose/0,
+         stop/1,
          lock/1,
          suspend/0, resume/0,
          state/0, finish/2]).
@@ -55,6 +57,7 @@
          suspending/3]).
 
 -record(state, {max_num_of_concurrent = 1 :: non_neg_integer(),
+                is_diagnose = false       :: boolean(),
                 callback_fun              :: function() | undefined,
                 total_num_of_targets = 0  :: non_neg_integer(),
                 reserved_targets = []     :: [atom()],
@@ -67,11 +70,12 @@
                }).
 
 -record(event_info, {id :: atom(),
-                     event = ?EVENT_RUN :: event_of_compaction(),
-                     client_pid         :: pid(),
-                     target_pids = []   :: [atom()],
-                     finished_id        :: atom(),
-                     max_conns = 1      :: pos_integer(),
+                     event = ?EVENT_RUN  :: event_of_compaction(),
+                     client_pid          :: pid(),
+                     target_pids = []    :: [atom()],
+                     finished_id         :: atom(),
+                     max_conns = 1       :: pos_integer(),
+                     is_diagnose = false :: boolean(),
                      callback :: function()
                     }).
 -define(DEF_TIMEOUT, 3000).
@@ -91,51 +95,73 @@ start_link() ->
 %%--------------------------------------------------------------------
 %% @doc Request launch of data-compaction to the data-compaction's workers
 %% @end
--spec(start(TargetPids, MaxConn, CallbackFun) ->
+-spec(run(TargetPids, MaxConn, CallbackFun) ->
              term() when TargetPids::[pid()|atom()],
                          MaxConn::pos_integer(),
                          CallbackFun::function()).
-start(TargetPids, MaxConn, CallbackFun) ->
-    gen_fsm:sync_send_event(?MODULE, #event_info{event = ?EVENT_RUN,
-                                                 target_pids = TargetPids,
-                                                 max_conns   = MaxConn,
-                                                 callback    = CallbackFun}, ?DEF_TIMEOUT).
+run(TargetPids, MaxConn, CallbackFun) ->
+    gen_fsm:sync_send_event(
+      ?MODULE, #event_info{event = ?EVENT_RUN,
+                           target_pids = TargetPids,
+                           max_conns   = MaxConn,
+                           is_diagnose = false,
+                           callback    = CallbackFun}, ?DEF_TIMEOUT).
+
+
+%% @doc Request diagnosing data-compaction to the data-compaction's workers
+%% @end
+-spec(diagnose() ->
+             term()).
+diagnose() ->
+    TargetPids = leo_object_storage_api:get_object_storage_pid('all'),
+    gen_fsm:sync_send_event(
+      ?MODULE, #event_info{event = ?EVENT_RUN,
+                           target_pids = TargetPids,
+                           max_conns   = 1,
+                           is_diagnose = true,
+                           callback    = undefined}, ?DEF_TIMEOUT).
+
 
 %% @doc Request stop of data-compaction to the data-compaction's workers
 %% @end
 -spec(stop(Id) ->
              term() when Id::atom()).
 stop(_Id) ->
-    gen_fsm:sync_send_all_state_event(?MODULE, stop, ?DEF_TIMEOUT).
+    gen_fsm:sync_send_all_state_event(
+      ?MODULE, stop, ?DEF_TIMEOUT).
 
 
 %% @doc Request 'lock'
 -spec(lock(Id) ->
              term() when Id::atom()).
 lock(Id) ->
-    gen_fsm:send_event(?MODULE, #event_info{id = Id,
-                                            event = ?EVENT_LOCK}).
+    gen_fsm:send_event(
+      ?MODULE, #event_info{id = Id,
+                           event = ?EVENT_LOCK}).
 
 
 %% @doc Request 'suspend compaction' to the data-compaction's workers
 -spec(suspend() ->
              term()).
 suspend() ->
-    gen_fsm:sync_send_event(?MODULE, #event_info{event = ?EVENT_SUSPEND}, ?DEF_TIMEOUT).
+    gen_fsm:sync_send_event(
+      ?MODULE, #event_info{event = ?EVENT_SUSPEND}, ?DEF_TIMEOUT).
 
 
 %% @doc Request 'resume compaction' to the data-compaction's workers
 -spec(resume() ->
              term()).
 resume() ->
-    gen_fsm:sync_send_event(?MODULE, #event_info{event = ?EVENT_RESUME}, ?DEF_TIMEOUT).
+    gen_fsm:sync_send_event(
+      ?MODULE, #event_info{event = ?EVENT_RESUME}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve the all compaction statuses from the data-compaction's workers
 -spec(state() ->
              term()).
 state() ->
-    gen_fsm:sync_send_all_state_event(?MODULE, state, ?DEF_TIMEOUT).
+    gen_fsm:sync_send_all_state_event(
+      ?MODULE, state, ?DEF_TIMEOUT).
 
 
 %% @doc Terminate a child
@@ -143,9 +169,10 @@ state() ->
              term() when Pid::pid(),
                          FinishedId::atom()).
 finish(Pid, FinishedId) ->
-    gen_fsm:send_event(?MODULE, #event_info{event = ?EVENT_FINISH,
-                                            client_pid = Pid,
-                                            finished_id = FinishedId}).
+    gen_fsm:send_event(
+      ?MODULE, #event_info{event = ?EVENT_FINISH,
+                           client_pid = Pid,
+                           finished_id = FinishedId}).
 
 
 %%====================================================================
@@ -174,6 +201,7 @@ init([]) ->
 idling(#event_info{event = ?EVENT_RUN,
                    target_pids = TargetPids,
                    max_conns   = MaxConn,
+                   is_diagnose = IsDiagnose,
                    callback    = Callback}, From, State) ->
     AllTargets      = leo_object_storage_api:get_object_storage_pid('all'),
     PendingTargets  = State#state.pending_targets,
@@ -192,6 +220,7 @@ idling(#event_info{event = ?EVENT_RUN,
                                    pending_targets       = TargetPids,
                                    reserved_targets      = ReservedTargets,
                                    max_num_of_concurrent = MaxConn,
+                                   is_diagnose           = IsDiagnose,
                                    callback_fun          = Callback,
                                    start_datetime        = leo_date:now()}),
     gen_fsm:reply(From, ok),
@@ -218,11 +247,6 @@ idling(#event_info{event = ?EVENT_FINISH}, State) ->
                  when EventInfo::#event_info{} | ?EVENT_SUSPEND | any(),
                       From::{pid(),Tag::atom()},
                       State::#state{}).
-running(#event_info{event = ?EVENT_RUN}, From, State) ->
-    gen_fsm:reply(From, {error, badstate}),
-    NextState = ?ST_RUNNING,
-    {next_state, NextState, State#state{status = NextState}};
-
 running(#event_info{event = ?EVENT_SUSPEND}, From, #state{child_pids = ChildPids} = State) ->
     [erlang:send(Pid, suspend) || {Pid, _} <- orddict:to_list(ChildPids)],
     gen_fsm:reply(From, ok),
@@ -249,9 +273,10 @@ running(#event_info{id = Id,
 running(#event_info{event = ?EVENT_FINISH,
                     client_pid = Pid,
                     finished_id = FinishedId}, #state{pending_targets = [Id|Rest],
-                                                      ongoing_targets = InProgPids} = State) ->
+                                                      ongoing_targets = InProgPids,
+                                                      is_diagnose = IsDiagnose} = State) ->
     %% Execute data-compaction of a pending target
-    erlang:send(Pid, {run, Id}),
+    erlang:send(Pid, {run, Id, IsDiagnose}),
     NextState = ?ST_RUNNING,
     {next_state, NextState,
      State#state{status = NextState,
@@ -294,7 +319,8 @@ running(#event_info{event = ?EVENT_FINISH}, #state{pending_targets  = [],
                                                                     State::#state{}).
 suspending(#event_info{event = ?EVENT_RESUME}, From, #state{pending_targets = [_|_],
                                                             ongoing_targets = InProgPids,
-                                                            child_pids      = ChildPids} = State) ->
+                                                            child_pids      = ChildPids,
+                                                            is_diagnose = IsDiagnose} = State) ->
     TargetPids = State#state.pending_targets,
 
     {NewTargetPids, NewInProgPids, NewChildPids} =
@@ -309,7 +335,7 @@ suspending(#event_info{event = ?EVENT_RESUME}, From, #state{pending_targets = [_
                           {[], InProgPidsIn, orddict:erase(Pid, ChildPidsIn)};
                       _ ->
                           Id = hd(TargetPidsIn),
-                          erlang:send(Pid, {run, Id}),
+                          erlang:send(Pid, {run, Id, IsDiagnose}),
 
                           {lists:delete(Id, TargetPidsIn),
                            [Id|InProgPidsIn], orddict:store(Pid, true, ChildPidsIn)}
@@ -427,7 +453,7 @@ terminate(Reason, _StateName, _State) ->
 code_change(_OldVsn, StateName, State, _Extra) ->
     {ok, StateName, State}.
 
-%% @doc This function is called by a gen_fsm when it should update 
+%% @doc This function is called by a gen_fsm when it should update
 %%      its internal state data during a release upgrade/downgrade
 format_status(_Opt, [_PDict, State]) ->
     State.
@@ -448,11 +474,12 @@ start_jobs_as_possible(#state{
                           ongoing_targets = InProgPids,
                           max_num_of_concurrent = MaxProc,
                           callback_fun = CallbackFun,
+                          is_diagnose  = IsDiagnose,
                           child_pids   = ChildPids} = State, NumChild) when NumChild < MaxProc ->
     Pid = spawn_link(fun() ->
                              loop(CallbackFun)
                      end),
-    erlang:send(Pid, {run, Id}),
+    erlang:send(Pid, {run, Id, IsDiagnose}),
     start_jobs_as_possible(
       State#state{pending_targets = Rest,
                   ongoing_targets = [Id|InProgPids],
@@ -473,9 +500,9 @@ loop(CallbackFun) ->
              ok | {error, any()}).
 loop(CallbackFun, TargetId) ->
     receive
-        {run, Id} ->
+        {run, Id, IsDiagnose} ->
             {ok, Id_1} = leo_object_storage_server:get_compaction_worker(Id),
-            ok = leo_compact_fsm_worker:run(Id_1, self(), CallbackFun),
+            ok = leo_compact_fsm_worker:run(Id_1, self(), IsDiagnose, CallbackFun),
             loop(CallbackFun, {Id, Id_1});
         {lock, Id} ->
             ok = lock(Id),

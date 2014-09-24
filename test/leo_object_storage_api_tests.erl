@@ -37,6 +37,33 @@
 %%======================================================================
 -define(AVS_DIR_FOR_COMPACTION, "comaction_test/").
 
+diagnosis_test_() ->
+    {setup,
+     fun ( ) ->
+             ?debugVal("### DIAGNOSIS.START ###"),
+             os:cmd("rm -rf " ++ ?AVS_DIR_FOR_COMPACTION),
+             application:start(sasl),
+             application:start(os_mon),
+             application:start(crypto),
+             application:start(leo_object_storage),
+             ?debugVal('start'),
+             ok
+     end,
+     fun (_) ->
+             ?debugVal('stop'),
+             application:stop(leo_object_storage),
+             application:stop(crypto),
+             application:stop(os_mon),
+             application:stop(sasl),
+             timer:sleep(1000),
+             ?debugVal("### DIAGNOSIS.END ###"),
+             ok
+     end,
+     [
+      {"test dianosis - irregular case",
+       {timeout, 1000, fun diagnose/0}}
+     ]}.
+
 compaction_test_() ->
     {setup,
      fun ( ) ->
@@ -45,9 +72,12 @@ compaction_test_() ->
              application:start(sasl),
              application:start(os_mon),
              application:start(crypto),
+             application:start(leo_object_storage),
+             ?debugVal('start'),
              ok
      end,
      fun (_) ->
+             ?debugVal('stop'),
              application:stop(leo_object_storage),
              application:stop(crypto),
              application:stop(os_mon),
@@ -61,6 +91,30 @@ compaction_test_() ->
        {timeout, 1000, fun compact/0}}
      ]}.
 
+diagnose() ->
+    %% Launch object-storage
+    leo_object_storage_api:start([{1, ?AVS_DIR_FOR_COMPACTION}]),
+    ok = put_regular_bin(1, 50),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(36, 25),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin_with_cmeta(51, 50),
+    ok = put_irregular_bin(),
+    ok = put_large_bin(101),
+
+    %% Execute to diagnose data
+    timer:sleep(3000),
+    ok = leo_compact_fsm_controller:diagnose(),
+    ok = check_status(),
+
+    %% Check # of active objects and total of objects
+    timer:sleep(1000),
+    {ok, [{_,#storage_stats{total_num  = TotalNum,
+                            active_num = ActiveNum
+                           }}|_]} = leo_object_storage_api:stats(),
+    ?debugVal({TotalNum, ActiveNum}),
+    ok.
+
 compact() ->
     %% Launch object-storage
     leo_object_storage_api:start([{1, ?AVS_DIR_FOR_COMPACTION}]),
@@ -72,13 +126,14 @@ compact() ->
     ok = put_irregular_bin(),
     ok = put_large_bin(101),
 
-    %% Execute compaction
+    %% Execute to diagnose data
     timer:sleep(3000),
+    %% Execute compaction
     FunHasChargeOfNode = fun(_Key_,_NumOfReplicas_) ->
                                  true
                          end,
     TargetPids = leo_object_storage_api:get_object_storage_pid(all),
-    ok = leo_compact_fsm_controller:start(TargetPids, 1, FunHasChargeOfNode),
+    ok = leo_compact_fsm_controller:run(TargetPids, 1, FunHasChargeOfNode),
 
     %% Insert objects during the compaction
     ok = put_regular_bin(200, 25),
@@ -630,7 +685,7 @@ compact_2() ->
     TargetPids = leo_object_storage_api:get_object_storage_pid(all),
     io:format(user, "*** target-pids:~p~n", [TargetPids]),
 
-    ok = leo_compact_fsm_controller:start(TargetPids, 2, FunHasChargeOfNode),
+    ok = leo_compact_fsm_controller:run(TargetPids, 2, FunHasChargeOfNode),
     timer:sleep(100),
 
     {ok, CompactionStats} = leo_compact_fsm_controller:state(),
@@ -670,7 +725,7 @@ compact_2() ->
     ?assertEqual(true, SumTotalSize2 == SumActiveSize2),
 
     %% confirm whether first compaction have broken avs files or not
-    ok = leo_compact_fsm_controller:start(TargetPids, 2, FunHasChargeOfNode),
+    ok = leo_compact_fsm_controller:run(TargetPids, 2, FunHasChargeOfNode),
     ok = check_status(),
     {ok, Res3} = leo_object_storage_api:stats(),
     {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2} = get_avs_stats_summary(Res3),

@@ -258,6 +258,9 @@ add_container(BackendDBSupPid, Id, Props) ->
             %% Launch object-storage
             add_container_1(leo_object_storage_server, Id, ObjStorageId,
                             MetaDBId, CompactWorkerId, Props);
+        {error,{already_started,_Pid}} ->
+            add_container_1(leo_object_storage_server, Id, ObjStorageId,
+                            MetaDBId, CompactWorkerId, Props);
         {error, Cause} ->
             {error, Cause}
     end.
@@ -298,6 +301,8 @@ add_container_1(leo_object_storage_server = Mod, BaseId,
                                                                {metadata,       MetaDBId},
                                                                {compact_worker, CompactWorkerId}]}),
             ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, ObjStorageId}, ?STATE_ACTIVE),
+            ok;
+        {error,{already_started,_Pid}} ->
             ok;
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
