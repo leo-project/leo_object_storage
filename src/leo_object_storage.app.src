@@ -31,6 +31,7 @@
   {env, [{profile,          false},
          {metadata_storage, 'leveldb'},
          {object_storage,   'haystack'},
+         {is_enable_diagnosis_log, true},
          {is_strict_check,  false}
         ]}
  ]

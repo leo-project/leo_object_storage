@@ -56,28 +56,30 @@
          suspending/2,
          suspending/3]).
 
--record(state, {max_num_of_concurrent = 1 :: non_neg_integer(),
-                is_diagnose = false       :: boolean(),
-                callback_fun              :: function() | undefined,
-                total_num_of_targets = 0  :: non_neg_integer(),
-                reserved_targets = []     :: [atom()],
-                pending_targets  = []     :: [atom()],
-                ongoing_targets  = []     :: [atom()],
-                locked_targets   = []     :: [atom()],
-                child_pids       = []     :: orddict:orddict(), %% {Chid :: pid(), hasJob :: boolean()}
-                start_datetime   = 0      :: non_neg_integer(), %% gregory-sec
-                status = ?ST_IDLING :: state_of_compaction()
-               }).
+-record(state, {
+          max_num_of_concurrent = 1 :: non_neg_integer(),
+          is_diagnosing = false     :: boolean(),
+          callback_fun              :: function() | undefined,
+          total_num_of_targets = 0  :: non_neg_integer(),
+          reserved_targets = []     :: [atom()],
+          pending_targets  = []     :: [atom()],
+          ongoing_targets  = []     :: [atom()],
+          locked_targets   = []     :: [atom()],
+          child_pids       = []     :: orddict:orddict(), %% {Chid :: pid(), hasJob :: boolean()}
+          start_datetime   = 0      :: non_neg_integer(), %% gregory-sec
+          status = ?ST_IDLING :: state_of_compaction()
+         }).
 
--record(event_info, {id :: atom(),
-                     event = ?EVENT_RUN  :: event_of_compaction(),
-                     client_pid          :: pid(),
-                     target_pids = []    :: [atom()],
-                     finished_id         :: atom(),
-                     max_conns = 1       :: pos_integer(),
-                     is_diagnose = false :: boolean(),
-                     callback :: function()
-                    }).
+-record(event_info, {
+          id :: atom(),
+          event = ?EVENT_RUN    :: event_of_compaction(),
+          client_pid            :: pid(),
+          target_pids = []      :: [atom()],
+          finished_id           :: atom(),
+          max_conns = 1         :: pos_integer(),
+          is_diagnosing = false :: boolean(),
+          callback :: function()
+         }).
 -define(DEF_TIMEOUT, 3000).
 
 %%====================================================================
@@ -102,9 +104,9 @@ start_link() ->
 run(TargetPids, MaxConn, CallbackFun) ->
     gen_fsm:sync_send_event(
       ?MODULE, #event_info{event = ?EVENT_RUN,
-                           target_pids = TargetPids,
-                           max_conns   = MaxConn,
-                           is_diagnose = false,
+                           target_pids   = TargetPids,
+                           max_conns     = MaxConn,
+                           is_diagnosing = false,
                            callback    = CallbackFun}, ?DEF_TIMEOUT).
 
 
@@ -116,10 +118,10 @@ diagnose() ->
     TargetPids = leo_object_storage_api:get_object_storage_pid('all'),
     gen_fsm:sync_send_event(
       ?MODULE, #event_info{event = ?EVENT_RUN,
-                           target_pids = TargetPids,
-                           max_conns   = 1,
-                           is_diagnose = true,
-                           callback    = undefined}, ?DEF_TIMEOUT).
+                           target_pids   = TargetPids,
+                           max_conns     = 1,
+                           is_diagnosing = true,
+                           callback      = undefined}, ?DEF_TIMEOUT).
 
 
 %% @doc Request stop of data-compaction to the data-compaction's workers
@@ -199,10 +201,10 @@ init([]) ->
                       From::{pid(),Tag::atom()},
                       State::#state{}).
 idling(#event_info{event = ?EVENT_RUN,
-                   target_pids = TargetPids,
-                   max_conns   = MaxConn,
-                   is_diagnose = IsDiagnose,
-                   callback    = Callback}, From, State) ->
+                   target_pids   = TargetPids,
+                   max_conns     = MaxConn,
+                   is_diagnosing = IsDiagnose,
+                   callback      = Callback}, From, State) ->
     AllTargets      = leo_object_storage_api:get_object_storage_pid('all'),
     PendingTargets  = State#state.pending_targets,
     ReservedTargets = case (length(TargetPids) == length(AllTargets)) of
@@ -220,7 +222,7 @@ idling(#event_info{event = ?EVENT_RUN,
                                    pending_targets       = TargetPids,
                                    reserved_targets      = ReservedTargets,
                                    max_num_of_concurrent = MaxConn,
-                                   is_diagnose           = IsDiagnose,
+                                   is_diagnosing         = IsDiagnose,
                                    callback_fun          = Callback,
                                    start_datetime        = leo_date:now()}),
     gen_fsm:reply(From, ok),
@@ -274,7 +276,7 @@ running(#event_info{event = ?EVENT_FINISH,
                     client_pid = Pid,
                     finished_id = FinishedId}, #state{pending_targets = [Id|Rest],
                                                       ongoing_targets = InProgPids,
-                                                      is_diagnose = IsDiagnose} = State) ->
+                                                      is_diagnosing   = IsDiagnose} = State) ->
     %% Execute data-compaction of a pending target
     erlang:send(Pid, {run, Id, IsDiagnose}),
     NextState = ?ST_RUNNING,
@@ -320,7 +322,7 @@ running(#event_info{event = ?EVENT_FINISH}, #state{pending_targets  = [],
 suspending(#event_info{event = ?EVENT_RESUME}, From, #state{pending_targets = [_|_],
                                                             ongoing_targets = InProgPids,
                                                             child_pids      = ChildPids,
-                                                            is_diagnose = IsDiagnose} = State) ->
+                                                            is_diagnosing   = IsDiagnose} = State) ->
     TargetPids = State#state.pending_targets,
 
     {NewTargetPids, NewInProgPids, NewChildPids} =
@@ -473,9 +475,9 @@ start_jobs_as_possible(#state{
                           pending_targets = [Id|Rest],
                           ongoing_targets = InProgPids,
                           max_num_of_concurrent = MaxProc,
-                          callback_fun = CallbackFun,
-                          is_diagnose  = IsDiagnose,
-                          child_pids   = ChildPids} = State, NumChild) when NumChild < MaxProc ->
+                          callback_fun  = CallbackFun,
+                          is_diagnosing = IsDiagnose,
+                          child_pids    = ChildPids} = State, NumChild) when NumChild < MaxProc ->
     Pid = spawn_link(fun() ->
                              loop(CallbackFun)
                      end),

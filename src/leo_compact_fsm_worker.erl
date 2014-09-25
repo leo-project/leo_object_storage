@@ -29,10 +29,11 @@
 -behaviour(gen_fsm).
 
 -include("leo_object_storage.hrl").
+-include_lib("leo_logger/include/leo_logger.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 %% API
--export([start_link/3, stop/1]).
+-export([start_link/4, stop/1]).
 -export([run/2, run/4,
          suspend/1,
          resume/1,
@@ -55,13 +56,14 @@
 -compile(nowarn_deprecated_type).
 -define(DEF_TIMEOUT, timer:seconds(30)).
 
--record(event_info, {id :: atom(),
-                     event = ?EVENT_RUN :: event_of_compaction(),
-                     controller_pid :: pid(),
-                     client_pid :: pid(),
-                     is_diagnose = false :: boolean(),
-                     callback :: function()
-                    }).
+-record(event_info, {
+          id :: atom(),
+          event = ?EVENT_RUN :: event_of_compaction(),
+          controller_pid :: pid(),
+          client_pid     :: pid(),
+          is_diagnosing = false :: boolean(),
+          callback :: function()
+         }).
 
 -record(compaction_prms, {
           key_bin  = <<>> :: binary(),
@@ -79,15 +81,16 @@
           obj_storage_id :: atom(),
           meta_db_id     :: atom(),
           obj_storage_info = #backend_info{} :: #backend_info{},
-          compact_cntl_pid :: pid(),
-          status = ?ST_IDLING :: state_of_compaction(),
-          is_locked = false   :: boolean(),
-          is_diagnose = false :: boolean(),
-          waiting_time = 0    :: non_neg_integer(),
+          compact_cntl_pid      :: pid(),
+          diagnosis_log_id      :: atom(),
+          status = ?ST_IDLING   :: state_of_compaction(),
+          is_locked = false     :: boolean(),
+          is_diagnosing = false :: boolean(),
+          waiting_time = 0      :: non_neg_integer(),
           compaction_prms = #compaction_prms{} :: #compaction_prms{},
           start_datetime = 0 :: non_neg_integer(),
-          error_pos = 0 :: non_neg_integer(),
-          set_errors    :: set(),
+          error_pos = 0      :: non_neg_integer(),
+          set_errors         :: set(),
           result :: compaction_ret()
          }).
 
@@ -96,12 +99,14 @@
 %% API
 %%====================================================================
 %% @doc Creates a gen_fsm process as part of a supervision tree
--spec(start_link(Id, ObjStorageId, MetaDBId) ->
+-spec(start_link(Id, ObjStorageId, MetaDBId, LoggerId) ->
              {ok, pid()} | {error, any()} when Id::atom(),
                                                ObjStorageId::atom(),
-                                               MetaDBId::atom()).
-start_link(Id, ObjStorageId, MetaDBId) ->
-    gen_fsm:start_link({local, Id}, ?MODULE, [Id, ObjStorageId, MetaDBId], []).
+                                               MetaDBId::atom(),
+                                               LoggerId::atom()).
+start_link(Id, ObjStorageId, MetaDBId, LoggerId) ->
+    gen_fsm:start_link({local, Id}, ?MODULE,
+                       [Id, ObjStorageId, MetaDBId, LoggerId], []).
 
 
 %% @doc Stop this server
@@ -122,7 +127,7 @@ stop(Id) ->
                                       IsDiagnose::boolean()).
 run(Id, IsDiagnose) ->
     gen_fsm:send_event(Id, #event_info{event = ?EVENT_RUN,
-                                       is_diagnose = IsDiagnose
+                                       is_diagnosing = IsDiagnose
                                       }).
 
 -spec(run(Id, ControllerPid, IsDiagnose, CallbackFun) ->
@@ -133,7 +138,7 @@ run(Id, IsDiagnose) ->
 run(Id, ControllerPid, IsDiagnose, CallbackFun) ->
     gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_RUN,
                                             controller_pid = ControllerPid,
-                                            is_diagnose = IsDiagnose,
+                                            is_diagnosing  = IsDiagnose,
                                             callback = CallbackFun}, ?DEF_TIMEOUT).
 
 
@@ -177,10 +182,11 @@ state(Id, Client) ->
 %%====================================================================
 %% @doc Initiates the server
 %%
-init([Id, ObjStorageId, MetaDBId]) ->
+init([Id, ObjStorageId, MetaDBId, LoggerId]) ->
     {ok, ?ST_IDLING, #state{id = Id,
-                            obj_storage_id = ObjStorageId,
-                            meta_db_id     = MetaDBId,
+                            obj_storage_id   = ObjStorageId,
+                            meta_db_id       = MetaDBId,
+                            diagnosis_log_id = LoggerId,
                             compaction_prms = #compaction_prms{
                                                  key_bin  = <<>>,
                                                  body_bin = <<>>,
@@ -239,16 +245,16 @@ format_status(_Opt, [_PDict, State]) ->
                                                                 State::#state{}).
 idling(#event_info{event = ?EVENT_RUN,
                    controller_pid = ControllerPid,
-                   is_diagnose = IsDiagnose,
+                   is_diagnosing  = IsDiagnose,
                    callback = CallbackFun}, From, #state{id = Id,
                                                          compaction_prms =
                                                              CompactionPrms} = State) ->
     NextStatus = ?ST_RUNNING,
     State_1 = State#state{compact_cntl_pid = ControllerPid,
-                          status      = NextStatus,
-                          is_diagnose = IsDiagnose,
-                          error_pos   = 0,
-                          set_errors  = sets:new(),
+                          status        = NextStatus,
+                          is_diagnosing = IsDiagnose,
+                          error_pos     = 0,
+                          set_errors    = sets:new(),
                           compaction_prms =
                               CompactionPrms#compaction_prms{
                                 num_of_active_objs  = 0,
@@ -290,16 +296,16 @@ idling(_, State) ->
              {next_state, ?ST_RUNNING, State} when EventInfo::#event_info{},
                                                    State::#state{}).
 running(#event_info{event = ?EVENT_RUN,
-                    is_diagnose = IsDiagnose}, #state{id = Id,
-                                                      obj_storage_id   = ObjStorageId,
-                                                      compact_cntl_pid = CompactCntlPid,
-                                                      compaction_prms  =
-                                                          #compaction_prms{
-                                                             start_lock_offset = StartLockOffset
-                                                            }} = State) ->
+                    is_diagnosing = IsDiagnose}, #state{id = Id,
+                                                        obj_storage_id   = ObjStorageId,
+                                                        compact_cntl_pid = CompactCntlPid,
+                                                        compaction_prms  =
+                                                            #compaction_prms{
+                                                               start_lock_offset = StartLockOffset
+                                                              }} = State) ->
     NextStatus = ?ST_RUNNING,
     State_3 =
-        case catch execute(State#state{is_diagnose = IsDiagnose}) of
+        case catch execute(State#state{is_diagnosing = IsDiagnose}) of
             %% Lock the object-storage in order to
             %%     reject requests during the data-compaction
             {ok, {next, #state{is_locked = IsLocked,
@@ -415,7 +421,7 @@ suspending(_, State) ->
                                                                     From::{pid(),Tag::atom()},
                                                                     State::#state{}).
 suspending(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id,
-                                                            is_diagnose = IsDiagnose} = State) ->
+                                                            is_diagnosing = IsDiagnose} = State) ->
     gen_fsm:reply(From, ok),
     ok = run(Id, IsDiagnose),
 
@@ -484,7 +490,7 @@ prepare(#state{obj_storage_id = ObjStorageId,
 
 
 prepare_1(LinkedPath, FilePath, #state{compaction_prms = CompactionPrms,
-                                       is_diagnose = true} = State) ->
+                                       is_diagnosing   = true} = State) ->
     case leo_object_storage_haystack:open(FilePath, read) of
         {ok, [_, ReadHandler, AVSVsnBinPrv]} ->
             FileSize = filelib:file_size(FilePath),
@@ -557,9 +563,10 @@ prepare_1(LinkedPath, FilePath, #state{meta_db_id = MetaDBId,
 -spec(execute(State) ->
              {ok, State} | {{error, any()}, State} when State::#state{}).
 execute(#state{meta_db_id       = MetaDBId,
+               diagnosis_log_id = LoggerId,
                obj_storage_info = StorageInfo,
                waiting_time     = WaitingTime,
-               is_diagnose      = IsDiagnose,
+               is_diagnosing    = IsDiagnose,
                compaction_prms  = CompactionPrms} = State) ->
     %% Initialize set-error property
     State_1 = State#state{set_errors = sets:new()},
@@ -629,6 +636,20 @@ execute(#state{meta_db_id       = MetaDBId,
                 %% For diagnosis processing
                 %%
                 false when IsDiagnose == true ->
+                    case LoggerId of
+                        undefined ->
+                            void;
+                        _ ->
+                            leo_logger_client_base:append(
+                              {LoggerId, #message_log{format  = "~s\t~w\t~w\t~s\t~w~n",
+                                                      message = [leo_date:date_format(),
+                                                                 Metadata#?METADATA.offset,
+                                                                 Metadata#?METADATA.addr_id,
+                                                                 binary_to_list(Metadata#?METADATA.key),
+                                                                 Metadata#?METADATA.dsize
+                                                                ]}
+                              })
+                    end,
                     {Ret_1, NewState} = execute_2(
                                           ok, CompactionPrms, Metadata,
                                           NumOfActiveObjs, ActiveSize, State_1),
@@ -728,7 +749,7 @@ after_execute(Ret, #state{obj_storage_info = StorageInfo} = State) ->
 
 %% @doc Reduce objects from the object-container.
 %% @private
-after_execute_1({ok, #state{is_diagnose = true,
+after_execute_1({ok, #state{is_diagnosing = true,
                             compaction_prms =
                                 #compaction_prms{
                                    num_of_active_objs  = _NumActiveObjs,

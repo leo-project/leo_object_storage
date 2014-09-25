@@ -35,7 +35,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 %% API
--export([start_link/5, start_link/6, stop/1]).
+-export([start_link/6, start_link/7, stop/1]).
 -export([put/2, get/4, delete/2, head/2, fetch/4, store/3,
          get_stats/1, set_stats/2,
          get_avs_version_bin/1,
@@ -89,27 +89,35 @@
 %%====================================================================
 %% @doc Starts the server
 %%
--spec(start_link(Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath) ->
+-spec(start_link(Id, SeqNo, MetaDBId,
+                 CompactionWorkerId, DiagnosisLogId, RootPath) ->
              {ok, pid()} | {error, any()} when Id::atom(),
                                                SeqNo::non_neg_integer(),
                                                MetaDBId::atom(),
                                                CompactionWorkerId::atom(),
+                                               DiagnosisLogId::atom(),
                                                RootPath::string()).
-start_link(Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath) ->
-    start_link(Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath, false).
+start_link(Id, SeqNo, MetaDBId,
+           CompactionWorkerId, DiagnosisLogId, RootPath) ->
+    start_link(Id, SeqNo, MetaDBId,
+               CompactionWorkerId, DiagnosisLogId, RootPath, false).
 
 %% @doc Starts the server with strict-check
 %%
--spec(start_link(Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath, IsStrictCheck) ->
+-spec(start_link(Id, SeqNo, MetaDBId,
+                 CompactionWorkerId, DiagnosisLogId, RootPath, IsStrictCheck) ->
              {ok, pid()} | {error, any()} when Id::atom(),
                                                SeqNo::non_neg_integer(),
                                                MetaDBId::atom(),
                                                CompactionWorkerId::atom(),
+                                               DiagnosisLogId::atom(),
                                                RootPath::string(),
                                                IsStrictCheck::boolean()).
-start_link(Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath, IsStrictCheck) ->
+start_link(Id, SeqNo, MetaDBId,
+           CompactionWorkerId, DiagnosisLogId, RootPath, IsStrictCheck) ->
     gen_server:start_link({local, Id}, ?MODULE,
-                          [Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath, IsStrictCheck], []).
+                          [Id, SeqNo, MetaDBId, CompactionWorkerId,
+                           DiagnosisLogId, RootPath, IsStrictCheck], []).
 
 
 %% @doc Stop this server
@@ -296,10 +304,11 @@ add_incorrect_data(Id, Bin) ->
 %% GEN_SERVER CALLBACKS
 %%====================================================================
 %% @doc Initiates the server
-init([Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath, IsStrictCheck]) ->
+init([Id, SeqNo, MetaDBId, CompactionWorkerId, DiagnosisLogId, RootPath, IsStrictCheck]) ->
     ObjectStorageDir  = lists:append([RootPath, ?DEF_OBJECT_STORAGE_SUB_DIR]),
     ObjectStoragePath = lists:append([ObjectStorageDir, integer_to_list(SeqNo), ?AVS_FILE_EXT]),
     StateFilePath     = lists:append([RootPath, ?DEF_STATE_SUB_DIR, atom_to_list(Id)]),
+    LogFilePath       = lists:append([RootPath, ?DEF_LOG_SUB_DIR]),
 
     StorageStats =
         case file:consult(StateFilePath) of
@@ -322,11 +331,24 @@ init([Id, SeqNo, MetaDBId, CompactionWorkerId, RootPath, IsStrictCheck]) ->
             case leo_object_storage_haystack:open(ObjectStorageRawPath) of
                 {ok, [ObjectWriteHandler, ObjectReadHandler, AVSVsnBin]} ->
                     StorageInfo = #backend_info{
-                                     linked_path    = ObjectStoragePath,
-                                     file_path  = ObjectStorageRawPath,
-                                     write_handler  = ObjectWriteHandler,
-                                     read_handler   = ObjectReadHandler,
-                                     avs_ver_cur    = AVSVsnBin},
+                                     linked_path   = ObjectStoragePath,
+                                     file_path     = ObjectStorageRawPath,
+                                     write_handler = ObjectWriteHandler,
+                                     read_handler  = ObjectReadHandler,
+                                     avs_ver_cur   = AVSVsnBin},
+
+                    %% Launch the diagnosis logger
+                    case application:get_env(leo_object_storage,
+                                             is_enable_diagnosis_log) of
+                        {ok, true} ->
+                            _ = filelib:ensure_dir(LogFilePath),
+                            ok = leo_logger_client_base:new(?LOG_GROUP_ID_DIAGNOSIS,
+                                                            DiagnosisLogId,
+                                                            LogFilePath,
+                                                            ?LOG_FILENAME_DIAGNOSIS ++ integer_to_list(SeqNo));
+                        _ ->
+                            void
+                    end,
                     {ok, #state{id = Id,
                                 meta_db_id           = MetaDBId,
                                 compaction_worker_id = CompactionWorkerId,

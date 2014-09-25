@@ -167,6 +167,26 @@ start_child(ObjectStorageInfo) ->
             exit(Cause1)
     end,
 
+    %% Launch the logger
+    case whereis(leo_logger_sup) of
+        undefined ->
+            ChildSpec2 = {leo_logger_sup,
+                          {leo_logger_sup, start_link, []},
+                          permanent, 2000, supervisor, [leo_logger_sup]},
+            case supervisor:start_child(?MODULE, ChildSpec2) of
+                {ok, _Pid2} ->
+                    ok;
+                {error, Cause2} ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING},
+                                            {function, "start_child/2"},
+                                            {line, ?LINE},
+                                            {body, "Could NOT start logger_sup"}]),
+                    exit(Cause2)
+            end;
+        _ ->
+            void
+    end,
 
     %% Check supervisor's status
     case whereis(?MODULE) of
@@ -178,16 +198,29 @@ start_child(ObjectStorageInfo) ->
                                     {body, "NOT started supervisor"}]),
             exit(not_initialized);
         SupRef ->
-            case supervisor:count_children(SupRef) of
-                [{specs, _},{active, Active},
-                 {supervisors, _},{workers, Workers}] when Active == Workers  ->
+            Ret = case supervisor:count_children(SupRef) of
+                      [_|_] = Props ->
+                          Active  = leo_misc:get_value('active',  Props),
+                          Workers = leo_misc:get_value('workers', Props),
+                          case (Active > 0 andalso Workers > 0) of
+                              true ->
+                                  ok;
+                              false ->
+                                  {error, ?ERROR_COULD_NOT_START_WORKER}
+                          end;
+                      _ ->
+                          {error, ?ERROR_COULD_NOT_START_WORKER}
+                  end,
+
+            case Ret of
+                ok ->
                     ok;
-                _ ->
+                {error, Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING},
                                             {function, "start_child/2"},
                                             {line, ?LINE},
-                                            {body, "Could NOT start worker processes"}]),
+                                            {body, Cause}]),
                     case ?MODULE:stop() of
                         ok ->
                             exit(invalid_launch);
@@ -240,9 +273,10 @@ get_path(Path0) ->
 -spec(add_container(pid(), integer(), list()) ->
              ok).
 add_container(BackendDBSupPid, Id, Props) ->
-    ObjStorageId    = gen_id(obj_storage,   Id),
-    MetaDBId        = gen_id(metadata,      Id),
-    CompactWorkerId = gen_id(compact_worker,Id),
+    ObjStorageId    = gen_id(obj_storage,     Id),
+    MetaDBId        = gen_id(metadata,        Id),
+    LoggerId        = gen_id(diagnosis_logger,Id),
+    CompactWorkerId = gen_id(compact_worker,  Id),
 
     %% %% Launch metadata-db
     MetadataDB = leo_misc:get_value('metadata_db', Props),
@@ -253,24 +287,25 @@ add_container(BackendDBSupPid, Id, Props) ->
 
     %% %% Launch compact_fsm_worker
     case add_container_1(leo_compact_fsm_worker,
-                         CompactWorkerId, ObjStorageId, MetaDBId) of
+                         CompactWorkerId, ObjStorageId, MetaDBId, LoggerId) of
         ok ->
             %% Launch object-storage
             add_container_1(leo_object_storage_server, Id, ObjStorageId,
-                            MetaDBId, CompactWorkerId, Props);
+                            MetaDBId, CompactWorkerId, LoggerId, Props);
         {error,{already_started,_Pid}} ->
             add_container_1(leo_object_storage_server, Id, ObjStorageId,
-                            MetaDBId, CompactWorkerId, Props);
+                            MetaDBId, CompactWorkerId, LoggerId, Props);
         {error, Cause} ->
             {error, Cause}
     end.
 
 
 %% @private
-add_container_1(leo_compact_fsm_worker = Mod, Id, ObjStorageId, MetaDBId) ->
+add_container_1(leo_compact_fsm_worker = Mod,
+                Id, ObjStorageId, MetaDBId, LoggerId) ->
     ChildSpec = {Id,
                    {Mod, start_link,
-                    [Id, ObjStorageId, MetaDBId]},
+                    [Id, ObjStorageId, MetaDBId, LoggerId]},
                    permanent, 2000, worker, [Mod]},
     case supervisor:start_child(?MODULE, ChildSpec) of
         {ok,_} ->
@@ -285,12 +320,12 @@ add_container_1(leo_compact_fsm_worker = Mod, Id, ObjStorageId, MetaDBId) ->
     end.
 
 add_container_1(leo_object_storage_server = Mod, BaseId,
-                ObjStorageId, MetaDBId, CompactWorkerId, Props) ->
+                ObjStorageId, MetaDBId, CompactWorkerId, LoggerId, Props) ->
     Path          = leo_misc:get_value('path',            Props),
     IsStrictCheck = leo_misc:get_value('is_strict_check', Props),
 
     Args = [ObjStorageId, BaseId,
-            MetaDBId, CompactWorkerId, Path, IsStrictCheck],
+            MetaDBId, CompactWorkerId, LoggerId, Path, IsStrictCheck],
     ChildSpec = {ObjStorageId,
                  {Mod, start_link, Args},
                  permanent, 2000, worker, [Mod]},
@@ -316,7 +351,7 @@ add_container_1(leo_object_storage_server = Mod, BaseId,
 
 %% @doc Generate Id for obj-storage or metadata
 %%
--spec(gen_id(obj_storage | metadata | compact_worker, integer()) ->
+-spec(gen_id(obj_storage | metadata | diagnosis_logger | compact_worker, integer()) ->
              atom()).
 gen_id(obj_storage, Id) ->
     list_to_atom(lists:append([atom_to_list(?APP_NAME),
@@ -324,6 +359,9 @@ gen_id(obj_storage, Id) ->
                                integer_to_list(Id)]));
 gen_id(metadata, Id) ->
     list_to_atom(lists:append(["leo_metadata_",
+                               integer_to_list(Id)]));
+gen_id(diagnosis_logger, Id) ->
+    list_to_atom(lists:append(["leo_diagnosis_log_",
                                integer_to_list(Id)]));
 gen_id(compact_worker, Id) ->
     list_to_atom(lists:append(["leo_compact_worker_",

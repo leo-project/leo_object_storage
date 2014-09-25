@@ -105,8 +105,8 @@
 -define(ERROR_COMPACT_RESUME_FAILURE,   "comaction-resume filure").
 -define(ERROR_PROCESS_NOT_FOUND,        "server process not found").
 -define(ERROR_COULD_NOT_GET_MOUNT_PATH, "could not get mout path").
--define(ERROR_LOCKED_CONTAINER,          "locked obj-conatainer").
-
+-define(ERROR_LOCKED_CONTAINER,         "locked obj-conatainer").
+-define(ERROR_COULD_NOT_START_WORKER,   "could NOT start worker processes").
 
 -define(DEL_TRUE,  1).
 -define(DEL_FALSE, 0).
@@ -322,3 +322,10 @@
 %% @doc Retrieve object-storage info
 -define(get_obj_storage_info(_ObjStorageId),
         leo_object_storage_server:get_backend_info(_ObjStorageId, ?SERVER_OBJ_STORAGE)).
+
+
+%% Diagnosis log-related definitions
+-define(DEF_LOG_SUB_DIR,        "log/").
+-define(LOG_GROUP_ID_DIAGNOSIS, 'log_diagnosis_grp').
+-define(LOG_ID_DIAGNOSIS,       'log_diagnosis').
+-define(LOG_FILENAME_DIAGNOSIS, "leo_obj_diagnosis.").

@@ -46,11 +46,9 @@ diagnosis_test_() ->
              application:start(os_mon),
              application:start(crypto),
              application:start(leo_object_storage),
-             ?debugVal('start'),
              ok
      end,
      fun (_) ->
-             ?debugVal('stop'),
              application:stop(leo_object_storage),
              application:stop(crypto),
              application:stop(os_mon),
@@ -73,11 +71,9 @@ compaction_test_() ->
              application:start(os_mon),
              application:start(crypto),
              application:start(leo_object_storage),
-             ?debugVal('start'),
              ok
      end,
      fun (_) ->
-             ?debugVal('stop'),
              application:stop(leo_object_storage),
              application:stop(crypto),
              application:stop(os_mon),
@@ -113,6 +109,8 @@ diagnose() ->
                             active_num = ActiveNum
                            }}|_]} = leo_object_storage_api:stats(),
     ?debugVal({TotalNum, ActiveNum}),
+    ?assertEqual(126, TotalNum),
+    ?assertEqual(101, ActiveNum),
     ok.
 
 compact() ->
@@ -305,9 +303,6 @@ new_([Path1, _]) ->
     Ref = whereis(leo_object_storage_sup),
     ?assertEqual(true, is_pid(Ref)),
 
-    [{specs,_},{active,Active0},{supervisors,_},{workers,Workers0}] = supervisor:count_children(Ref),
-    ?assertEqual((NumOfAVS * 2) + 2, Active0),  % +2 for compaction manager + backend_db_sup
-    ?assertEqual((NumOfAVS * 2) + 2, Workers0), % +2 for compaction manager + backend_db_sup
     {ok, ?AVS_HEADER_VSN_TOBE} =
         leo_object_storage_server:get_avs_version_bin(
           leo_object_storage_api:get_object_storage_pid_first()),
