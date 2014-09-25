@@ -640,15 +640,7 @@ execute(#state{meta_db_id       = MetaDBId,
                         undefined ->
                             void;
                         _ ->
-                            leo_logger_client_base:append(
-                              {LoggerId, #message_log{format  = "~s\t~w\t~w\t~s\t~w~n",
-                                                      message = [leo_date:date_format(),
-                                                                 Metadata#?METADATA.offset,
-                                                                 Metadata#?METADATA.addr_id,
-                                                                 binary_to_list(Metadata#?METADATA.key),
-                                                                 Metadata#?METADATA.dsize
-                                                                ]}
-                              })
+                            ?output_diagnosis_log(Metadata)
                     end,
                     {Ret_1, NewState} = execute_2(
                                           ok, CompactionPrms, Metadata,

@@ -329,3 +329,43 @@
 -define(LOG_GROUP_ID_DIAGNOSIS, 'log_diagnosis_grp').
 -define(LOG_ID_DIAGNOSIS,       'log_diagnosis').
 -define(LOG_FILENAME_DIAGNOSIS, "leo_obj_diagnosis.").
+
+
+
+-define(output_diagnosis_log(Metadata),
+        begin
+            #?METADATA{offset = _Offset,
+                       addr_id = _AddrId,
+                       key = _Key,
+                       dsize = _Dsize,
+                       clock = _Clock,
+                       timestamp = _Timestamp,
+                       del = _Del
+                      } = Metadata,
+            _Path_1 = binary_to_list(_Key),
+
+            {_Path_2, _CIndex} =
+                case string:str(_Path_1, "\n") of
+                    0 ->
+                        {_Path_1, 0};
+                    _Index ->
+                        case catch list_to_integer(string:sub_string(_Path_1, _Index + 1)) of
+                            {'EXIT',_} ->
+                                {_Path_1, 0};
+                            _Num->
+                                {string:sub_string(_Path_1, 1, _Index -1), _Num}
+                        end
+                end,
+            leo_logger_client_base:append(
+              {LoggerId, #message_log{format  = "~w\t~w\t~s\t~w\t~w\t~w\t~s\t~w~n",
+                                      message = [_Offset,
+                                                 _AddrId,
+                                                 _Path_2,
+                                                 _CIndex,
+                                                 _Dsize,
+                                                 _Clock,
+                                                 leo_date:date_format(),
+                                                 _Del
+                                                ]}
+              })
+        end).
