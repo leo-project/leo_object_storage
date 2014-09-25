@@ -128,14 +128,14 @@ head_with_calc_md5(AddrIdAndKey, MD5Context) ->
 %%
 -spec(fetch_by_addr_id(AddrId, Fun) ->
              {ok, []} | not_found when AddrId::non_neg_integer(),
-                                       Fun::function()).
+                                       Fun::function()|undefined).
 fetch_by_addr_id(AddrId, Fun) ->
     fetch_by_addr_id(AddrId, Fun, undefined).
 
 -spec(fetch_by_addr_id(AddrId, Fun, MaxKeys) ->
              {ok, []} | not_found when AddrId::non_neg_integer(),
-                                       Fun::function(),
-                                       MaxKeys::non_neg_integer()).
+                                       Fun::function()|undefined,
+                                       MaxKeys::non_neg_integer()|undefined).
 fetch_by_addr_id(AddrId, Fun, MaxKeys) ->
     case get_object_storage_pid(all) of
         [] ->

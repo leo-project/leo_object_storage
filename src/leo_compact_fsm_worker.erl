@@ -492,12 +492,12 @@ prepare_1(LinkedPath, FilePath, #state{compaction_prms = CompactionPrms,
             {ok, State#state{
                    obj_storage_info =
                        #backend_info{
-                          avs_ver_cur   = undefined,
+                          avs_ver_cur   = <<>>,
                           avs_ver_prv   = AVSVsnBinPrv,
                           write_handler = undefined,
                           read_handler  = ReadHandler,
                           linked_path   = LinkedPath,
-                          file_path     = undefined
+                          file_path     = []
                          },
                    compaction_prms =
                        CompactionPrms#compaction_prms{
