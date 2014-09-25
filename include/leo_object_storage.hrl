@@ -179,13 +179,13 @@
 %% Records
 %%--------------------------------------------------------------------
 -record(backend_info, {
-          backend                    :: atom(),
+          backend            :: atom(),
           avs_ver_cur = <<>> :: binary(),
           avs_ver_prv = <<>> :: binary(), %% need to know during compaction
           linked_path = []   :: string(),
           file_path   = []   :: string(),
-          write_handler      :: pid(),
-          read_handler       :: pid()
+          write_handler      :: pid()|undefined,
+          read_handler       :: pid()|undefined
          }).
 
 -record(metadata, { %% - leofs-v1.0.0-pre3
