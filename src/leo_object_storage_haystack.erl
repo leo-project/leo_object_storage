@@ -20,8 +20,9 @@
 %%
 %% ---------------------------------------------------------------------
 %% Leo Object Storage - Haystack.
-%% @doc
-%% @reference
+%%
+%% @doc The object storage implementation - haystack
+%% @reference [https://github.com/leo-project/leo_object_storage/blob/master/src/leo_object_storage_haystack.erl]
 %% @end
 %%======================================================================
 -module(leo_object_storage_haystack).

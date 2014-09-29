@@ -292,6 +292,7 @@ idling(_, State) ->
     {next_state, NextStatus, State#state{status = NextStatus}}.
 
 
+%% @doc State of 'running'
 -spec(running(EventInfo, State) ->
              {next_state, ?ST_RUNNING, State} when EventInfo::#event_info{},
                                                    State::#state{}).

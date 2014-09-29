@@ -20,8 +20,9 @@
 %%
 %% ---------------------------------------------------------------------
 %% Leo Object Storage - API
-%% @doc
-%% @reference
+%%
+%% @doc The object staorge's API
+%% @reference [https://github.com/leo-project/leo_object_storage/blob/master/src/leo_object_storage_api.erl]
 %% @end
 %%======================================================================
 -module(leo_object_storage_api).

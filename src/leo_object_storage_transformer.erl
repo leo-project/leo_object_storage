@@ -18,8 +18,8 @@
 %% specific language governing permissions and limitations
 %% under the License.
 %%
-%% @doc
-%% @reference
+%% @doc The object storage's data transformer
+%% @reference [https://github.com/leo-project/leo_object_storage/blob/master/src/leo_object_storage_transformer.erl]
 %% @end
 %%======================================================================
 -module(leo_object_storage_transformer).
