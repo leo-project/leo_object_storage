@@ -325,14 +325,14 @@
         leo_object_storage_server:get_backend_info(_ObjStorageId, ?SERVER_OBJ_STORAGE)).
 
 
-%% Diagnosis log-related definitions
+%% @doc Diagnosis log-related definitions
 -define(DEF_LOG_SUB_DIR,        "log/").
 -define(LOG_GROUP_ID_DIAGNOSIS, 'log_diagnosis_grp').
 -define(LOG_ID_DIAGNOSIS,       'log_diagnosis').
 -define(LOG_FILENAME_DIAGNOSIS, "leo_obj_diagnosis.").
 
 
-
+%% @doc Output diagnosis log
 -define(output_diagnosis_log(Metadata),
         begin
             #?METADATA{offset = _Offset,
