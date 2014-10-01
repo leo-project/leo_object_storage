@@ -5,3 +5,4 @@ ebin/
 leo_object_storage.dot
 leo_object_storage.png
 .rebar/
+doc/
