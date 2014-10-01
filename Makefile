@@ -41,6 +41,9 @@ clean:
 distclean:
 	@$(REBAR) delete-deps
 	@$(REBAR) clean
-qc:
-	@$(REBAR) qc skip_deps=true
-
+release:
+	rm -rf package/*
+	mkdir -p package/
+	@$(REBAR) compile
+	(cd rel/ && ../rebar generate)
+	cp -r rel/leo_object_storage/* package/
