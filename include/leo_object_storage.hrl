@@ -92,7 +92,8 @@
           pending_targets  = []        :: [atom()],
           ongoing_targets  = []        :: [atom()],
           locked_targets   = []        :: [atom()],
-          latest_exec_datetime = 0     :: non_neg_integer()
+          latest_exec_datetime = 0     :: non_neg_integer(),
+          acc_errors = []              :: [{atom(), [{pos_integer(), pos_integer()}]}]
          }).
 
 %% Error Constants

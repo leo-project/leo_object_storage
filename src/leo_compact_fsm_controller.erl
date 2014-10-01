@@ -39,7 +39,9 @@
          stop/1,
          lock/1,
          suspend/0, resume/0,
-         state/0, finish/2]).
+         state/0,
+         finish/3
+        ]).
 
 -export([init/1,
          handle_event/3,
@@ -67,6 +69,7 @@
           locked_targets   = []     :: [atom()],
           child_pids       = []     :: orddict:orddict(), %% {Chid :: pid(), hasJob :: boolean()}
           start_datetime   = 0      :: non_neg_integer(), %% gregory-sec
+          acc_errors       = []     :: [{pos_integer(), pos_integer()}],
           status = ?ST_IDLING :: state_of_compaction()
          }).
 
@@ -76,6 +79,7 @@
           client_pid            :: pid(),
           target_pids = []      :: [atom()],
           finished_id           :: atom(),
+          errors  = []          :: {atom(), [{pos_integer(), pos_integer()}]},
           max_conns = 1         :: pos_integer(),
           is_diagnosing = false :: boolean(),
           callback :: function()
@@ -167,14 +171,16 @@ state() ->
 
 
 %% @doc Terminate a child
--spec(finish(Pid, FinishedId) ->
+-spec(finish(Pid, FinishedId, AccErrors) ->
              term() when Pid::pid(),
-                         FinishedId::atom()).
-finish(Pid, FinishedId) ->
+                         FinishedId::atom(),
+                         AccErrors::[{pos_integer(), pos_integer()}]).
+finish(Pid, FinishedId, AccErrors) ->
     gen_fsm:send_event(
       ?MODULE, #event_info{event = ?EVENT_FINISH,
                            client_pid = Pid,
-                           finished_id = FinishedId}).
+                           finished_id = FinishedId,
+                           errors      = {FinishedId, AccErrors}}).
 
 
 %%====================================================================
@@ -224,7 +230,9 @@ idling(#event_info{event = ?EVENT_RUN,
                                    max_num_of_concurrent = MaxConn,
                                    is_diagnosing         = IsDiagnose,
                                    callback_fun          = Callback,
-                                   start_datetime        = leo_date:now()}),
+                                   start_datetime        = leo_date:now(),
+                                   acc_errors = []
+                                  }),
     gen_fsm:reply(From, ok),
     {next_state, NextState, NewState};
 
@@ -273,34 +281,46 @@ running(#event_info{id = Id,
                  locked_targets = [Id|LockedTargets]}};
 
 running(#event_info{event = ?EVENT_FINISH,
-                    client_pid = Pid,
-                    finished_id = FinishedId}, #state{pending_targets = [Id|Rest],
-                                                      ongoing_targets = InProgPids,
-                                                      is_diagnosing   = IsDiagnose} = State) ->
+                    client_pid  = Pid,
+                    finished_id = FinishedId,
+                    errors      = Errors}, #state{pending_targets = [Id|Rest],
+                                                  ongoing_targets = InProgPids,
+                                                  is_diagnosing   = IsDiagnose,
+                                                  acc_errors      = AccErrors} = State) ->
     %% Execute data-compaction of a pending target
     erlang:send(Pid, {run, Id, IsDiagnose}),
     NextState = ?ST_RUNNING,
     {next_state, NextState,
      State#state{status = NextState,
                  pending_targets = Rest,
-                 ongoing_targets = [Id|lists:delete(FinishedId, InProgPids)]}};
+                 ongoing_targets = [Id|lists:delete(FinishedId, InProgPids)],
+                 acc_errors = [Errors|AccErrors]
+                }};
 
 running(#event_info{event = ?EVENT_FINISH,
                     client_pid  = Pid,
-                    finished_id = FinishedId}, #state{pending_targets = [],
-                                                      ongoing_targets = [_,_|_],
-                                                      child_pids      = ChildPids} = State) ->
+                    finished_id = FinishedId,
+                    errors      = Errors}, #state{pending_targets = [],
+                                                  ongoing_targets = [_,_|_],
+                                                  child_pids      = ChildPids,
+                                                  acc_errors      = AccErrors} = State) ->
     erlang:send(Pid, stop),
     NextState = ?ST_RUNNING,
     {next_state, NextState,
      State#state{status = NextState,
                  ongoing_targets = lists:delete(FinishedId, State#state.ongoing_targets),
-                 child_pids       = orddict:erase(Pid, ChildPids)}};
+                 child_pids      = orddict:erase(Pid, ChildPids),
+                 acc_errors      = [Errors|AccErrors]
+                }};
 
-running(#event_info{event = ?EVENT_FINISH}, #state{pending_targets  = [],
-                                                   ongoing_targets  = [_|_],
-                                                   child_pids       = ChildPids,
-                                                   reserved_targets = ReservedTargets} = State) ->
+running(#event_info{event = ?EVENT_FINISH,
+                    errors = Errors}, #state{pending_targets  = [],
+                                             ongoing_targets  = [_|_],
+                                             child_pids       = ChildPids,
+                                             reserved_targets = ReservedTargets,
+                                             acc_errors = AccErrors
+                                            } = State) ->
+    AccErrors_1 = lists:sort(lists:flatten([Errors|AccErrors])),
     [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
     NextState = ?ST_IDLING,
     PendingTargets = pending_targets(ReservedTargets),
@@ -309,7 +329,8 @@ running(#event_info{event = ?EVENT_FINISH}, #state{pending_targets  = [],
                                         pending_targets  = PendingTargets,
                                         ongoing_targets  = [],
                                         child_pids       = [],
-                                        locked_targets   = []
+                                        locked_targets   = [],
+                                        acc_errors       = AccErrors_1
                                        }}.
 
 
@@ -421,7 +442,8 @@ handle_sync_event(state, _From, StateName, #state{status = Status,
                                                   pending_targets      = PendingTargets,
                                                   ongoing_targets      = OngoingTargets,
                                                   locked_targets       = LockedTargets,
-                                                  start_datetime       = LastestExecDate} = State) ->
+                                                  start_datetime       = LastestExecDate,
+                                                  acc_errors           = AccErrors} = State) ->
     {reply, {ok, #compaction_stats{status = Status,
                                    total_num_of_targets    = TotalNumOfTargets,
                                    num_of_reserved_targets = length(ReservedTargets),
@@ -431,7 +453,9 @@ handle_sync_event(state, _From, StateName, #state{status = Status,
                                    pending_targets         = PendingTargets,
                                    ongoing_targets         = OngoingTargets,
                                    locked_targets          = LockedTargets,
-                                   latest_exec_datetime    = LastestExecDate}}, StateName, State};
+                                   latest_exec_datetime    = LastestExecDate,
+                                   acc_errors = AccErrors
+                                  }}, StateName, State};
 
 %% @doc Handle 'stop' event
 handle_sync_event(stop, _From, _StateName, Status) ->
@@ -517,9 +541,9 @@ loop(CallbackFun, TargetId) ->
             {_ObjStorageId, CompactionWorkerId} = TargetId,
             ok = leo_compact_fsm_worker:resume(CompactionWorkerId),
             loop(CallbackFun, TargetId);
-        finish ->
+        {finish, {_ObjStorageId, AccErrors}} ->
             {ObjStorageId,_CompactionWorkerId} = TargetId,
-            _  = finish(self(), ObjStorageId),
+            _  = finish(self(), ObjStorageId, AccErrors),
             loop(CallbackFun, TargetId);
         stop ->
             ok;

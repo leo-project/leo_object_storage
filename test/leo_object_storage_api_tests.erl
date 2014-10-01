@@ -56,6 +56,7 @@ diagnosis_test_() ->
              application:stop(leo_object_storage),
              timer:sleep(1000),
              ?debugVal("### DIAGNOSIS.END ###"),
+             timer:sleep(5000),
              ok
      end,
      [
@@ -99,6 +100,30 @@ diagnose() ->
     ok = put_regular_bin_with_cmeta(51, 50),
     ok = put_irregular_bin(),
     ok = put_large_bin(101),
+    ok = leo_object_storage_api:delete({1, <<"TEST_10">>},
+                                       #?OBJECT{method    = delete,
+                                                addr_id   = 1,
+                                                key       = <<"TEST_10">>,
+                                                ksize     = 7,
+                                                data      = <<>>,
+                                                dsize     = 0,
+                                                checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
+                                                timestamp = leo_date:now(),
+                                                clock     = leo_date:clock(),
+                                                del = 1
+                                               }),
+    ok = leo_object_storage_api:delete({1, <<"TEST_50">>},
+                                       #?OBJECT{method    = delete,
+                                                addr_id   = 1,
+                                                key       = <<"TEST_50">>,
+                                                ksize     = 7,
+                                                data      = <<>>,
+                                                dsize     = 0,
+                                                checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
+                                                timestamp = leo_date:now(),
+                                                clock     = leo_date:clock(),
+                                                del = 1
+                                               }),
 
     %% Execute to diagnose data
     timer:sleep(3000),
@@ -111,8 +136,11 @@ diagnose() ->
                             active_num = ActiveNum
                            }}|_]} = leo_object_storage_api:stats(),
     ?debugVal({TotalNum, ActiveNum}),
-    ?assertEqual(126, TotalNum),
-    ?assertEqual(101, ActiveNum),
+    ?assertEqual(128, TotalNum),
+    ?assertEqual(99,  ActiveNum),
+
+    {ok, State} = leo_compact_fsm_controller:state(),
+    ?debugVal(State#compaction_stats.acc_errors),
     ok.
 
 compact() ->
@@ -725,7 +753,9 @@ compact_2() ->
     %% confirm whether first compaction have broken avs files or not
     ok = leo_compact_fsm_controller:run(TargetPids, 2, FunHasChargeOfNode),
     ok = check_status(),
+    timer:sleep(500),
     {ok, Res3} = leo_object_storage_api:stats(),
+    ?debugVal(Res3),
     {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2} = get_avs_stats_summary(Res3),
 
     %% inspect for after compaction

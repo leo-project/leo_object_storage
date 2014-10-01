@@ -91,6 +91,7 @@
           start_datetime = 0 :: non_neg_integer(),
           error_pos = 0      :: non_neg_integer(),
           set_errors         :: set(),
+          acc_errors = []    :: [{pos_integer(), pos_integer()}],
           result :: compaction_ret()
          }).
 
@@ -255,6 +256,7 @@ idling(#event_info{event = ?EVENT_RUN,
                           is_diagnosing = IsDiagnose,
                           error_pos     = 0,
                           set_errors    = sets:new(),
+                          acc_errors    = [],
                           compaction_prms =
                               CompactionPrms#compaction_prms{
                                 num_of_active_objs  = 0,
@@ -354,6 +356,7 @@ running(#event_info{event = ?EVENT_FINISH}, #state{obj_storage_id   = ObjStorage
                                                    compact_cntl_pid = CntlPid,
                                                    obj_storage_info = #backend_info{file_path = FilePath},
                                                    start_datetime = StartDateTime,
+                                                   acc_errors = AccErrors,
                                                    result = Ret} = State) ->
     EndDateTime = leo_date:now(),
     Duration = EndDateTime - StartDateTime,
@@ -372,11 +375,12 @@ running(#event_info{event = ?EVENT_FINISH}, #state{obj_storage_id   = ObjStorage
                                                   {duration, Duration},
                                                   {result, Ret}
                                                  ]}]),
-    erlang:send(CntlPid, finish),
+    erlang:send(CntlPid, {finish, {ObjStorageId, lists:reverse(AccErrors)}}),
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus,
                                          error_pos = 0,
                                          set_errors = sets:new(),
+                                         acc_errors = [],
                                          obj_storage_info = #backend_info{},
                                          compaction_prms = #compaction_prms{},
                                          start_datetime = 0,
@@ -568,7 +572,8 @@ execute(#state{meta_db_id       = MetaDBId,
                obj_storage_info = StorageInfo,
                waiting_time     = WaitingTime,
                is_diagnosing    = IsDiagnose,
-               compaction_prms  = CompactionPrms} = State) ->
+               compaction_prms  = CompactionPrms
+              } = State) ->
     %% Initialize set-error property
     State_1 = State#state{set_errors = sets:new()},
 
@@ -604,7 +609,10 @@ execute(#state{meta_db_id       = MetaDBId,
 
             case (is_deleted_rec(MetaDBId, StorageInfo, Metadata)
                   orelse HasChargeOfNode == false) of
-                true ->
+                true when IsDiagnose == false ->
+                    execute_1(State_1);
+                true when IsDiagnose == true ->
+                    ok = output_diagnosis_log(LoggerId, Metadata),
                     execute_1(State_1);
                 %%
                 %% For data-compaction processing
@@ -637,12 +645,7 @@ execute(#state{meta_db_id       = MetaDBId,
                 %% For diagnosis processing
                 %%
                 false when IsDiagnose == true ->
-                    case LoggerId of
-                        undefined ->
-                            void;
-                        _ ->
-                            ?output_diagnosis_log(Metadata)
-                    end,
+                    ok = output_diagnosis_log(LoggerId, Metadata),
                     {Ret_1, NewState} = execute_2(
                                           ok, CompactionPrms, Metadata,
                                           NumOfActiveObjs, ActiveSize, State_1),
@@ -653,9 +656,16 @@ execute(#state{meta_db_id       = MetaDBId,
 
 %% @doc Reduce unnecessary objects from object-container.
 %% @private
+-spec(execute_1(State) ->
+             {ok, {next|eof, State}} |
+             {{error, any()}, State} when State::#state{}).
 execute_1(State) ->
     execute_1(ok, State).
 
+-spec(execute_1(Ret, State) ->
+             {ok, {next|eof, State}} |
+             {{error, any()}, State} when Ret::ok|{error,any()},
+                                          State::#state{}).
 execute_1(ok, #state{obj_storage_info = StorageInfo,
                      compaction_prms  = CompactionPrms} = State) ->
     erlang:garbage_collect(self()),
@@ -666,8 +676,8 @@ execute_1(ok, #state{obj_storage_info = StorageInfo,
            ReadHandler, NextOffset) of
         {ok, NewMetadata, [_HeaderValue, NewKeyValue,
                            NewBodyValue, NewNextOffset]} ->
-            ok = output_accumulated_errors(State, NextOffset),
-            {ok, {next, State#state{
+            {ok, State_1} = output_accumulated_errors(State, NextOffset),
+            {ok, {next, State_1#state{
                           error_pos  = 0,
                           set_errors = sets:new(),
                           compaction_prms =
@@ -680,10 +690,10 @@ execute_1(ok, #state{obj_storage_info = StorageInfo,
 
         %% Reached tail of the object-container
         {error, eof = Cause} ->
-            ok = output_accumulated_errors(State, NextOffset),
+            {ok, State_1} = output_accumulated_errors(State, NextOffset),
             NumOfAcriveObjs  = CompactionPrms#compaction_prms.num_of_active_objs,
             SizeOfActiveObjs = CompactionPrms#compaction_prms.size_of_active_objs,
-            {ok, {Cause, State#state{
+            {ok, {Cause, State_1#state{
                            error_pos  = 0,
                            set_errors = sets:new(),
                            compaction_prms =
@@ -776,6 +786,7 @@ after_execute_1({ok, #state{meta_db_id       = MetaDBId,
     end;
 
 %% @doc Rollback - delete the tmp-files
+%% @private
 after_execute_1({_Error, #state{meta_db_id       = MetaDBId,
                                 obj_storage_info = StorageInfo} = State}) ->
     %% must reopen the original file when handling at another process:
@@ -784,19 +795,29 @@ after_execute_1({_Error, #state{meta_db_id       = MetaDBId,
     {ok, State#state{result = ?RET_FAIL}}.
 
 
+%% @doc Output the diagnosis log
+%% @private
+output_diagnosis_log(undefined,_Metadata) ->
+    ok;
+output_diagnosis_log(LoggerId, Metadata) ->
+    ?output_diagnosis_log(Metadata).
+
+
 %% @doc Output accumulated errors to logger
 %% @private
 -spec(output_accumulated_errors(State, ErrorPosEnd) ->
-             ok when State::#state{},
-                     ErrorPosEnd::non_neg_integer()).
+             {ok, State} when State::#state{},
+                              ErrorPosEnd::non_neg_integer()).
 output_accumulated_errors(#state{obj_storage_id = ObjStorageId,
                                  error_pos  = ErrorPosStart,
-                                 set_errors = SetErrors}, ErrorPosEnd) ->
+                                 set_errors = SetErrors,
+                                 acc_errors = AccErrors} = State, ErrorPosEnd) ->
     case sets:size(SetErrors) of
         0 ->
-            ok;
+            {ok, State};
         _ ->
             {ok, StorageInfo} = ?get_obj_storage_info(ObjStorageId),
+            Errors = sets:to_list(SetErrors),
             error_logger:warning_msg(
               "~p,~p,~p,~p~n",
               [{module, ?MODULE_STRING},
@@ -805,9 +826,9 @@ output_accumulated_errors(#state{obj_storage_id = ObjStorageId,
                {body, [{obj_container_path, StorageInfo#backend_info.file_path},
                        {error_pos_start, ErrorPosStart},
                        {error_pos_end,   ErrorPosEnd},
-                       {errors,          sets:to_list(SetErrors)}]}
+                       {errors,          Errors}]}
               ]),
-            ok
+            {ok, State#state{acc_errors = [{ErrorPosStart, ErrorPosEnd}|AccErrors]}}
     end.
 
 
