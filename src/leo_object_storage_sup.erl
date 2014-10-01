@@ -105,97 +105,108 @@ start_child(ObjectStorageInfo) ->
     catch ets:new(?ETS_INFO_TABLE,
                   [named_table, set, public, {read_concurrency, true}]),
 
-    %% Launch backend-db's sup
-    %%   under the leo_object_storage_sup
-    BackendDBSupPid =
-        case whereis(leo_backend_db_sup) of
-            undefined ->
-                ChildSpec0 = {leo_backend_db_sup,
-                              {leo_backend_db_sup, start_link, []},
-                              permanent, 2000, worker, [leo_backend_db_sup]},
-                case supervisor:start_child(?MODULE, ChildSpec0) of
-                    {ok, Pid} ->
-                        Pid;
-                    {error, Cause0} ->
-                        error_logger:error_msg("~p,~p,~p,~p~n",
-                                               [{module, ?MODULE_STRING},
-                                                {function, "start_child/2"},
-                                                {line, ?LINE},
-                                                {body, "Could NOT start backend-db sup"}]),
-                        exit(Cause0)
-                end;
-            Pid ->
-                Pid
-        end,
-
-    %% Launch backend-db's processes
-    %%   under the leo_object_storage_sup
     MetadataDB = ?env_metadata_db(),
     IsStrictCheck = ?env_strict_check(),
 
-    _ = lists:foldl(
-          fun({Containers, Path0}, I) ->
-                  Path1 = get_path(Path0),
-                  Props = [{num_of_containers, Containers},
-                           {path,              Path1},
-                           {metadata_db,       MetadataDB},
-                           {is_strict_check,   IsStrictCheck}
-                          ],
-                  true = ets:insert(?ETS_INFO_TABLE,
-                                    {list_to_atom(?MODULE_STRING ++ integer_to_list(I)), Props}),
-                  ok = lists:foreach(fun(N) ->
-                                             Id = (I * ?DEVICE_ID_INTERVALS) + N,
-                                             ok = add_container(BackendDBSupPid, Id, Props)
-                                     end, lists:seq(0, Containers-1)),
-                  I + 1
-          end, 0, ObjectStorageInfo),
+    BackendDBSupPid =start_child_1(),
+    ok = start_child_2(),
+    ok = start_child_3(),
+    ok = start_child_4(ObjectStorageInfo, 0, MetadataDB, BackendDBSupPid, IsStrictCheck),
+    ok = start_child_5(),
+    ok.
 
-    %% Launch a Compaction manager
-    %%   under the leo_object_storage_sup
-    ChildSpec1 = {leo_compact_fsm_controller,
-                  {leo_compact_fsm_controller, start_link, []},
-                  permanent, 2000, worker, [leo_compact_fsm_controller]},
-    case supervisor:start_child(?MODULE, ChildSpec1) of
+
+%% @doc Launch backend-db's sup
+%%      under the leo_object_storage_sup
+%% @private
+start_child_1() ->
+    case whereis(leo_backend_db_sup) of
+        undefined ->
+            ChildSpec0 = {leo_backend_db_sup,
+                          {leo_backend_db_sup, start_link, []},
+                          permanent, 2000, worker, [leo_backend_db_sup]},
+            case supervisor:start_child(?MODULE, ChildSpec0) of
+                {ok, Pid} ->
+                    Pid;
+                {error, Cause0} ->
+                    exit(Cause0)
+            end;
+        Pid ->
+            Pid
+    end.
+
+
+%% @doc Launch a Compaction manager
+%%      under the leo_object_storage_sup
+%% @private
+start_child_2() ->
+    ChildSpec = {leo_compact_fsm_controller,
+                 {leo_compact_fsm_controller, start_link, []},
+                 permanent, 2000, worker, [leo_compact_fsm_controller]},
+    case supervisor:start_child(?MODULE, ChildSpec) of
         {ok, _Pid} ->
             ok;
-        {error, Cause1} ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING},
-                                    {function, "start_child/2"},
-                                    {line, ?LINE},
-                                    {body, "Could NOT start compaction manager process"}]),
-            exit(Cause1)
-    end,
+        {error, Cause} ->
+            exit(Cause)
+    end.
 
-    %% Launch the logger
+
+%% @doc Launch the logger
+%% @private
+start_child_3() ->
     case whereis(leo_logger_sup) of
         undefined ->
-            ChildSpec2 = {leo_logger_sup,
-                          {leo_logger_sup, start_link, []},
-                          permanent, 2000, supervisor, [leo_logger_sup]},
-            case supervisor:start_child(?MODULE, ChildSpec2) of
-                {ok, _Pid2} ->
+            ChildSpec = {leo_logger_sup,
+                         {leo_logger_sup, start_link, []},
+                         permanent, 2000, supervisor, [leo_logger_sup]},
+            case supervisor:start_child(?MODULE, ChildSpec) of
+                {ok, _Pid} ->
                     ok;
-                {error, Cause2} ->
-                    error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING},
-                                            {function, "start_child/2"},
-                                            {line, ?LINE},
-                                            {body, "Could NOT start logger_sup"}]),
-                    exit(Cause2)
+                {error, Cause} ->
+                    exit(Cause)
             end;
         _ ->
-            void
-    end,
+            ok
+    end.
 
-    %% Check supervisor's status
+
+%% @doc Launch backend-db's processes
+%%      under the leo_object_storage_sup
+%% @private
+start_child_4([],_,_,_,_) ->
+    ok;
+start_child_4([{NumOfContainers, Path}|Rest], Index, MetadataDB, BackendDBSupPid, IsStrictCheck) ->
+    Path_1 = get_path(Path),
+    Props  = [{num_of_containers, NumOfContainers},
+              {path,              Path_1},
+              {metadata_db,       MetadataDB},
+              {is_strict_check,   IsStrictCheck}
+             ],
+    true = ets:insert(?ETS_INFO_TABLE,
+                      {list_to_atom(?MODULE_STRING ++ integer_to_list(Index)), Props}),
+    ok = start_child_4_1(Index, NumOfContainers - 1, BackendDBSupPid, Props),
+    start_child_4(Rest, Index + 1, MetadataDB, BackendDBSupPid, IsStrictCheck).
+
+
+%% @doc Launch
+%% @private
+start_child_4_1(_,-1,_,_) ->
+    ok;
+start_child_4_1(DeviceIndex, ContainerIndex, BackendDBSupPid, Props) ->
+    Id = (DeviceIndex * ?DEVICE_ID_INTERVALS) + ContainerIndex,
+    case add_container(BackendDBSupPid, Id, Props) of
+        ok ->
+            start_child_4_1(DeviceIndex, ContainerIndex - 1, BackendDBSupPid, Props);
+        {error, Cause} ->
+            exit(Cause)
+    end.
+
+
+%% @doc Check supervisor's status
+%% @private
+start_child_5() ->
     case whereis(?MODULE) of
         undefined ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING},
-                                    {function, "start_child/2"},
-                                    {line, ?LINE},
-                                    {body, "NOT started supervisor"}]),
             exit(not_initialized);
         SupRef ->
             Ret = case supervisor:count_children(SupRef) of
@@ -215,12 +226,7 @@ start_child(ObjectStorageInfo) ->
             case Ret of
                 ok ->
                     ok;
-                {error, Cause} ->
-                    error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING},
-                                            {function, "start_child/2"},
-                                            {line, ?LINE},
-                                            {body, Cause}]),
+                {error, _Cause} ->
                     case ?MODULE:stop() of
                         ok ->
                             exit(invalid_launch);
@@ -270,8 +276,10 @@ get_path(Path0) ->
 
 %% @doc Add an object storage container into
 %%
--spec(add_container(pid(), integer(), list()) ->
-             ok).
+-spec(add_container(BackendDBSupPid, Id, Props) ->
+             ok | {error, any()} when BackendDBSupPid::pid(),
+                                      Id::integer(),
+                                      Props::[{atom(), any()}]).
 add_container(BackendDBSupPid, Id, Props) ->
     ObjStorageId    = gen_id(obj_storage,     Id),
     MetaDBId        = gen_id(metadata,        Id),
@@ -304,9 +312,9 @@ add_container(BackendDBSupPid, Id, Props) ->
 add_container_1(leo_compact_fsm_worker = Mod,
                 Id, ObjStorageId, MetaDBId, LoggerId) ->
     ChildSpec = {Id,
-                   {Mod, start_link,
-                    [Id, ObjStorageId, MetaDBId, LoggerId]},
-                   permanent, 2000, worker, [Mod]},
+                 {Mod, start_link,
+                  [Id, ObjStorageId, MetaDBId, LoggerId]},
+                 permanent, 2000, worker, [Mod]},
     case supervisor:start_child(?MODULE, ChildSpec) of
         {ok,_} ->
             ok;

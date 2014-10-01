@@ -49,10 +49,11 @@ diagnosis_test_() ->
              ok
      end,
      fun (_) ->
-             application:stop(leo_object_storage),
              application:stop(crypto),
              application:stop(os_mon),
              application:stop(sasl),
+             timer:sleep(1000),
+             application:stop(leo_object_storage),
              timer:sleep(1000),
              ?debugVal("### DIAGNOSIS.END ###"),
              ok
@@ -74,10 +75,11 @@ compaction_test_() ->
              ok
      end,
      fun (_) ->
-             application:stop(leo_object_storage),
              application:stop(crypto),
              application:stop(os_mon),
              application:stop(sasl),
+             timer:sleep(1000),
+             application:stop(leo_object_storage),
              timer:sleep(1000),
              ?debugVal("### COMPACTION.END ###"),
              ok
@@ -289,8 +291,9 @@ teardown([Path1, Path2]) ->
     io:format(user, "teardown~n", []),
     os:cmd("rm -rf " ++ Path1),
     os:cmd("rm -rf " ++ Path2),
-    application:stop(leo_object_storage),
     application:stop(crypto),
+    timer:sleep(1000),
+    application:stop(leo_object_storage),
     timer:sleep(1000),
     ok.
 
