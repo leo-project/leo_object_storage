@@ -34,7 +34,7 @@
 
 %% API
 -export([start_link/0]).
--export([run/3,
+-export([run/0, run/1, run/2, run/3,
          diagnose/0,
          stop/1,
          lock/1,
@@ -101,6 +101,23 @@ start_link() ->
 %%--------------------------------------------------------------------
 %% @doc Request launch of data-compaction to the data-compaction's workers
 %% @end
+-spec(run() ->
+             term()).
+run() ->
+    run(1, undefined).
+
+-spec(run(MaxConn) ->
+             term() when MaxConn::pos_integer()).
+run(MaxConn) ->
+    run(MaxConn, undefined).
+
+-spec(run(MaxConn, CallbackFun) ->
+             term() when MaxConn::pos_integer(),
+                         CallbackFun::function()).
+run(MaxConn, CallbackFun) ->
+    TargetPids = leo_object_storage_api:get_object_storage_pid('all'),
+    run(TargetPids, MaxConn, CallbackFun).
+
 -spec(run(TargetPids, MaxConn, CallbackFun) ->
              term() when TargetPids::[pid()|atom()],
                          MaxConn::pos_integer(),

@@ -89,12 +89,52 @@
 
 
 %% --------------------------------------------------------------------
-%% GATEWAY - LOG
+%% object-storage related properties
+%% --------------------------------------------------------------------
+%% @doc Metadata storage
+{mapping,
+ "storage.metadata",
+ "leo_object_storage.metadata_storage",
+ [
+  {datatype, atom},
+  {default, 'leveldb'}
+ ]}.
+
+%% @doc Object storage
+{mapping,
+ "storage.object",
+ "leo_object_storage.object_storage",
+ [
+  {datatype, atom},
+  {default, 'haystack'}
+ ]}.
+
+%% @doc Diagnosis log
+{mapping,
+ "is_enable_diagnosis_log",
+ "leo_object_storage.is_enable_diagnosis_log",
+ [
+  {datatype, atom},
+  {default, true}
+ ]}.
+
+%% @doc Diagnosis log
+{mapping,
+ "is_strict_check",
+ "leo_object_storage.is_strict_check",
+ [
+  {datatype, atom},
+  {default, false}
+ ]}.
+
+
+%% --------------------------------------------------------------------
+%% LOG
 %% --------------------------------------------------------------------
 %% @doc Log level
 {mapping,
  "log.log_level",
- "leo_gateway.log_level",
+ "leo_object_storage.log_level",
  [
   {datatype, integer}, %% >> enum
   {default, 1}
@@ -103,7 +143,7 @@
 %% @doc Is enable access log
 {mapping,
  "log.is_enable_access_log",
- "leo_gateway.is_enable_access_log",
+ "leo_object_storage.is_enable_access_log",
  [
   {datatype, {enum, [true, false]}},
   {default, false}
@@ -112,7 +152,7 @@
 %% @doc Output log file(s) - erlang
 {mapping,
  "log.erlang",
- "leo_gateway.log_dir",
+ "leo_object_storage.log_dir",
  [
   {datatype, string},
   {default, "./log/erlang"}
@@ -121,35 +161,17 @@
 %% @doc Output log file(s) - app
 {mapping,
  "log.app",
- "leo_gateway.log_appender",
+ "leo_object_storage.log_appender",
  [
   {datatype, string},
   {default, "./log/app"}
  ]}.
 
-{translation, "leo_gateway.log_appender",
+{translation, "leo_object_storage.log_appender",
  fun(Conf) ->
          Path = cuttlefish_util:conf_get_value("log.app", Conf),
          [{file, [{path, Path}]}]
  end}.
-
-%% @doc Output log file(s) - members of storage-cluster
-{mapping,
- "log.member_dir",
- "leo_redundant_manager.log_dir_member",
- [
-  {datatype, string},
-  {default, "./log/ring"}
- ]}.
-
-%% @doc Output log file(s) - ring
-{mapping,
- "log.ring_dir",
- "leo_redundant_manager.log_dir_ring",
- [
-  {datatype, string},
-  {default, "./log/ring"}
- ]}.
 
 
 %% --------------------------------------------------------------------
