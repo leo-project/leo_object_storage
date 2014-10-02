@@ -72,8 +72,10 @@
           next_offset = 0         :: non_neg_integer()|eof,
           start_lock_offset = 0   :: non_neg_integer(),
           callback_fun            :: function(),
-          num_of_active_objs = 0  :: integer(),
-          size_of_active_objs = 0 :: integer()
+          num_of_active_objs = 0  :: non_neg_integer(),
+          size_of_active_objs = 0 :: non_neg_integer(),
+          total_num_of_objs = 0   :: non_neg_integer(),
+          total_size_of_objs = 0  :: non_neg_integer()
          }).
 
 -record(state, {
@@ -354,8 +356,13 @@ running(#event_info{event = ?EVENT_SUSPEND}, State) ->
 
 running(#event_info{event = ?EVENT_FINISH}, #state{obj_storage_id   = ObjStorageId,
                                                    compact_cntl_pid = CntlPid,
-                                                   obj_storage_info = #backend_info{file_path = FilePath},
+                                                   compaction_prms  = CompactionPrms,
+                                                   obj_storage_info = #backend_info{file_path   = FilePath,
+                                                                                    linked_path = LinkedPath,
+                                                                                    avs_ver_prv = AVSVerPrev,
+                                                                                    avs_ver_cur = AVSVerCur},
                                                    start_datetime = StartDateTime,
+                                                   is_diagnosing = IsDiagnosing,
                                                    acc_errors = AccErrors,
                                                    result = Ret} = State) ->
     EndDateTime = leo_date:now(),
@@ -367,11 +374,30 @@ running(#event_info{event = ?EVENT_FINISH}, #state{obj_storage_id   = ObjStorage
                                           end_datetime   = EndDateTime,
                                           duration       = Duration,
                                           result = Ret}),
+    %% @TODO - generate a report of the results
+    CntnrVer  = case IsDiagnosing of
+                    true  -> AVSVerPrev;
+                    false -> AVSVerCur
+                end,
+    CntnrPath = case IsDiagnosing of
+                   true  -> LinkedPath;
+                   false -> FilePath
+               end,
+    #compaction_prms{num_of_active_objs  = NumOfActiveObjs,
+                     size_of_active_objs = ActiveSize,
+                     total_num_of_objs  = TotalObjs,
+                     total_size_of_objs = TotaSize} = CompactionPrms,
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "running/2"},
-                           {line, ?LINE}, {body, [{file_path, FilePath},
+                           {line, ?LINE}, {body, [{file_path, CntnrPath},
+                                                  {avs_ver, CntnrVer},
+                                                  {num_of_active_objs,  NumOfActiveObjs},
+                                                  {size_of_active_objs, ActiveSize},
+                                                  {total_num_of_objs,   TotalObjs},
+                                                  {total_size_of_objs,  TotaSize},
                                                   {start_datetime, StartDateTime_1},
                                                   {end_datetime,   EndDateTime_1},
+                                                  {errors, AccErrors},
                                                   {duration, Duration},
                                                   {result, Ret}
                                                  ]}]),
@@ -572,8 +598,7 @@ execute(#state{meta_db_id       = MetaDBId,
                obj_storage_info = StorageInfo,
                waiting_time     = WaitingTime,
                is_diagnosing    = IsDiagnose,
-               compaction_prms  = CompactionPrms
-              } = State) ->
+               compaction_prms  = CompactionPrms} = State) ->
     %% Initialize set-error property
     State_1 = State#state{set_errors = sets:new()},
 
@@ -597,8 +622,9 @@ execute(#state{meta_db_id       = MetaDBId,
                              body_bin = Body,
                              callback_fun = CallbackFun,
                              num_of_active_objs  = NumOfActiveObjs,
-                             size_of_active_objs = ActiveSize
-                            } = CompactionPrms,
+                             size_of_active_objs = ActiveSize,
+                             total_num_of_objs  = TotalObjs,
+                             total_size_of_objs = TotaSize} = CompactionPrms,
             NumOfReplicas   = Metadata#?METADATA.num_of_replicas,
             HasChargeOfNode = case (CallbackFun == undefined) of
                                   true ->
@@ -613,7 +639,12 @@ execute(#state{meta_db_id       = MetaDBId,
                     execute_1(State_1);
                 true when IsDiagnose == true ->
                     ok = output_diagnosis_log(LoggerId, Metadata),
-                    execute_1(State_1);
+                    execute_1(State_1#state{
+                                compaction_prms = CompactionPrms#compaction_prms{
+                                                    total_num_of_objs  = TotalObjs + 1,
+                                                    total_size_of_objs = TotaSize  +
+                                                        leo_object_storage_haystack:calc_obj_size(Metadata)
+                                                   }});
                 %%
                 %% For data-compaction processing
                 %%
@@ -649,7 +680,14 @@ execute(#state{meta_db_id       = MetaDBId,
                     {Ret_1, NewState} = execute_2(
                                           ok, CompactionPrms, Metadata,
                                           NumOfActiveObjs, ActiveSize, State_1),
-                    execute_1(Ret_1, NewState)
+                    CompactionPrms_1 = NewState#state.compaction_prms,
+                    execute_1(Ret_1,
+                              NewState#state{
+                                compaction_prms = CompactionPrms_1#compaction_prms{
+                                                    total_num_of_objs  = TotalObjs + 1,
+                                                    total_size_of_objs = TotaSize  +
+                                                        leo_object_storage_haystack:calc_obj_size(Metadata)
+                                                   }})
             end
     end.
 
@@ -767,7 +805,6 @@ after_execute_1({ok, #state{is_diagnosing = true,
                                 #compaction_prms{
                                    num_of_active_objs  = _NumActiveObjs,
                                    size_of_active_objs = _SizeActiveObjs}} = State}) ->
-    %% @TODO - generate a report of the results
     {ok, State#state{result = ?RET_SUCCESS}};
 
 after_execute_1({ok, #state{meta_db_id       = MetaDBId,
