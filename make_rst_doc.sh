@@ -16,7 +16,7 @@ do
     pandoc --read=html --write=rst "$read_file" -o "$write_file"
 
     sed -ie "1,6d" "$write_file"
-    sed -ie "s/\Module //" "$write_file"
+    sed -ie "1s/\Module //" "$write_file"
     LINE_1=`cat $write_file | wc -l`
     LINE_2=`expr $LINE_1 - 10`
     sed -ie "$LINE_2,\$d" "$write_file"
