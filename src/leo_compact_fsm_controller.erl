@@ -19,7 +19,7 @@
 %% under the License.
 %%
 %% @doc FSM of the data-compaction controller, which manages FSM of the data-compaction's workers
-%% @reference [https://github.com/leo-project/leo_object_storage/blob/master/src/leo_compact_fsm_controller.erl]
+%% @reference https://github.com/leo-project/leo_object_storage/blob/master/src/leo_compact_fsm_controller.erl
 %% @end
 %%======================================================================
 -module(leo_compact_fsm_controller).

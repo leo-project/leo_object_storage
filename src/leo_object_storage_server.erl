@@ -22,7 +22,7 @@
 %% Leo Object Storage - Server
 %%
 %% @doc The object storage server
-%% @reference [https://github.com/leo-project/leo_object_storage/blob/master/src/leo_object_storage_server.erl]
+%% @reference https://github.com/leo-project/leo_object_storage/blob/master/src/leo_object_storage_server.erl
 %% @end
 %%======================================================================
 -module(leo_object_storage_server).
