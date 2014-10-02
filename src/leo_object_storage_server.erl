@@ -339,9 +339,8 @@ init([Id, SeqNo, MetaDBId, CompactionWorkerId, DiagnosisLogId, RootPath, IsStric
                                      avs_ver_cur   = AVSVsnBin},
 
                     %% Launch the diagnosis logger
-                    case application:get_env(leo_object_storage,
-                                             is_enable_diagnosis_log) of
-                        {ok, true} ->
+                    case ?env_enable_diagnosis_log() of
+                        true ->
                             _ = filelib:ensure_dir(LogFilePath),
                             ok = leo_logger_client_base:new(?LOG_GROUP_ID_DIAGNOSIS,
                                                             DiagnosisLogId,

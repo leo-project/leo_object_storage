@@ -310,6 +310,16 @@
         end).
 -endif.
 
+-define(env_enable_diagnosis_log(),
+        case application:get_env(leo_object_storage,
+                                 is_enable_diagnosis_log) of
+            {ok, true} ->
+                true;
+            _ ->
+                false
+        end).
+
+
 %% custom-metadata's items for MDC-replication:
 -define(PROP_CMETA_CLUSTER_ID, 'cluster_id').
 -define(PROP_CMETA_NUM_OF_REPLICAS, 'num_of_replicas').
@@ -365,7 +375,7 @@
                                                  _CIndex,
                                                  _Dsize,
                                                  _Clock,
-                                                 leo_date:date_format(),
+                                                 leo_date:date_format(_Timestamp),
                                                  _Del
                                                 ]}
               })

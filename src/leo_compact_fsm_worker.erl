@@ -740,11 +740,21 @@ execute_2(Ret, CompactionPrms, Metadata, NumOfActiveObjs, ActiveSize, State) ->
 
 
 %% @private
-after_execute(Ret, #state{obj_storage_info = StorageInfo} = State) ->
+after_execute(Ret, #state{obj_storage_info = StorageInfo,
+                          is_diagnosing    = IsDiagnose,
+                          diagnosis_log_id = LoggerId} = State) ->
     %% Close file handlers
     ReadHandler  = StorageInfo#backend_info.read_handler,
     WriteHandler = StorageInfo#backend_info.write_handler,
     catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
+
+    %% rotate the diagnosis-log
+    case IsDiagnose of
+        true when LoggerId /= undefined ->
+            leo_logger_client_base:force_rotation(LoggerId);
+        _ ->
+            void
+    end,
 
     %% Finish compaction
     after_execute_1({Ret, State}).
@@ -757,7 +767,7 @@ after_execute_1({ok, #state{is_diagnosing = true,
                                 #compaction_prms{
                                    num_of_active_objs  = _NumActiveObjs,
                                    size_of_active_objs = _SizeActiveObjs}} = State}) ->
-    %% @TODO
+    %% @TODO - generate a report of the results
     {ok, State#state{result = ?RET_SUCCESS}};
 
 after_execute_1({ok, #state{meta_db_id       = MetaDBId,
@@ -792,6 +802,7 @@ after_execute_1({_Error, #state{meta_db_id       = MetaDBId,
     %% must reopen the original file when handling at another process:
     catch file:delete(StorageInfo#backend_info.file_path),
     leo_backend_db_api:finish_compaction(MetaDBId, false),
+
     {ok, State#state{result = ?RET_FAIL}}.
 
 
