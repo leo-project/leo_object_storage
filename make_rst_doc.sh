@@ -2,24 +2,23 @@
 
 make doc
 rm -rf doc/rst && mkdir doc/rst
-pandoc --read=html --write=rst doc/leo_object_storage_api.html -o doc/rst/leo_object_storage_api.rst
-pandoc --read=html --write=rst doc/leo_object_storage_haystack.html -o doc/rst/leo_object_storage_haystack.rst
-pandoc --read=html --write=rst doc/leo_object_storage_server.html -o doc/rst/leo_object_storage_server.rst
-pandoc --read=html --write=rst doc/leo_object_storage_transformer.html -o doc/rst/leo_object_storage_transformer.rst
-pandoc --read=html --write=rst doc/leo_compact_fsm_controller.html -o doc/rst/leo_compact_fsm_controller.rst
-pandoc --read=html --write=rst doc/leo_compact_fsm_worker.html -o doc/rst/leo_compact_fsm_worker.rst
 
-for filename in doc/rst/leo_object_storage_api.rst \
-                doc/rst/leo_object_storage_haystack.rst \
-                doc/rst/leo_object_storage_server.rst \
-                doc/rst/leo_object_storage_transformer.rst \
-                doc/rst/leo_compact_fsm_controller.rst \
-                doc/rst/leo_compact_fsm_worker.rst
+for Mod in leo_compact_fsm_controller \
+           leo_compact_fsm_worker \
+           leo_object_storage_api \
+           leo_object_storage_haystack \
+           leo_object_storage_server \
+           leo_object_storage_transformer
 do
-    sed -ie "1,6d" "$filename"
-    sed -ie "s/\Module //" "$filename"
-    LINE_1=`cat $filename | wc -l`
+    read_file="doc/$Mod.html"
+    write_file="doc/rst/$Mod.rst"
+
+    pandoc --read=html --write=rst "$read_file" -o "$write_file"
+
+    sed -ie "1,6d" "$write_file"
+    sed -ie "s/\Module //" "$write_file"
+    LINE_1=`cat $write_file | wc -l`
     LINE_2=`expr $LINE_1 - 10`
-    sed -ie "$LINE_2,\$d" "$filename"
+    sed -ie "$LINE_2,\$d" "$write_file"
 done
-rm doc/rst/*.rste
+rm -rf doc/rst/*.rste
