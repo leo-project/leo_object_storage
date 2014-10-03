@@ -338,14 +338,11 @@ running(#event_info{event  = ?EVENT_FINISH,
                                              reserved_targets = ReservedTargets,
                                              reports = AccReports
                                             } = State) ->
-    ?debugVal('finish'),
     AccReports_1 = lists:sort(lists:flatten([Report|AccReports])),
-    ?debugVal(AccReports_1),
     [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
 
     NextState = ?ST_IDLING,
     PendingTargets = pending_targets(ReservedTargets),
-    ?debugVal(PendingTargets),
     {next_state, NextState, State#state{status = NextState,
                                         reserved_targets = [],
                                         pending_targets  = PendingTargets,
