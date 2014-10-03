@@ -355,53 +355,12 @@ running(#event_info{event = ?EVENT_SUSPEND}, State) ->
     {next_state, NextStatus, State#state{status = NextStatus}};
 
 running(#event_info{event = ?EVENT_FINISH}, #state{obj_storage_id   = ObjStorageId,
-                                                   compact_cntl_pid = CntlPid,
-                                                   compaction_prms  = CompactionPrms,
-                                                   obj_storage_info = #backend_info{file_path   = FilePath,
-                                                                                    linked_path = LinkedPath,
-                                                                                    avs_ver_prv = AVSVerPrev,
-                                                                                    avs_ver_cur = AVSVerCur},
-                                                   start_datetime = StartDateTime,
-                                                   is_diagnosing = IsDiagnosing,
-                                                   acc_errors = AccErrors,
-                                                   result = Ret} = State) ->
-    EndDateTime = leo_date:now(),
-    Duration = EndDateTime - StartDateTime,
-    StartDateTime_1 = lists:flatten(leo_date:date_format(StartDateTime)),
-    EndDateTime_1   = lists:flatten(leo_date:date_format(EndDateTime)),
-    ok = leo_object_storage_server:append_compaction_history(
-           ObjStorageId, #compaction_hist{start_datetime = StartDateTime,
-                                          end_datetime   = EndDateTime,
-                                          duration       = Duration,
-                                          result = Ret}),
-    %% @TODO - generate a report of the results
-    CntnrVer  = case IsDiagnosing of
-                    true  -> AVSVerPrev;
-                    false -> AVSVerCur
-                end,
-    CntnrPath = case IsDiagnosing of
-                   true  -> LinkedPath;
-                   false -> FilePath
-               end,
-    #compaction_prms{num_of_active_objs  = NumOfActiveObjs,
-                     size_of_active_objs = ActiveSize,
-                     total_num_of_objs  = TotalObjs,
-                     total_size_of_objs = TotaSize} = CompactionPrms,
-    error_logger:info_msg("~p,~p,~p,~p~n",
-                          [{module, ?MODULE_STRING}, {function, "running/2"},
-                           {line, ?LINE}, {body, [{file_path, CntnrPath},
-                                                  {avs_ver, CntnrVer},
-                                                  {num_of_active_objs,  NumOfActiveObjs},
-                                                  {size_of_active_objs, ActiveSize},
-                                                  {total_num_of_objs,   TotalObjs},
-                                                  {total_size_of_objs,  TotaSize},
-                                                  {start_datetime, StartDateTime_1},
-                                                  {end_datetime,   EndDateTime_1},
-                                                  {errors, AccErrors},
-                                                  {duration, Duration},
-                                                  {result, Ret}
-                                                 ]}]),
-    erlang:send(CntlPid, {finish, {ObjStorageId, lists:reverse(AccErrors)}}),
+                                                   compact_cntl_pid = CntlPid} = State) ->
+    %% Generate the compaction report
+    {ok, Report} = gen_compaction_report(State),
+
+    %% Notify a message to the compaction-manager
+    erlang:send(CntlPid, {finish, {ObjStorageId, Report}}),
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus,
                                          error_pos = 0,
@@ -918,3 +877,101 @@ is_deleted_rec(_MetaDBId,_StorageInfo,
     true;
 is_deleted_rec(_MetaDBId,_StorageInfo,_Meta_1,_Meta_2) ->
     false.
+
+
+%% @doc Generate compaction report
+%% @private
+gen_compaction_report(State) ->
+    #state{obj_storage_id   = ObjStorageId,
+           compaction_prms  = CompactionPrms,
+           obj_storage_info = #backend_info{file_path   = FilePath,
+                                            linked_path = LinkedPath,
+                                            avs_ver_prv = AVSVerPrev,
+                                            avs_ver_cur = AVSVerCur},
+           start_datetime = StartDateTime,
+           is_diagnosing  = IsDiagnosing,
+           acc_errors     = AccErrors,
+           result = Ret} = State,
+
+    %% Append the compaction history
+    EndDateTime = leo_date:now(),
+    Duration = EndDateTime - StartDateTime,
+    StartDateTime_1 = lists:flatten(leo_date:date_format(StartDateTime)),
+    EndDateTime_1   = lists:flatten(leo_date:date_format(EndDateTime)),
+    ok = leo_object_storage_server:append_compaction_history(
+           ObjStorageId, #compaction_hist{start_datetime = StartDateTime,
+                                          end_datetime   = EndDateTime,
+                                          duration       = Duration,
+                                          result = Ret}),
+    %% Generate a report of the results
+    #compaction_prms{num_of_active_objs  = ActiveObjs,
+                     size_of_active_objs = ActiveSize,
+                     total_num_of_objs   = TotalObjs,
+                     total_size_of_objs  = TotalSize} = CompactionPrms,
+
+    CntnrVer  = case IsDiagnosing of
+                    true  -> AVSVerPrev;
+                    false -> AVSVerCur
+                end,
+    CntnrPath = case IsDiagnosing of
+                    true  -> LinkedPath;
+                    false -> FilePath
+                end,
+    TotalObjs_1 = case IsDiagnosing of
+                      true  -> TotalObjs;
+                      false -> ActiveObjs
+                  end,
+    TotalSize_1 = case IsDiagnosing of
+                      true  -> TotalSize;
+                      false -> ActiveSize
+                  end,
+    Report = #compaction_report{
+                file_path = CntnrPath,
+                avs_ver   = CntnrVer,
+                num_of_active_objs  = ActiveObjs,
+                size_of_active_objs = ActiveSize,
+                total_num_of_objs   = TotalObjs_1,
+                total_size_of_objs  = TotalSize_1,
+                start_datetime = StartDateTime_1,
+                end_datetime   = EndDateTime_1,
+                errors   = lists:reverse(AccErrors),
+                duration = Duration,
+                result   = Ret
+               },
+
+    case leo_object_storage_server:get_stats(ObjStorageId) of
+        {ok, #storage_stats{file_path = ObjDir} = CurStats} ->
+            %% Update the storage-state
+            ok = leo_object_storage_server:set_stats(ObjStorageId,
+                                                     CurStats#storage_stats{
+                                                       total_sizes  = TotalSize_1,
+                                                       active_sizes = ActiveSize,
+                                                       total_num    = TotalObjs_1,
+                                                       active_num   = ActiveObjs}),
+            %% Output report of the storage-container
+            Tokens = string:tokens(ObjDir, "/"),
+            case (length(Tokens) > 2) of
+                true ->
+                    LogFilePath = filename:join(["/"]
+                                                ++ lists:sublist(Tokens, length(Tokens) - 2)
+                                                ++ [?DEF_LOG_SUB_DIR
+                                                    ++ atom_to_list(ObjStorageId)
+                                                    ++ ?DIAGNOSIS_REP_SUFFIX
+                                                    ++ "."
+                                                    ++ integer_to_list(leo_date:now())
+                                                   ]),
+                    Report_1 = lists:zip(record_info(fields, compaction_report),
+                                         tl(tuple_to_list(Report))),
+                    catch leo_file:file_unconsult(LogFilePath, Report_1),
+                    ok;
+                false ->
+                    void
+            end;
+        _ ->
+            void
+    end,
+    error_logger:info_msg("~p,~p,~p,~p~n",
+                          [{module, ?MODULE_STRING},
+                           {function, "gen_compaction_report/1"},
+                           {line, ?LINE}, {body, [Report]}]),
+    {ok, Report}.

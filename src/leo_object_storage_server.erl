@@ -315,7 +315,7 @@ init([Id, SeqNo, MetaDBId, CompactionWorkerId, DiagnosisLogId, RootPath, IsStric
         case file:consult(StateFilePath) of
             {ok, Props} ->
                 #storage_stats{
-                   file_path    = ObjectStoragePath,
+                   file_path = ObjectStoragePath,
                    total_sizes     = leo_misc:get_value('total_sizes',     Props, 0),
                    active_sizes    = leo_misc:get_value('active_sizes',    Props, 0),
                    total_num       = leo_misc:get_value('total_num',       Props, 0),

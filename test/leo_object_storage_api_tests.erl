@@ -140,7 +140,7 @@ diagnose() ->
     ?assertEqual(99,  ActiveNum),
 
     {ok, State} = leo_compact_fsm_controller:state(),
-    ?debugVal(State#compaction_stats.acc_errors),
+    ?debugVal(State#compaction_stats.acc_reports),
     ok.
 
 compact() ->
@@ -753,7 +753,7 @@ compact_2() ->
     %% confirm whether first compaction have broken avs files or not
     ok = leo_compact_fsm_controller:run(TargetPids, 2, FunHasChargeOfNode),
     ok = check_status(),
-    timer:sleep(500),
+    timer:sleep(1000),
     {ok, Res3} = leo_object_storage_api:stats(),
     ?debugVal(Res3),
     {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2} = get_avs_stats_summary(Res3),

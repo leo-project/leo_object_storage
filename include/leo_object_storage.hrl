@@ -75,6 +75,20 @@
 
 -define(MAX_LEN_HIST, 50).
 
+-record(compaction_report, {
+          file_path = [] :: string(),
+          avs_ver = <<>> :: binary(),
+          num_of_active_objs  = 0 :: non_neg_integer(),
+          size_of_active_objs = 0 :: non_neg_integer(),
+          total_num_of_objs   = 0 :: non_neg_integer(),
+          total_size_of_objs  = 0 :: non_neg_integer(),
+          start_datetime = [] :: string(),
+          end_datetime   = [] :: string(),
+          errors = []  :: [{non_neg_integer(),non_neg_integer()}],
+          duration = 0 :: non_neg_integer(),
+          result :: atom()
+         }).
+
 -record(compaction_hist, {
           start_datetime = 0 :: non_neg_integer(),
           end_datetime   = 0 :: non_neg_integer(),
@@ -93,7 +107,7 @@
           ongoing_targets  = []        :: [atom()],
           locked_targets   = []        :: [atom()],
           latest_exec_datetime = 0     :: non_neg_integer(),
-          acc_errors = []              :: [{atom(), [{pos_integer(), pos_integer()}]}]
+          acc_reports = []             :: [#compaction_report{}]
          }).
 
 %% Error Constants
@@ -339,7 +353,8 @@
 -define(DEF_LOG_SUB_DIR,        "log/").
 -define(LOG_GROUP_ID_DIAGNOSIS, 'log_diagnosis_grp').
 -define(LOG_ID_DIAGNOSIS,       'log_diagnosis').
--define(LOG_FILENAME_DIAGNOSIS, "leo_obj_diagnosis.").
+-define(LOG_FILENAME_DIAGNOSIS, "leo_object_storage_").
+-define(DIAGNOSIS_REP_SUFFIX,   ".report").
 
 
 %% @doc Output diagnosis log
