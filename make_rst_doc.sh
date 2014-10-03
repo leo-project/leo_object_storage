@@ -12,7 +12,6 @@ for Mod in leo_compact_fsm_controller \
 do
     read_file="doc/$Mod.html"
     write_file="doc/rst/$Mod.rst"
-
     pandoc --read=html --write=rst "$read_file" -o "$write_file"
 
     sed -ie "1,6d" "$write_file"
