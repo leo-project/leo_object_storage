@@ -110,8 +110,8 @@ start_child(ObjectStorageInfo) ->
 
     BackendDBSupPid =start_child_1(),
     ok = start_child_2(),
-    ok = start_child_3(),
-    ok = start_child_4(ObjectStorageInfo, 0, MetadataDB, BackendDBSupPid, IsStrictCheck),
+    ok = start_child_3(ObjectStorageInfo, 0, MetadataDB, BackendDBSupPid, IsStrictCheck),
+    ok = start_child_4(),
     ok = start_child_5(),
     ok.
 
@@ -135,25 +135,9 @@ start_child_1() ->
             Pid
     end.
 
-
-%% @doc Launch a Compaction manager
-%%      under the leo_object_storage_sup
-%% @private
-start_child_2() ->
-    ChildSpec = {leo_compact_fsm_controller,
-                 {leo_compact_fsm_controller, start_link, []},
-                 permanent, 2000, worker, [leo_compact_fsm_controller]},
-    case supervisor:start_child(?MODULE, ChildSpec) of
-        {ok, _Pid} ->
-            ok;
-        {error, Cause} ->
-            exit(Cause)
-    end.
-
-
 %% @doc Launch the logger
 %% @private
-start_child_3() ->
+start_child_2() ->
     case whereis(leo_logger_sup) of
         undefined ->
             ChildSpec = {leo_logger_sup,
@@ -173,9 +157,9 @@ start_child_3() ->
 %% @doc Launch backend-db's processes
 %%      under the leo_object_storage_sup
 %% @private
-start_child_4([],_,_,_,_) ->
+start_child_3([],_,_,_,_) ->
     ok;
-start_child_4([{NumOfContainers, Path}|Rest], Index, MetadataDB, BackendDBSupPid, IsStrictCheck) ->
+start_child_3([{NumOfContainers, Path}|Rest], Index, MetadataDB, BackendDBSupPid, IsStrictCheck) ->
     Path_1 = get_path(Path),
     Props  = [{num_of_containers, NumOfContainers},
               {path,              Path_1},
@@ -184,19 +168,34 @@ start_child_4([{NumOfContainers, Path}|Rest], Index, MetadataDB, BackendDBSupPid
              ],
     true = ets:insert(?ETS_INFO_TABLE,
                       {list_to_atom(?MODULE_STRING ++ integer_to_list(Index)), Props}),
-    ok = start_child_4_1(Index, NumOfContainers - 1, BackendDBSupPid, Props),
-    start_child_4(Rest, Index + 1, MetadataDB, BackendDBSupPid, IsStrictCheck).
+    ok = start_child_3_1(Index, NumOfContainers - 1, BackendDBSupPid, Props),
+    start_child_3(Rest, Index + 1, MetadataDB, BackendDBSupPid, IsStrictCheck).
 
 
 %% @doc Launch
 %% @private
-start_child_4_1(_,-1,_,_) ->
+start_child_3_1(_,-1,_,_) ->
     ok;
-start_child_4_1(DeviceIndex, ContainerIndex, BackendDBSupPid, Props) ->
+start_child_3_1(DeviceIndex, ContainerIndex, BackendDBSupPid, Props) ->
     Id = (DeviceIndex * ?DEVICE_ID_INTERVALS) + ContainerIndex,
     case add_container(BackendDBSupPid, Id, Props) of
         ok ->
-            start_child_4_1(DeviceIndex, ContainerIndex - 1, BackendDBSupPid, Props);
+            start_child_3_1(DeviceIndex, ContainerIndex - 1, BackendDBSupPid, Props);
+        {error, Cause} ->
+            exit(Cause)
+    end.
+
+
+%% @doc Launch a Compaction manager
+%%      under the leo_object_storage_sup
+%% @private
+start_child_4() ->
+    ChildSpec = {leo_compact_fsm_controller,
+                 {leo_compact_fsm_controller, start_link, []},
+                 permanent, 2000, worker, [leo_compact_fsm_controller]},
+    case supervisor:start_child(?MODULE, ChildSpec) of
+        {ok, _Pid} ->
+            ok;
         {error, Cause} ->
             exit(Cause)
     end.

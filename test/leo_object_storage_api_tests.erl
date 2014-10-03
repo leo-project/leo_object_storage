@@ -93,6 +93,8 @@ compaction_test_() ->
 diagnose() ->
     %% Launch object-storage
     leo_object_storage_api:start([{1, ?AVS_DIR_FOR_COMPACTION}]),
+    ?debugVal(leo_compact_fsm_controller:state()),
+
     ok = put_regular_bin(1, 50),
     ok = put_irregular_bin(),
     ok = put_regular_bin(36, 25),
