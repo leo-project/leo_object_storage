@@ -1,0 +1,256 @@
+%% -*- mode: erlang;erlang-indent-level: 4;indent-tabs-mode: nil -*-
+%%======================================================================
+%%
+%% LeoFS
+%%
+%% Copyright (c) 2012-2013 Rakuten, Inc.
+%%
+%% This file is provided to you under the Apache License,
+%% Version 2.0 (the "License"); you may not use this file
+%% except in compliance with the License.  You may obtain
+%% a copy of the License at
+%%
+%%   http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing,
+%% software distributed under the License is distributed on an
+%% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+%% KIND, either express or implied.  See the License for the
+%% specific language governing permissions and limitations
+%% under the License.
+%%
+%% @author: Yosuke Hara
+%%
+%%======================================================================
+%% --------------------------------------------------------------------
+%% SASL
+%% --------------------------------------------------------------------
+%% See: http://www.erlang.org/doc/man/sasl_app.html
+%%
+%% The following configuration parameters are defined for
+%% the SASL application. See app(4) for more information
+%% about configuration parameters
+%%
+%% @doc SASL error log path
+{mapping,
+ "sasl.sasl_error_log",
+ "sasl.sasl_error_logger",
+ [
+  {datatype, string},
+  {default, "./log/sasl/sasl-error.log"}
+ ]}.
+
+{translation, "sasl.sasl_error_logger",
+ fun(Conf) ->
+         Path = cuttlefish_util:conf_get_value("sasl.sasl_error_log", Conf),
+         {file, Path}
+ end}.
+
+%% @doc Restricts the error logging performed by the specified sasl_error_logger
+%%      to error reports, progress reports, or both.
+%%      errlog_type = [error | progress | all]
+{mapping,
+ "sasl.errlog_type",
+ "sasl.errlog_type",
+ [
+  {datatype, atom},
+  {default, error}
+ ]}.
+
+%% @doc Specifies in which directory the files are stored.
+%%      If this parameter is undefined or false, the error_logger_mf_h is not installed.
+{mapping,
+ "sasl.error_logger_mf_dir",
+ "sasl.error_logger_mf_dir",
+ [
+  {default, "./log/sasl"}
+ ]}.
+
+%% @doc Specifies how large each individual file can be.
+%%      If this parameter is undefined, the error_logger_mf_h is not installed.
+%%
+{mapping,
+ "sasl.error_logger_mf_maxbytes",
+ "sasl.error_logger_mf_maxbytes",
+ [
+  {datatype, bytesize},
+  {default, 10485760}
+ ]}.
+
+%% @doc Specifies how many files are used.
+%%      If this parameter is undefined, the error_logger_mf_h is not installed.
+{mapping,
+ "sasl.error_logger_mf_maxfiles",
+ "sasl.error_logger_mf_maxfiles",
+ [
+  {datatype, integer},
+  {default, 5}
+ ]}.
+
+
+%% --------------------------------------------------------------------
+%% object-storage related properties
+%% --------------------------------------------------------------------
+%% @doc Metadata storage
+{mapping,
+ "storage.metadata",
+ "leo_object_storage.metadata_storage",
+ [
+  {datatype, atom},
+  {default, 'leveldb'}
+ ]}.
+
+%% @doc Object storage
+{mapping,
+ "storage.object",
+ "leo_object_storage.object_storage",
+ [
+  {datatype, atom},
+  {default, 'haystack'}
+ ]}.
+
+%% @doc Diagnosis log
+{mapping,
+ "is_enable_diagnosis_log",
+ "leo_object_storage.is_enable_diagnosis_log",
+ [
+  {datatype, atom},
+  {default, true}
+ ]}.
+
+%% @doc Diagnosis log
+{mapping,
+ "is_strict_check",
+ "leo_object_storage.is_strict_check",
+ [
+  {datatype, atom},
+  {default, false}
+ ]}.
+
+
+%% --------------------------------------------------------------------
+%% LOG
+%% --------------------------------------------------------------------
+%% @doc Log level
+{mapping,
+ "log.log_level",
+ "leo_object_storage.log_level",
+ [
+  {datatype, integer}, %% >> enum
+  {default, 1}
+ ]}.
+
+%% @doc Is enable access log
+{mapping,
+ "log.is_enable_access_log",
+ "leo_object_storage.is_enable_access_log",
+ [
+  {datatype, {enum, [true, false]}},
+  {default, false}
+ ]}.
+
+%% @doc Output log file(s) - erlang
+{mapping,
+ "log.erlang",
+ "leo_object_storage.log_dir",
+ [
+  {datatype, string},
+  {default, "./log/erlang"}
+ ]}.
+
+%% @doc Output log file(s) - app
+{mapping,
+ "log.app",
+ "leo_object_storage.log_appender",
+ [
+  {datatype, string},
+  {default, "./log/app"}
+ ]}.
+
+{translation, "leo_object_storage.log_appender",
+ fun(Conf) ->
+         Path = cuttlefish_util:conf_get_value("log.app", Conf),
+         [{file, [{path, Path}]}]
+ end}.
+
+
+%% --------------------------------------------------------------------
+%% VM.ARGS
+%% --------------------------------------------------------------------
+%%%% Tunables
+%% @doc Name of the riak node
+{mapping,
+ "nodename",
+ "vm_args.-name",
+ [
+  {default, "leo_object_storage@127.0.0.1"}
+ ]}.
+
+%% @doc Cookie for distributed node communication.  All nodes in the same cluster
+%% should use the same cookie or they will not be able to communicate.
+{mapping,
+ "distributed_cookie",
+ "vm_args.-setcookie",
+ [
+  {default, "leo_object_storage"}
+ ]}.
+
+{mapping,
+ "erlang.kernel_poll",
+ "vm_args.+K",
+ [
+  {default, "true"}
+ ]}.
+
+{mapping,
+ "erlang.asyc_threads",
+ "vm_args.+A",
+ [
+  {default, "32"}
+ ]}.
+
+%% @doc Increase number of concurrent ports/sockets
+{mapping,
+ "erlang.max_ports",
+ "vm_args.-env ERL_MAX_PORTS",
+ [
+  {default, "64000"}
+ ]}.
+
+%% @doc Tweak GC to run more often
+{mapping,
+ "erlang.fullsweep_after",
+ "vm_args.-env ERL_FULLSWEEP_AFTER",
+ [
+  {default, "0"},
+  {level, advanced}
+ ]}.
+
+%% @doc Set the location of crash dumps
+{mapping,
+ "erlang.crash_dump",
+ "vm_args.-env ERL_CRASH_DUMP",
+ [
+  {default, "./log/erl_crash.dump"}
+ ]}.
+
+%% @doc Raise the ETS table limit
+{mapping,
+ "erlang.max_ets_tables",
+ "vm_args.-env ERL_MAX_ETS_TABLES",
+ [
+  {default, "256000"}
+ ]}.
+
+%% @doc Raise the default erlang process limit
+{mapping, "process_limit", "vm_args.+P",
+ [
+  {datatype, integer},
+  {default, 1048576}
+ ]}.
+
+{translation, "vm_args.+P",
+ fun(Conf) ->
+         Procs = cuttlefish_util:conf_get_value("process_limit", Conf),
+         integer_to_list(Procs)
+ end}.

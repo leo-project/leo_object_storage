@@ -47,21 +47,23 @@
 -define(ST_IDLING,     'idling').
 -define(ST_RUNNING,    'running').
 -define(ST_SUSPENDING, 'suspending').
--type(state_of_compaction() :: ?ST_IDLING  |
-                               ?ST_RUNNING |
+-type(state_of_compaction() :: ?ST_IDLING     |
+                               ?ST_RUNNING    |
                                ?ST_SUSPENDING).
 
--define(EVENT_RUN,     'run').
--define(EVENT_LOCK,    'lock').
--define(EVENT_SUSPEND, 'suspend').
--define(EVENT_RESUME,  'resume').
--define(EVENT_FINISH,  'finish').
--define(EVENT_STATE,   'state').
--type(event_of_compaction() ::?EVENT_RUN |
-                              ?EVENT_LOCK |
-                              ?EVENT_SUSPEND |
-                              ?EVENT_RESUME |
-                              ?EVENT_FINISH |
+-define(EVENT_RUN,      'run').
+-define(EVENT_DIAGNOSE, 'diagnose').
+-define(EVENT_LOCK,     'lock').
+-define(EVENT_SUSPEND,  'suspend').
+-define(EVENT_RESUME,   'resume').
+-define(EVENT_FINISH,   'finish').
+-define(EVENT_STATE,    'state').
+-type(event_of_compaction() ::?EVENT_RUN      |
+                              ?EVENT_DIAGNOSE |
+                              ?EVENT_LOCK     |
+                              ?EVENT_SUSPEND  |
+                              ?EVENT_RESUME   |
+                              ?EVENT_FINISH   |
                               ?EVENT_STATE).
 
 %% @doc Compaction related definitions
@@ -72,6 +74,20 @@
                           undefined).
 
 -define(MAX_LEN_HIST, 50).
+
+-record(compaction_report, {
+          file_path = [] :: string(),
+          avs_ver = <<>> :: binary(),
+          num_of_active_objs  = 0 :: non_neg_integer(),
+          size_of_active_objs = 0 :: non_neg_integer(),
+          total_num_of_objs   = 0 :: non_neg_integer(),
+          total_size_of_objs  = 0 :: non_neg_integer(),
+          start_datetime = [] :: string(),
+          end_datetime   = [] :: string(),
+          errors = []  :: [{non_neg_integer(),non_neg_integer()}],
+          duration = 0 :: non_neg_integer(),
+          result :: atom()
+         }).
 
 -record(compaction_hist, {
           start_datetime = 0 :: non_neg_integer(),
@@ -90,7 +106,8 @@
           pending_targets  = []        :: [atom()],
           ongoing_targets  = []        :: [atom()],
           locked_targets   = []        :: [atom()],
-          latest_exec_datetime = 0     :: non_neg_integer()
+          latest_exec_datetime = 0     :: non_neg_integer(),
+          acc_reports = []             :: [#compaction_report{}]
          }).
 
 %% Error Constants
@@ -103,8 +120,8 @@
 -define(ERROR_COMPACT_RESUME_FAILURE,   "comaction-resume filure").
 -define(ERROR_PROCESS_NOT_FOUND,        "server process not found").
 -define(ERROR_COULD_NOT_GET_MOUNT_PATH, "could not get mout path").
--define(ERROR_LOCKED_CONTAINER,          "locked obj-conatainer").
-
+-define(ERROR_LOCKED_CONTAINER,         "locked obj-conatainer").
+-define(ERROR_COULD_NOT_START_WORKER,   "could NOT start worker processes").
 
 -define(DEL_TRUE,  1).
 -define(DEL_FALSE, 0).
@@ -177,13 +194,13 @@
 %% Records
 %%--------------------------------------------------------------------
 -record(backend_info, {
-          backend                    :: atom(),
+          backend            :: atom(),
           avs_ver_cur = <<>> :: binary(),
           avs_ver_prv = <<>> :: binary(), %% need to know during compaction
           linked_path = []   :: string(),
           file_path   = []   :: string(),
-          write_handler      :: pid(),
-          read_handler       :: pid()
+          write_handler      :: pid()|undefined,
+          read_handler       :: pid()|undefined
          }).
 
 -record(metadata, { %% - leofs-v1.0.0-pre3
@@ -307,6 +324,16 @@
         end).
 -endif.
 
+-define(env_enable_diagnosis_log(),
+        case application:get_env(leo_object_storage,
+                                 is_enable_diagnosis_log) of
+            {ok, true} ->
+                true;
+            _ ->
+                false
+        end).
+
+
 %% custom-metadata's items for MDC-replication:
 -define(PROP_CMETA_CLUSTER_ID, 'cluster_id').
 -define(PROP_CMETA_NUM_OF_REPLICAS, 'num_of_replicas').
@@ -320,3 +347,51 @@
 %% @doc Retrieve object-storage info
 -define(get_obj_storage_info(_ObjStorageId),
         leo_object_storage_server:get_backend_info(_ObjStorageId, ?SERVER_OBJ_STORAGE)).
+
+
+%% @doc Diagnosis log-related definitions
+-define(DEF_LOG_SUB_DIR,        "log/").
+-define(LOG_GROUP_ID_DIAGNOSIS, 'log_diagnosis_grp').
+-define(LOG_ID_DIAGNOSIS,       'log_diagnosis').
+-define(LOG_FILENAME_DIAGNOSIS, "leo_object_storage_").
+-define(DIAGNOSIS_REP_SUFFIX,   ".report").
+
+
+%% @doc Output diagnosis log
+-define(output_diagnosis_log(Metadata),
+        begin
+            #?METADATA{offset = _Offset,
+                       addr_id = _AddrId,
+                       key = _Key,
+                       dsize = _Dsize,
+                       clock = _Clock,
+                       timestamp = _Timestamp,
+                       del = _Del
+                      } = Metadata,
+            _Path_1 = binary_to_list(_Key),
+
+            {_Path_2, _CIndex} =
+                case string:str(_Path_1, "\n") of
+                    0 ->
+                        {_Path_1, 0};
+                    _Index ->
+                        case catch list_to_integer(string:sub_string(_Path_1, _Index + 1)) of
+                            {'EXIT',_} ->
+                                {_Path_1, 0};
+                            _Num->
+                                {string:sub_string(_Path_1, 1, _Index -1), _Num}
+                        end
+                end,
+            leo_logger_client_base:append(
+              {LoggerId, #message_log{format  = "~w\t~w\t~s\t~w\t~w\t~w\t~s\t~w~n",
+                                      message = [_Offset,
+                                                 _AddrId,
+                                                 _Path_2,
+                                                 _CIndex,
+                                                 _Dsize,
+                                                 _Clock,
+                                                 leo_date:date_format(_Timestamp),
+                                                 _Del
+                                                ]}
+              })
+        end).

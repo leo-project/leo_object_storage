@@ -20,8 +20,9 @@
 %%
 %% ---------------------------------------------------------------------
 %% Leo Object Storage - API
-%% @doc
-%% @reference
+%%
+%% @doc The object staorge's API
+%% @reference https://github.com/leo-project/leo_object_storage/blob/master/src/leo_object_storage_api.erl
 %% @end
 %%======================================================================
 -module(leo_object_storage_api).
@@ -31,18 +32,23 @@
 -include("leo_object_storage.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--export([start/1,
-         put/2, get/1, get/3, delete/2, head/1,
+-export([start/1, start_with_path/1,
+         put/2, get/1, get/3, delete/2,
+         head/1, head_with_calc_md5/2,
          fetch_by_addr_id/2, fetch_by_addr_id/3,
          fetch_by_key/2, fetch_by_key/3,
          store/2,
          stats/0
         ]).
 
--export([head_with_calc_md5/2]).
+-export([get_object_storage_pid/1,
+         get_object_storage_pid_first/0
+        ]).
 
--export([get_object_storage_pid/1]).
--export([get_object_storage_pid_first/0]).
+-export([compact_data/0, compact_data/1,
+         compact_data/2, compact_data/3,
+         diagnose_data/0
+        ]).
 
 -ifdef(TEST).
 -export([add_incorrect_data/1]).
@@ -66,6 +72,46 @@ start(Option) ->
         {error, Cause} ->
             {error, Cause}
     end.
+
+
+-spec(start_with_path(Path) ->
+             ok | {error, any()} when Path::string()).
+start_with_path(Path) ->
+    case count_avs_containers(Path) of
+        {ok, 0} ->
+            {error, invalid_path};
+        {ok, NumOfContainers} ->
+            start([{NumOfContainers, Path}]);
+        Other ->
+            Other
+    end.
+
+
+%% @doc Retrieve the number of containers
+%% @private
+count_avs_containers(Path) ->
+    Path_1 = filename:join([Path, "object"]),
+    case file:list_dir(Path_1) of
+        {ok, []} ->
+            {ok, 0};
+        {ok, RetL} ->
+            count_avs_containers_1(RetL, 0);
+        Other ->
+            Other
+    end.
+
+%% @private
+count_avs_containers_1([], SoFar) ->
+    {ok, SoFar};
+count_avs_containers_1([Path|Rest], SoFar) ->
+    SoFar_1 =
+        case length(string:tokens(Path, "_")) > 1 of
+            true ->
+                SoFar;
+            false ->
+                SoFar + 1
+        end,
+    count_avs_containers_1(Rest, SoFar_1).
 
 
 %% @doc Insert an object into the object-storage
@@ -128,14 +174,14 @@ head_with_calc_md5(AddrIdAndKey, MD5Context) ->
 %%
 -spec(fetch_by_addr_id(AddrId, Fun) ->
              {ok, []} | not_found when AddrId::non_neg_integer(),
-                                       Fun::function()).
+                                       Fun::function()|undefined).
 fetch_by_addr_id(AddrId, Fun) ->
     fetch_by_addr_id(AddrId, Fun, undefined).
 
 -spec(fetch_by_addr_id(AddrId, Fun, MaxKeys) ->
              {ok, []} | not_found when AddrId::non_neg_integer(),
-                                       Fun::function(),
-                                       MaxKeys::non_neg_integer()).
+                                       Fun::function()|undefined,
+                                       MaxKeys::non_neg_integer()|undefined).
 fetch_by_addr_id(AddrId, Fun, MaxKeys) ->
     case get_object_storage_pid(all) of
         [] ->
@@ -222,6 +268,40 @@ stats() ->
     end.
 
 
+%% @doc Retrieve the storage process-id
+-spec(get_object_storage_pid(Arg) ->
+             [atom()] when Arg::all | any()).
+get_object_storage_pid(Arg) ->
+    Ret = ets:tab2list(?ETS_CONTAINERS_TABLE),
+    get_object_storage_pid(Ret, Arg).
+
+
+-spec(get_object_storage_pid(List, Arg) ->
+             [atom()] when List::[{_,_}],
+                           Arg::all | any()).
+get_object_storage_pid([], _) ->
+    [];
+get_object_storage_pid(List, all) ->
+    lists:map(fun({_, Value}) ->
+                      leo_misc:get_value(obj_storage, Value)
+              end, List);
+get_object_storage_pid(List, Arg) ->
+    Index = (erlang:crc32(Arg) rem erlang:length(List)) + 1,
+    {_, Value} = lists:nth(Index, List),
+    Id = leo_misc:get_value(obj_storage, Value),
+    [Id].
+
+
+%% @doc Retrieve the first record of object-storage pids
+-spec(get_object_storage_pid_first() ->
+             Id when Id::atom()).
+get_object_storage_pid_first() ->
+    Key = ets:first(?ETS_CONTAINERS_TABLE),
+    [{Key, First}|_] = ets:lookup(?ETS_CONTAINERS_TABLE, Key),
+    Id = leo_misc:get_value(obj_storage, First),
+    Id.
+
+
 -ifdef(TEST).
 %% @doc Add incorrect datas on debug purpose
 %%
@@ -231,6 +311,41 @@ add_incorrect_data(Bin) ->
     [Pid|_] = get_object_storage_pid(Bin),
     ?SERVER_MODULE:add_incorrect_data(Pid, Bin).
 -endif.
+
+
+%%--------------------------------------------------------------------
+%% Compaction-related Functions
+%%--------------------------------------------------------------------
+%% @doc Execute data-compaction
+-spec(compact_data() ->
+             term()).
+compact_data() ->
+    leo_compact_fsm_controller:run().
+
+-spec(compact_data(MaxConn) ->
+             term() when MaxConn::integer()).
+compact_data(MaxConn) ->
+    leo_compact_fsm_controller:run(MaxConn).
+
+-spec(compact_data(MaxConn, CallbackFun) ->
+             term() when MaxConn::integer(),
+                         CallbackFun::function()).
+compact_data(MaxConn, CallbackFun) ->
+    leo_compact_fsm_controller:run(MaxConn, CallbackFun).
+
+-spec(compact_data(TargetPids, MaxConn, CallbackFun) ->
+             term() when TargetPids::[atom()],
+                         MaxConn::integer(),
+                         CallbackFun::function()).
+compact_data(TargetPids, MaxConn, CallbackFun) ->
+    leo_compact_fsm_controller:run(TargetPids, MaxConn, CallbackFun).
+
+
+%% @doc Diagnode the data
+-spec(diagnose_data() ->
+             term()).
+diagnose_data() ->
+    leo_compact_fsm_controller:diagnose().
 
 
 %%--------------------------------------------------------------------
@@ -260,38 +375,6 @@ start_app() ->
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
-
-
-
-%% @doc Retrieve an object storage process-id
-%% @private
--spec(get_object_storage_pid(all | any()) ->
-             [atom()]).
-get_object_storage_pid(Arg) ->
-    Ret = ets:tab2list(?ETS_CONTAINERS_TABLE),
-    get_object_storage_pid(Ret, Arg).
-
-%% @private
-get_object_storage_pid([], _) ->
-    [];
-get_object_storage_pid(List, all) ->
-    lists:map(fun({_, Value}) ->
-                      leo_misc:get_value(obj_storage, Value)
-              end, List);
-get_object_storage_pid(List, Arg) ->
-    Index = (erlang:crc32(Arg) rem erlang:length(List)) + 1,
-    {_, Value} = lists:nth(Index, List),
-    Id = leo_misc:get_value(obj_storage, Value),
-    [Id].
-
-
-%% @doc for debug purpose
-%% @private
-get_object_storage_pid_first() ->
-    Key = ets:first(?ETS_CONTAINERS_TABLE),
-    [{Key, First}|_] = ets:lookup(?ETS_CONTAINERS_TABLE, Key),
-    Id = leo_misc:get_value(obj_storage, First),
-    Id.
 
 
 %% @doc Request an operation
