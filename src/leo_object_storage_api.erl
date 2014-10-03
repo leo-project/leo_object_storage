@@ -47,7 +47,8 @@
 
 -export([compact_data/0, compact_data/1,
          compact_data/2, compact_data/3,
-         diagnose_data/0
+         diagnose_data/0,
+         diagnose_data/1
         ]).
 
 -ifdef(TEST).
@@ -347,6 +348,15 @@ compact_data(TargetPids, MaxConn, CallbackFun) ->
 diagnose_data() ->
     leo_compact_fsm_controller:diagnose().
 
+-spec(diagnose_data(Path) ->
+             ok | {error, any()} when Path::string()).
+diagnose_data(Path) ->
+    case start_with_path(Path) of
+        ok ->
+            leo_compact_fsm_controller:diagnose();
+        Error ->
+            Error
+    end.
 
 %%--------------------------------------------------------------------
 %% INNTERNAL FUNCTIONS
