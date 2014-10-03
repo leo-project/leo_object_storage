@@ -270,7 +270,7 @@ lock(Id) ->
                      SizeOfActiveObjs::non_neg_integer()).
 switch_container(Id, FilePath, NumOfActiveObjs, SizeOfActiveObjs) ->
     gen_server:call(Id, {switch_container, FilePath,
-                         NumOfActiveObjs, SizeOfActiveObjs}, inifinity).
+                         NumOfActiveObjs, SizeOfActiveObjs}, infinity).
 
 
 %% @doc Append the history in the state
