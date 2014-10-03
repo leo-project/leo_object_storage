@@ -18,6 +18,9 @@
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% @doc FSM of the data-compaction worker, which handles removing unnecessary objects from a object container.
+%% @reference https://github.com/leo-project/leo_object_storage/blob/master/src/leo_compact_fsm_controller.erl
+%% @end
 %%======================================================================
 -module(leo_compact_fsm_worker).
 
@@ -26,11 +29,12 @@
 -behaviour(gen_fsm).
 
 -include("leo_object_storage.hrl").
+-include_lib("leo_logger/include/leo_logger.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 %% API
--export([start_link/3, stop/1]).
--export([run/1, run/3,
+-export([start_link/4, stop/1]).
+-export([run/2, run/4,
          suspend/1,
          resume/1,
          finish/1,
@@ -52,6 +56,15 @@
 -compile(nowarn_deprecated_type).
 -define(DEF_TIMEOUT, timer:seconds(30)).
 
+-record(event_info, {
+          id :: atom(),
+          event = ?EVENT_RUN :: event_of_compaction(),
+          controller_pid :: pid(),
+          client_pid     :: pid(),
+          is_diagnosing = false :: boolean(),
+          callback :: function()
+         }).
+
 -record(compaction_prms, {
           key_bin  = <<>> :: binary(),
           body_bin = <<>> :: binary(),
@@ -59,8 +72,10 @@
           next_offset = 0         :: non_neg_integer()|eof,
           start_lock_offset = 0   :: non_neg_integer(),
           callback_fun            :: function(),
-          num_of_active_objs = 0  :: integer(),
-          size_of_active_objs = 0 :: integer()
+          num_of_active_objs = 0  :: non_neg_integer(),
+          size_of_active_objs = 0 :: non_neg_integer(),
+          total_num_of_objs = 0   :: non_neg_integer(),
+          total_size_of_objs = 0  :: non_neg_integer()
          }).
 
 -record(state, {
@@ -68,14 +83,17 @@
           obj_storage_id :: atom(),
           meta_db_id     :: atom(),
           obj_storage_info = #backend_info{} :: #backend_info{},
-          compact_cntl_pid :: pid(),
-          status = ?ST_IDLING :: state_of_compaction(),
-          is_locked = false   :: boolean(),
-          waiting_time = 0    :: non_neg_integer(),
+          compact_cntl_pid      :: pid(),
+          diagnosis_log_id      :: atom(),
+          status = ?ST_IDLING   :: state_of_compaction(),
+          is_locked = false     :: boolean(),
+          is_diagnosing = false :: boolean(),
+          waiting_time = 0      :: non_neg_integer(),
           compaction_prms = #compaction_prms{} :: #compaction_prms{},
           start_datetime = 0 :: non_neg_integer(),
-          error_pos = 0 :: non_neg_integer(),
-          set_errors    :: set(),
+          error_pos = 0      :: non_neg_integer(),
+          set_errors         :: set(),
+          acc_errors = []    :: [{pos_integer(), pos_integer()}],
           result :: compaction_ret()
          }).
 
@@ -83,16 +101,21 @@
 %%====================================================================
 %% API
 %%====================================================================
-%% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
-%% Description: Starts the server
--spec(start_link(atom(), atom(), atom()) ->
-             {ok, pid()} | {error, any()}).
-start_link(Id, ObjStorageId, MetaDBId) ->
-    gen_fsm:start_link({local, Id}, ?MODULE, [Id, ObjStorageId, MetaDBId], []).
+%% @doc Creates a gen_fsm process as part of a supervision tree
+-spec(start_link(Id, ObjStorageId, MetaDBId, LoggerId) ->
+             {ok, pid()} | {error, any()} when Id::atom(),
+                                               ObjStorageId::atom(),
+                                               MetaDBId::atom(),
+                                               LoggerId::atom()).
+start_link(Id, ObjStorageId, MetaDBId, LoggerId) ->
+    gen_fsm:start_link({local, Id}, ?MODULE,
+                       [Id, ObjStorageId, MetaDBId, LoggerId], []).
+
 
 %% @doc Stop this server
 %%
--spec(stop(atom()) -> ok).
+-spec(stop(Id) ->
+             ok when Id::atom()).
 stop(Id) ->
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "stop/1"},
@@ -102,63 +125,71 @@ stop(Id) ->
 
 %% @doc Run the process
 %%
--spec(run(atom()) ->
-             ok | {error, any()}).
-run(Id) ->
-    gen_fsm:send_event(Id, ?EVENT_RUN).
+-spec(run(Id, IsDiagnose) ->
+             ok | {error, any()} when Id::atom(),
+                                      IsDiagnose::boolean()).
+run(Id, IsDiagnose) ->
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_RUN,
+                                       is_diagnosing = IsDiagnose
+                                      }).
 
--spec(run(atom(), pid(), function()) ->
-             ok | {error, any()}).
-run(Id, ControllerPid, CallbackFun) ->
-    gen_fsm:sync_send_event(Id, {?EVENT_RUN, ControllerPid,
-                                 CallbackFun}, ?DEF_TIMEOUT).
+-spec(run(Id, ControllerPid, IsDiagnose, CallbackFun) ->
+             ok | {error, any()} when Id::atom(),
+                                      ControllerPid::pid(),
+                                      IsDiagnose::boolean(),
+                                      CallbackFun::function()).
+run(Id, ControllerPid, IsDiagnose, CallbackFun) ->
+    gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_RUN,
+                                            controller_pid = ControllerPid,
+                                            is_diagnosing  = IsDiagnose,
+                                            callback = CallbackFun}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve an object from the object-storage
 %%
--spec(suspend(atom()) ->
-             ok | {error, any()}).
+-spec(suspend(Id) ->
+             ok | {error, any()} when Id::atom()).
 suspend(Id) ->
-    gen_fsm:send_event(Id, ?EVENT_SUSPEND).
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_SUSPEND}).
 
 
 %% @doc Remove an object from the object-storage - (logical-delete)
 %%
--spec(resume(atom()) ->
-             ok | {error, any()}).
+-spec(resume(Id) ->
+             ok | {error, any()} when Id::atom()).
 resume(Id) ->
-    gen_fsm:sync_send_event(Id, ?EVENT_RESUME, ?DEF_TIMEOUT).
+    gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_RESUME}, ?DEF_TIMEOUT).
 
 
 %% @doc Remove an object from the object-storage - (logical-delete)
 %%
--spec(finish(atom()) ->
-             ok | {error, any()}).
+-spec(finish(Id) ->
+             ok | {error, any()} when Id::atom()).
 finish(Id) ->
-    gen_fsm:send_event(Id, ?EVENT_FINISH).
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_FINISH}).
 
 
 %% @doc Retrieve the storage stats specfied by Id
 %%      which contains number of objects and so on.
 %%
--spec(state(atom(), pid()) ->
-             ok | {error, any()}).
+-spec(state(Id, Client) ->
+             ok | {error, any()} when Id::atom(),
+                                      Client::pid()).
 state(Id, Client) ->
-    gen_fsm:send_event(Id, {state, Client}).
+    gen_fsm:send_event(Id, #event_info{event = state,
+                                       client_pid = Client}).
 
 
 %%====================================================================
 %% GEN_SERVER CALLBACKS
 %%====================================================================
-%% Function: init(Args) -> {ok, State}          |
-%%                         {ok, State, Timeout} |
-%%                         ignore               |
-%%                         {stop, Reason}
-%% Description: Initiates the server
-init([Id, ObjStorageId, MetaDBId]) ->
+%% @doc Initiates the server
+%%
+init([Id, ObjStorageId, MetaDBId, LoggerId]) ->
     {ok, ?ST_IDLING, #state{id = Id,
-                            obj_storage_id = ObjStorageId,
-                            meta_db_id     = MetaDBId,
+                            obj_storage_id   = ObjStorageId,
+                            meta_db_id       = MetaDBId,
+                            diagnosis_log_id = LoggerId,
                             compaction_prms = #compaction_prms{
                                                  key_bin  = <<>>,
                                                  body_bin = <<>>,
@@ -181,17 +212,14 @@ handle_sync_event(stop, _From, _StateName, Status) ->
     {stop, shutdown, ok, Status}.
 
 
-%% Function: handle_info(Info, State) -> {noreply, State}          |
-%%                                       {noreply, State, Timeout} |
-%%                                       {stop, Reason, State}
-%% Description: Handling all non call/cast messages
+%% @doc Handling all non call/cast messages
 handle_info(_Info, StateName, State) ->
     {next_state, StateName, State}.
 
-%% Function: terminate(Reason, State) -> void()
-%% Description: This function is called by a gen_server when it is about to
-%% terminate. It should be the opposite of Module:init/1 and do any necessary
-%% cleaning up. When it returns, the gen_server terminates with Reason.
+
+%% @doc This function is called by a gen_server when it is about to
+%%      terminate. It should be the opposite of Module:init/1 and do any necessary
+%%      cleaning up. When it returns, the gen_server terminates with Reason.
 %% The return value is ignored.
 terminate(Reason, _StateName, _State) ->
     error_logger:info_msg("~p,~p,~p,~p~n",
@@ -199,11 +227,12 @@ terminate(Reason, _StateName, _State) ->
                            {line, ?LINE}, {body, Reason}]),
     ok.
 
-%% Func: code_change(OldVsn, State, Extra) -> {ok, NewState}
-%% Description: Convert process state when code is changed
+%% @doc Convert process state when code is changed
 code_change(_OldVsn, StateName, State, _Extra) ->
     {ok, StateName, State}.
 
+%% @doc This function is called by a gen_fsm when it should update
+%%      its internal state data during a release upgrade/downgrade
 format_status(_Opt, [_PDict, State]) ->
     State.
 
@@ -213,16 +242,23 @@ format_status(_Opt, [_PDict, State]) ->
 %%====================================================================
 %% @doc State of 'idle'
 %%
--spec(idling({?EVENT_RUN, pid(), function()} | _, _, #state{}) ->
-             {next_state, ?ST_IDLING | ?ST_RUNNING, #state{}}).
-idling({?EVENT_RUN, ControllerPid, CallbackFun}, From, #state{id = Id,
-                                                              compaction_prms =
-                                                                  CompactionPrms} = State) ->
+-spec(idling(EventInfo, From, State) ->
+             {next_state, ?ST_IDLING | ?ST_RUNNING, State} when EventInfo::#event_info{},
+                                                                From::{pid(),Tag::atom()},
+                                                                State::#state{}).
+idling(#event_info{event = ?EVENT_RUN,
+                   controller_pid = ControllerPid,
+                   is_diagnosing  = IsDiagnose,
+                   callback = CallbackFun}, From, #state{id = Id,
+                                                         compaction_prms =
+                                                             CompactionPrms} = State) ->
     NextStatus = ?ST_RUNNING,
     State_1 = State#state{compact_cntl_pid = ControllerPid,
-                          status     = NextStatus,
-                          error_pos  = 0,
-                          set_errors = sets:new(),
+                          status        = NextStatus,
+                          is_diagnosing = IsDiagnose,
+                          error_pos     = 0,
+                          set_errors    = sets:new(),
+                          acc_errors    = [],
                           compaction_prms =
                               CompactionPrms#compaction_prms{
                                 num_of_active_objs  = 0,
@@ -232,10 +268,11 @@ idling({?EVENT_RUN, ControllerPid, CallbackFun}, From, #state{id = Id,
                                },
                           start_datetime = leo_date:now()
                          },
+
     case prepare(State_1) of
         {ok, State_2} ->
             gen_fsm:reply(From, ok),
-            ok = run(Id),
+            ok = run(Id, IsDiagnose),
             {next_state, NextStatus, State_2};
         {{error, Cause},_State} ->
             gen_fsm:reply(From, {error, Cause}),
@@ -246,9 +283,11 @@ idling(_, From, State) ->
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
 
--spec(idling({?EVENT_STATE, pid()}|_, #state{}) ->
-             {next_state, ?ST_IDLING, #state{}}).
-idling({?EVENT_STATE, Client}, State) ->
+-spec(idling(EventInfo, State) ->
+             {next_state, ?ST_IDLING, State} when EventInfo::#event_info{},
+                                                  State::#state{}).
+idling(#event_info{event = ?EVENT_STATE,
+                   client_pid = Client}, State) ->
     NextStatus = ?ST_IDLING,
     erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#state{status = NextStatus}};
@@ -257,18 +296,21 @@ idling(_, State) ->
     {next_state, NextStatus, State#state{status = NextStatus}}.
 
 
--spec(running(?EVENT_RUN, #state{}) ->
-             {next_state, ?ST_RUNNING, #state{}}).
-running(?EVENT_RUN, #state{id = Id,
-                           obj_storage_id   = ObjStorageId,
-                           compact_cntl_pid = CompactCntlPid,
-                           compaction_prms  =
-                               #compaction_prms{
-                                  start_lock_offset = StartLockOffset
-                                 }} = State) ->
+%% @doc State of 'running'
+-spec(running(EventInfo, State) ->
+             {next_state, ?ST_RUNNING, State} when EventInfo::#event_info{},
+                                                   State::#state{}).
+running(#event_info{event = ?EVENT_RUN,
+                    is_diagnosing = IsDiagnose}, #state{id = Id,
+                                                        obj_storage_id   = ObjStorageId,
+                                                        compact_cntl_pid = CompactCntlPid,
+                                                        compaction_prms  =
+                                                            #compaction_prms{
+                                                               start_lock_offset = StartLockOffset
+                                                              }} = State) ->
     NextStatus = ?ST_RUNNING,
     State_3 =
-        case catch execute(State) of
+        case catch execute(State#state{is_diagnosing = IsDiagnose}) of
             %% Lock the object-storage in order to
             %%     reject requests during the data-compaction
             {ok, {next, #state{is_locked = IsLocked,
@@ -284,11 +326,11 @@ running(?EVENT_RUN, #state{id = Id,
                                   erlang:send(CompactCntlPid, {lock, Id}),
                                   State_1#state{is_locked = true}
                           end,
-                ok = run(Id),
+                ok = run(Id, IsDiagnose),
                 State_2;
             %% Execute the data-compaction repeatedly
             {ok, {next, State_1}} ->
-                ok = run(Id),
+                ok = run(Id, IsDiagnose),
                 State_1;
             %% An unxepected error has occured
             {'EXIT', Cause} ->
@@ -308,43 +350,29 @@ running(?EVENT_RUN, #state{id = Id,
         end,
     {next_state, NextStatus, State_3#state{status = NextStatus}};
 
-running(?EVENT_SUSPEND, State) ->
+running(#event_info{event = ?EVENT_SUSPEND}, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}};
 
-running(?EVENT_FINISH, #state{obj_storage_id   = ObjStorageId,
-                              compact_cntl_pid = CntlPid,
-                              obj_storage_info = #backend_info{file_path = FilePath},
-                              start_datetime = StartDateTime,
-                              result = Ret} = State) ->
-    EndDateTime = leo_date:now(),
-    Duration = EndDateTime - StartDateTime,
-    StartDateTime_1 = lists:flatten(leo_date:date_format(StartDateTime)),
-    EndDateTime_1   = lists:flatten(leo_date:date_format(EndDateTime)),
-    ok = leo_object_storage_server:append_compaction_history(
-           ObjStorageId, #compaction_hist{start_datetime = StartDateTime,
-                                          end_datetime   = EndDateTime,
-                                          duration       = Duration,
-                                          result = Ret}),
-    error_logger:info_msg("~p,~p,~p,~p~n",
-                          [{module, ?MODULE_STRING}, {function, "running/2"},
-                           {line, ?LINE}, {body, [{file_path, FilePath},
-                                                  {start_datetime, StartDateTime_1},
-                                                  {end_datetime,   EndDateTime_1},
-                                                  {duration, Duration},
-                                                  {result, Ret}
-                                                 ]}]),
-    erlang:send(CntlPid, finish),
+running(#event_info{event = ?EVENT_FINISH}, #state{obj_storage_id   = ObjStorageId,
+                                                   compact_cntl_pid = CntlPid} = State) ->
+    %% Generate the compaction report
+    {ok, Report} = gen_compaction_report(State),
+
+    %% Notify a message to the compaction-manager
+    erlang:send(CntlPid, {finish, {ObjStorageId, Report}}),
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus,
                                          error_pos = 0,
                                          set_errors = sets:new(),
+                                         acc_errors = [],
                                          obj_storage_info = #backend_info{},
                                          compaction_prms = #compaction_prms{},
                                          start_datetime = 0,
                                          result = undefined
                                         }};
-running({?EVENT_STATE, Client}, State) ->
+running(#event_info{event = ?EVENT_STATE,
+                    client_pid = Client}, State) ->
     NextStatus = ?ST_RUNNING,
     erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#state{status = NextStatus}};
@@ -363,12 +391,14 @@ running(_, From, State) ->
 
 %% @doc State of 'suspend'
 %%
--spec(suspending(?EVENT_RUN|{?EVENT_STATE, pid()}|_, #state{}) ->
-             {next_state, ?ST_SUSPENDING, #state{}}).
-suspending(?EVENT_RUN, State) ->
+-spec(suspending(EventInfo, State) ->
+             {next_state, ?ST_SUSPENDING, State} when EventInfo::#event_info{},
+                                                      State::#state{}).
+suspending(#event_info{event = ?EVENT_RUN}, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}};
-suspending({?EVENT_STATE, Client}, State) ->
+suspending(#event_info{event = ?EVENT_STATE,
+                       client_pid = Client}, State) ->
     NextStatus = ?ST_SUSPENDING,
     erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#state{status = NextStatus}};
@@ -376,11 +406,14 @@ suspending(_, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
 
--spec(suspending(?EVENT_RESUME|_, _, #state{}) ->
-             {next_state, ?ST_SUSPENDING | ?ST_RUNNING, #state{}}).
-suspending(?EVENT_RESUME, From, #state{id = Id} = State) ->
+-spec(suspending(EventInfo, From, State) ->
+             {next_state, ?ST_SUSPENDING | ?ST_RUNNING, State} when EventInfo::#event_info{},
+                                                                    From::{pid(),Tag::atom()},
+                                                                    State::#state{}).
+suspending(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id,
+                                                            is_diagnosing = IsDiagnose} = State) ->
     gen_fsm:reply(From, ok),
-    ok = run(Id),
+    ok = run(Id, IsDiagnose),
 
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{status = NextStatus}};
@@ -396,8 +429,9 @@ suspending(_, From, State) ->
 %%--------------------------------------------------------------------
 %% @doc Calculate remain disk-sizes.
 %% @private
--spec(calc_remain_disksize(atom(), string()) ->
-             {ok, integer()} | {error, any()}).
+-spec(calc_remain_disksize(MetaDBId, FilePath) ->
+             {ok, integer()} | {error, any()} when MetaDBId::atom(),
+                                                   FilePath::string()).
 calc_remain_disksize(MetaDBId, FilePath) ->
     case leo_file:file_get_mount_path(FilePath) of
         {ok, MountPath} ->
@@ -420,10 +454,10 @@ calc_remain_disksize(MetaDBId, FilePath) ->
 
 %% @doc compact objects from the object-container on a independent process.
 %% @private
--spec(prepare(#state{}) ->
-             {ok, #state{}} | {{error, any()}, #state{}}).
+-spec(prepare(State) ->
+             {ok, State} | {{error, any()}, State} when State::#state{}).
 prepare(#state{obj_storage_id = ObjStorageId,
-               meta_db_id = MetaDBId} = State) ->
+               meta_db_id  = MetaDBId} = State) ->
     %% Retrieve the current container's path
     {ok, #backend_info{
             linked_path = LinkedPath,
@@ -445,11 +479,34 @@ prepare(#state{obj_storage_id = ObjStorageId,
     end.
 
 
-%% @doc Open the current object-container and a new object-container
-%% @private
+prepare_1(LinkedPath, FilePath, #state{compaction_prms = CompactionPrms,
+                                       is_diagnosing   = true} = State) ->
+    case leo_object_storage_haystack:open(FilePath, read) of
+        {ok, [_, ReadHandler, AVSVsnBinPrv]} ->
+            FileSize = filelib:file_size(FilePath),
+            ok = file:advise(ReadHandler,  0, FileSize, sequential),
+            {ok, State#state{
+                   obj_storage_info =
+                       #backend_info{
+                          avs_ver_cur   = <<>>,
+                          avs_ver_prv   = AVSVsnBinPrv,
+                          write_handler = undefined,
+                          read_handler  = ReadHandler,
+                          linked_path   = LinkedPath,
+                          file_path     = []
+                         },
+                   compaction_prms =
+                       CompactionPrms#compaction_prms{
+                         start_lock_offset = FileSize
+                        }
+                  }
+            };
+        Error ->
+            {Error, State}
+    end;
+
 prepare_1(LinkedPath, FilePath, #state{meta_db_id = MetaDBId,
-                                       compaction_prms = CompactionPrms
-                                      } = State) ->
+                                       compaction_prms = CompactionPrms} = State) ->
     %% Create the new container
     NewFilePath = ?gen_raw_file_path(LinkedPath),
 
@@ -493,11 +550,13 @@ prepare_1(LinkedPath, FilePath, #state{meta_db_id = MetaDBId,
 
 %% @doc Reduce unnecessary objects from object-container.
 %% @private
--spec(execute(#state{}) ->
-             {ok, #state{}} | {{error, any()}, #state{}}).
+-spec(execute(State) ->
+             {ok, State} | {{error, any()}, State} when State::#state{}).
 execute(#state{meta_db_id       = MetaDBId,
+               diagnosis_log_id = LoggerId,
                obj_storage_info = StorageInfo,
                waiting_time     = WaitingTime,
+               is_diagnosing    = IsDiagnose,
                compaction_prms  = CompactionPrms} = State) ->
     %% Initialize set-error property
     State_1 = State#state{set_errors = sets:new()},
@@ -522,8 +581,9 @@ execute(#state{meta_db_id       = MetaDBId,
                              body_bin = Body,
                              callback_fun = CallbackFun,
                              num_of_active_objs  = NumOfActiveObjs,
-                             size_of_active_objs = SizeActive
-                            } = CompactionPrms,
+                             size_of_active_objs = ActiveSize,
+                             total_num_of_objs  = TotalObjs,
+                             total_size_of_objs = TotaSize} = CompactionPrms,
             NumOfReplicas   = Metadata#?METADATA.num_of_replicas,
             HasChargeOfNode = case (CallbackFun == undefined) of
                                   true ->
@@ -534,9 +594,20 @@ execute(#state{meta_db_id       = MetaDBId,
 
             case (is_deleted_rec(MetaDBId, StorageInfo, Metadata)
                   orelse HasChargeOfNode == false) of
-                true ->
+                true when IsDiagnose == false ->
                     execute_1(State_1);
-                false ->
+                true when IsDiagnose == true ->
+                    ok = output_diagnosis_log(LoggerId, Metadata),
+                    execute_1(State_1#state{
+                                compaction_prms = CompactionPrms#compaction_prms{
+                                                    total_num_of_objs  = TotalObjs + 1,
+                                                    total_size_of_objs = TotaSize  +
+                                                        leo_object_storage_haystack:calc_obj_size(Metadata)
+                                                   }});
+                %%
+                %% For data-compaction processing
+                %%
+                false when IsDiagnose == false ->
                     %% Insert into the temporary object-container.
                     {Ret_1, NewState} =
                         case leo_object_storage_haystack:put_obj_to_new_cntnr(
@@ -551,29 +622,47 @@ execute(#state{meta_db_id       = MetaDBId,
                                         MetaDBId, KeyOfMeta, term_to_binary(Metadata_1)),
 
                                 %% Calculate num of objects and total size of objects
-                                ObjectSize = leo_object_storage_haystack:calc_obj_size(Metadata_1),
-                                {Ret,
-                                 State_1#state{compaction_prms =
-                                                   CompactionPrms#compaction_prms{
-                                                     metadata = Metadata_1,
-                                                     num_of_active_objs  = NumOfActiveObjs + 1,
-                                                     size_of_active_objs = SizeActive + ObjectSize}}};
+                                execute_2(Ret, CompactionPrms, Metadata_1,
+                                          NumOfActiveObjs, ActiveSize, State_1);
                             Error ->
                                 {Error,
                                  State_1#state{compaction_prms =
                                                    CompactionPrms#compaction_prms{
                                                      metadata = Metadata}}}
                         end,
-                    execute_1(Ret_1, NewState)
+                    execute_1(Ret_1, NewState);
+                %%
+                %% For diagnosis processing
+                %%
+                false when IsDiagnose == true ->
+                    ok = output_diagnosis_log(LoggerId, Metadata),
+                    {Ret_1, NewState} = execute_2(
+                                          ok, CompactionPrms, Metadata,
+                                          NumOfActiveObjs, ActiveSize, State_1),
+                    CompactionPrms_1 = NewState#state.compaction_prms,
+                    execute_1(Ret_1,
+                              NewState#state{
+                                compaction_prms = CompactionPrms_1#compaction_prms{
+                                                    total_num_of_objs  = TotalObjs + 1,
+                                                    total_size_of_objs = TotaSize  +
+                                                        leo_object_storage_haystack:calc_obj_size(Metadata)
+                                                   }})
             end
     end.
 
 
 %% @doc Reduce unnecessary objects from object-container.
 %% @private
+-spec(execute_1(State) ->
+             {ok, {next|eof, State}} |
+             {{error, any()}, State} when State::#state{}).
 execute_1(State) ->
     execute_1(ok, State).
 
+-spec(execute_1(Ret, State) ->
+             {ok, {next|eof, State}} |
+             {{error, any()}, State} when Ret::ok|{error,any()},
+                                          State::#state{}).
 execute_1(ok, #state{obj_storage_info = StorageInfo,
                      compaction_prms  = CompactionPrms} = State) ->
     erlang:garbage_collect(self()),
@@ -584,8 +673,8 @@ execute_1(ok, #state{obj_storage_info = StorageInfo,
            ReadHandler, NextOffset) of
         {ok, NewMetadata, [_HeaderValue, NewKeyValue,
                            NewBodyValue, NewNextOffset]} ->
-            ok = output_accumulated_errors(State, NextOffset),
-            {ok, {next, State#state{
+            {ok, State_1} = output_accumulated_errors(State, NextOffset),
+            {ok, {next, State_1#state{
                           error_pos  = 0,
                           set_errors = sets:new(),
                           compaction_prms =
@@ -598,10 +687,10 @@ execute_1(ok, #state{obj_storage_info = StorageInfo,
 
         %% Reached tail of the object-container
         {error, eof = Cause} ->
-            ok = output_accumulated_errors(State, NextOffset),
+            {ok, State_1} = output_accumulated_errors(State, NextOffset),
             NumOfAcriveObjs  = CompactionPrms#compaction_prms.num_of_active_objs,
             SizeOfActiveObjs = CompactionPrms#compaction_prms.size_of_active_objs,
-            {ok, {Cause, State#state{
+            {ok, {Cause, State_1#state{
                            error_pos  = 0,
                            set_errors = sets:new(),
                            compaction_prms =
@@ -635,12 +724,34 @@ execute_1(Error, State) ->
     {Error, State}.
 
 
+%% @doc Calculate num of objects and total size of objects
 %% @private
-after_execute(Ret, #state{obj_storage_info = StorageInfo} = State) ->
+execute_2(Ret, CompactionPrms, Metadata, NumOfActiveObjs, ActiveSize, State) ->
+    ObjectSize = leo_object_storage_haystack:calc_obj_size(Metadata),
+    {Ret,
+     State#state{compaction_prms =
+                     CompactionPrms#compaction_prms{
+                       metadata = Metadata,
+                       num_of_active_objs  = NumOfActiveObjs + 1,
+                       size_of_active_objs = ActiveSize + ObjectSize}}}.
+
+
+%% @private
+after_execute(Ret, #state{obj_storage_info = StorageInfo,
+                          is_diagnosing    = IsDiagnose,
+                          diagnosis_log_id = LoggerId} = State) ->
     %% Close file handlers
     ReadHandler  = StorageInfo#backend_info.read_handler,
     WriteHandler = StorageInfo#backend_info.write_handler,
     catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
+
+    %% rotate the diagnosis-log
+    case IsDiagnose of
+        true when LoggerId /= undefined ->
+            leo_logger_client_base:force_rotation(LoggerId);
+        _ ->
+            void
+    end,
 
     %% Finish compaction
     after_execute_1({Ret, State}).
@@ -648,6 +759,13 @@ after_execute(Ret, #state{obj_storage_info = StorageInfo} = State) ->
 
 %% @doc Reduce objects from the object-container.
 %% @private
+after_execute_1({ok, #state{is_diagnosing = true,
+                            compaction_prms =
+                                #compaction_prms{
+                                   num_of_active_objs  = _NumActiveObjs,
+                                   size_of_active_objs = _SizeActiveObjs}} = State}) ->
+    {ok, State#state{result = ?RET_SUCCESS}};
+
 after_execute_1({ok, #state{meta_db_id       = MetaDBId,
                             obj_storage_id   = ObjStorageId,
                             obj_storage_info = StorageInfo,
@@ -674,26 +792,39 @@ after_execute_1({ok, #state{meta_db_id       = MetaDBId,
     end;
 
 %% @doc Rollback - delete the tmp-files
+%% @private
 after_execute_1({_Error, #state{meta_db_id       = MetaDBId,
                                 obj_storage_info = StorageInfo} = State}) ->
     %% must reopen the original file when handling at another process:
     catch file:delete(StorageInfo#backend_info.file_path),
     leo_backend_db_api:finish_compaction(MetaDBId, false),
+
     {ok, State#state{result = ?RET_FAIL}}.
+
+
+%% @doc Output the diagnosis log
+%% @private
+output_diagnosis_log(undefined,_Metadata) ->
+    ok;
+output_diagnosis_log(LoggerId, Metadata) ->
+    ?output_diagnosis_log(Metadata).
 
 
 %% @doc Output accumulated errors to logger
 %% @private
--spec(output_accumulated_errors(#state{}, integer()) ->
-             ok).
+-spec(output_accumulated_errors(State, ErrorPosEnd) ->
+             {ok, State} when State::#state{},
+                              ErrorPosEnd::non_neg_integer()).
 output_accumulated_errors(#state{obj_storage_id = ObjStorageId,
                                  error_pos  = ErrorPosStart,
-                                 set_errors = SetErrors}, ErrorPosEnd) ->
+                                 set_errors = SetErrors,
+                                 acc_errors = AccErrors} = State, ErrorPosEnd) ->
     case sets:size(SetErrors) of
         0 ->
-            ok;
+            {ok, State};
         _ ->
             {ok, StorageInfo} = ?get_obj_storage_info(ObjStorageId),
+            Errors = sets:to_list(SetErrors),
             error_logger:warning_msg(
               "~p,~p,~p,~p~n",
               [{module, ?MODULE_STRING},
@@ -702,16 +833,18 @@ output_accumulated_errors(#state{obj_storage_id = ObjStorageId,
                {body, [{obj_container_path, StorageInfo#backend_info.file_path},
                        {error_pos_start, ErrorPosStart},
                        {error_pos_end,   ErrorPosEnd},
-                       {errors,          sets:to_list(SetErrors)}]}
+                       {errors,          Errors}]}
               ]),
-            ok
+            {ok, State#state{acc_errors = [{ErrorPosStart, ErrorPosEnd}|AccErrors]}}
     end.
 
 
 %% @doc Is deleted a record ?
 %% @private
--spec(is_deleted_rec(atom(), #backend_info{}, #?METADATA{}) ->
-             boolean()).
+-spec(is_deleted_rec(MetaDBId, StorageInfo, Metadata) ->
+             boolean() when MetaDBId::atom(),
+                            StorageInfo::#backend_info{},
+                            Metadata::#?METADATA{}).
 is_deleted_rec(_MetaDBId, _StorageInfo, #?METADATA{del = ?DEL_TRUE}) ->
     true;
 is_deleted_rec(MetaDBId, #backend_info{avs_ver_prv = AVSVsnBinPrv} = StorageInfo,
@@ -733,11 +866,112 @@ is_deleted_rec(MetaDBId, #backend_info{avs_ver_prv = AVSVsnBinPrv} = StorageInfo
     end.
 
 %% @private
--spec(is_deleted_rec(atom(), #backend_info{}, #?METADATA{}, #?METADATA{}) ->
-             boolean()).
+-spec(is_deleted_rec(MetaDBId, StorageInfo, Metadata_1, Metadata_2) ->
+             boolean() when MetaDBId::atom(),
+                            StorageInfo::#backend_info{},
+                            Metadata_1::#?METADATA{},
+                            Metadata_2::#?METADATA{}).
 is_deleted_rec(_MetaDBId,_StorageInfo,
                #?METADATA{offset = Offset_1},
                #?METADATA{offset = Offset_2}) when Offset_1 /= Offset_2 ->
     true;
 is_deleted_rec(_MetaDBId,_StorageInfo,_Meta_1,_Meta_2) ->
     false.
+
+
+%% @doc Generate compaction report
+%% @private
+gen_compaction_report(State) ->
+    #state{obj_storage_id   = ObjStorageId,
+           compaction_prms  = CompactionPrms,
+           obj_storage_info = #backend_info{file_path   = FilePath,
+                                            linked_path = LinkedPath,
+                                            avs_ver_prv = AVSVerPrev,
+                                            avs_ver_cur = AVSVerCur},
+           start_datetime = StartDateTime,
+           is_diagnosing  = IsDiagnosing,
+           acc_errors     = AccErrors,
+           result = Ret} = State,
+
+    %% Append the compaction history
+    EndDateTime = leo_date:now(),
+    Duration = EndDateTime - StartDateTime,
+    StartDateTime_1 = lists:flatten(leo_date:date_format(StartDateTime)),
+    EndDateTime_1   = lists:flatten(leo_date:date_format(EndDateTime)),
+    ok = leo_object_storage_server:append_compaction_history(
+           ObjStorageId, #compaction_hist{start_datetime = StartDateTime,
+                                          end_datetime   = EndDateTime,
+                                          duration       = Duration,
+                                          result = Ret}),
+    %% Generate a report of the results
+    #compaction_prms{num_of_active_objs  = ActiveObjs,
+                     size_of_active_objs = ActiveSize,
+                     total_num_of_objs   = TotalObjs,
+                     total_size_of_objs  = TotalSize} = CompactionPrms,
+
+    CntnrVer  = case IsDiagnosing of
+                    true  -> AVSVerPrev;
+                    false -> AVSVerCur
+                end,
+    CntnrPath = case IsDiagnosing of
+                    true  -> LinkedPath;
+                    false -> FilePath
+                end,
+    TotalObjs_1 = case IsDiagnosing of
+                      true  -> TotalObjs;
+                      false -> ActiveObjs
+                  end,
+    TotalSize_1 = case IsDiagnosing of
+                      true  -> TotalSize;
+                      false -> ActiveSize
+                  end,
+    Report = #compaction_report{
+                file_path = CntnrPath,
+                avs_ver   = CntnrVer,
+                num_of_active_objs  = ActiveObjs,
+                size_of_active_objs = ActiveSize,
+                total_num_of_objs   = TotalObjs_1,
+                total_size_of_objs  = TotalSize_1,
+                start_datetime = StartDateTime_1,
+                end_datetime   = EndDateTime_1,
+                errors   = lists:reverse(AccErrors),
+                duration = Duration,
+                result   = Ret
+               },
+
+    case leo_object_storage_server:get_stats(ObjStorageId) of
+        {ok, #storage_stats{file_path = ObjDir} = CurStats} ->
+            %% Update the storage-state
+            ok = leo_object_storage_server:set_stats(ObjStorageId,
+                                                     CurStats#storage_stats{
+                                                       total_sizes  = TotalSize_1,
+                                                       active_sizes = ActiveSize,
+                                                       total_num    = TotalObjs_1,
+                                                       active_num   = ActiveObjs}),
+            %% Output report of the storage-container
+            Tokens = string:tokens(ObjDir, "/"),
+            case (length(Tokens) > 2) of
+                true ->
+                    LogFilePath = filename:join(["/"]
+                                                ++ lists:sublist(Tokens, length(Tokens) - 2)
+                                                ++ [?DEF_LOG_SUB_DIR
+                                                    ++ atom_to_list(ObjStorageId)
+                                                    ++ ?DIAGNOSIS_REP_SUFFIX
+                                                    ++ "."
+                                                    ++ integer_to_list(leo_date:now())
+                                                   ]),
+                    Report_1 = lists:zip(record_info(fields, compaction_report),
+                                         tl(tuple_to_list(Report))),
+                    catch leo_file:file_unconsult(LogFilePath, Report_1),
+                    ok;
+                false ->
+                    void
+            end;
+        _ ->
+            void
+    end,
+    error_logger:info_msg("~p,~p,~p,~p~n",
+                          [{module, ?MODULE_STRING},
+                           {function, "gen_compaction_report/1"},
+                           {line, ?LINE}, {body, [Report]}]),
+    {ok, Report}.

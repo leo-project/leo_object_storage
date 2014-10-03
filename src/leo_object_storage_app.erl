@@ -21,6 +21,7 @@
 %% ---------------------------------------------------------------------
 %% Leo Object Storage
 %% @doc
+%% @reference
 %% @end
 %%======================================================================
 -module(leo_object_storage_app).
@@ -40,7 +41,12 @@
 %%----------------------------------------------------------------------
 start(_Type, _Args) ->
     consider_profiling(),
-    leo_object_storage_sup:start_link().
+    case leo_object_storage_sup:start_link() of
+        {ok,_Pid} = Ret ->
+            Ret;
+        Other ->
+            Other
+    end.
 
 prep_stop(_State) ->
     ok = leo_object_storage_sup:stop(),

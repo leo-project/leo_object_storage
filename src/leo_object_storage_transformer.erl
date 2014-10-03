@@ -17,6 +17,10 @@
 %% KIND, either express or implied.  See the License for the
 %% specific language governing permissions and limitations
 %% under the License.
+%%
+%% @doc The object storage's data transformer
+%% @reference https://github.com/leo-project/leo_object_storage/blob/master/src/leo_object_storage_transformer.erl
+%% @end
 %%======================================================================
 -module(leo_object_storage_transformer).
 -author('Yosuke Hara').
@@ -36,8 +40,9 @@
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
--spec(metadata_to_object(#metadata{} | #?METADATA{}) ->
-             #?OBJECT{} | {error, invaid_record}).
+%% @doc Transform from a metadata to an object
+-spec(metadata_to_object(Metadata) ->
+             #?OBJECT{} | {error, invaid_record} when Metadata::#metadata{} | #?METADATA{}).
 metadata_to_object(#metadata{key     = Key,
                              addr_id = AddrId,
                              ksize   = KSize,
@@ -84,7 +89,7 @@ metadata_to_object(#?METADATA{} = Metadata) ->
                num_of_replicas = NumOfReplicas,
                ver = Ver,
                del = Del} = Metadata,
-    
+
     #?OBJECT{key     = Key,
              addr_id = AddrId,
              ksize   = KSize,
@@ -107,8 +112,8 @@ metadata_to_object(_M) ->
 
 
 %% @doc Transfer object to metadata
--spec(object_to_metadata(#object{}|#object_1{}) ->
-             #metadata_1{}).
+-spec(object_to_metadata(Object) ->
+             #metadata_1{} when Object::#object{}|#object_1{}).
 object_to_metadata(#object{key     = Key,
                            addr_id = AddrId,
                            ksize   = KSize,
@@ -176,8 +181,9 @@ object_to_metadata(_) ->
 
 
 %% @doc Transform old-type metadata to current-type
--spec(transform_metadata(#metadata{} | #metadata_1{}) ->
-             #metadata_1{} | {error, invaid_record}).
+-spec(transform_metadata(Metadata) ->
+             #metadata_1{} |
+             {error, invaid_record} when Metadata::#metadata{} | #metadata_1{}).
 transform_metadata(#metadata{key     = Key,
                              addr_id = AddrId,
                              ksize   = KSize,
@@ -213,8 +219,8 @@ transform_metadata(_) ->
 
 
 %% @doc Transport a header-bin to a metadata
--spec(header_bin_to_metadata(binary()) ->
-             #?METADATA{} | {error, invaid_record}).
+-spec(header_bin_to_metadata(HeaderBin) ->
+             #?METADATA{} | {error, invaid_record} when HeaderBin::binary()).
 header_bin_to_metadata(Bin) ->
     try
         << Checksum:?BLEN_CHKSUM,
@@ -265,16 +271,17 @@ header_bin_to_metadata(Bin) ->
 
 
 %% @doc Set values from a custome-metadata
--spec(cmeta_bin_into_metadata(binary(), #?METADATA{})->
-             #?METADATA{} | {error, any()}).
+-spec(cmeta_bin_into_metadata(CustomMetaBin, Metadata)->
+             #?METADATA{} | {error, any()} when CustomMetaBin::binary(),
+                                                Metadata::#?METADATA{}).
 cmeta_bin_into_metadata(<<>>, Metadata) ->
     Metadata;
 cmeta_bin_into_metadata(CustomMetaBin, Metadata) ->
     try
-        CustomeMeta = binary_to_term(CustomMetaBin),
-        ClusterId     = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID,      CustomeMeta, []),
-        NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomeMeta, 0),
-        Version       = leo_misc:get_value(?PROP_CMETA_VER,             CustomeMeta, 0),
+        CustomMeta = binary_to_term(CustomMetaBin),
+        ClusterId     = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID,      CustomMeta, []),
+        NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomMeta, 0),
+        Version       = leo_misc:get_value(?PROP_CMETA_VER,             CustomMeta, 0),
         Metadata#?METADATA{cluster_id = ClusterId,
                            num_of_replicas = NumOfReplicas,
                            ver = Version}
@@ -284,12 +291,12 @@ cmeta_bin_into_metadata(CustomMetaBin, Metadata) ->
     end.
 
 %% @doc List to a custome-metadata(binary)
--spec(list_to_cmeta_bin(list(tuple())) ->
-             binary()).
-list_to_cmeta_bin(CustomeMeta) ->
-    ClusterId     = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID,      CustomeMeta, []),
-    NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomeMeta, 0),
-    Version       = leo_misc:get_value(?PROP_CMETA_VER,             CustomeMeta, 0),
+-spec(list_to_cmeta_bin(CustomMeta) ->
+             binary() when CustomMeta::[{atom(), any()}]).
+list_to_cmeta_bin(CustomMeta) ->
+    ClusterId     = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID,      CustomMeta, []),
+    NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomMeta, 0),
+    Version       = leo_misc:get_value(?PROP_CMETA_VER,             CustomMeta, 0),
     term_to_binary([{?PROP_CMETA_CLUSTER_ID, ClusterId},
                     {?PROP_CMETA_NUM_OF_REPLICAS, NumOfReplicas},
                     {?PROP_CMETA_VER, Version}

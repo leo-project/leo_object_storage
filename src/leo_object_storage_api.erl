@@ -20,7 +20,9 @@
 %%
 %% ---------------------------------------------------------------------
 %% Leo Object Storage - API
-%% @doc
+%%
+%% @doc The object staorge's API
+%% @reference https://github.com/leo-project/leo_object_storage/blob/master/src/leo_object_storage_api.erl
 %% @end
 %%======================================================================
 -module(leo_object_storage_api).
@@ -30,18 +32,24 @@
 -include("leo_object_storage.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--export([start/1,
-         put/2, get/1, get/3, delete/2, head/1,
+-export([start/1, start_with_path/1,
+         put/2, get/1, get/3, delete/2,
+         head/1, head_with_calc_md5/2,
          fetch_by_addr_id/2, fetch_by_addr_id/3,
          fetch_by_key/2, fetch_by_key/3,
          store/2,
          stats/0
         ]).
 
--export([head_with_calc_md5/2]).
+-export([get_object_storage_pid/1,
+         get_object_storage_pid_first/0
+        ]).
 
--export([get_object_storage_pid/1]).
--export([get_object_storage_pid_first/0]).
+-export([compact_data/0, compact_data/1,
+         compact_data/2, compact_data/3,
+         diagnose_data/0,
+         diagnose_data/1
+        ]).
 
 -ifdef(TEST).
 -export([add_incorrect_data/1]).
@@ -54,71 +62,127 @@
 %%--------------------------------------------------------------------
 %% @doc Create object-storage processes
 %%
--spec(start([tuple()]) ->
-             ok | {error, any()}).
+-spec(start(Option) ->
+             ok | {error, any()} when Option::[{pos_integer(), string()}]).
 start([]) ->
     {error, badarg};
-start(ObjectStorageInfo) ->
+start(Option) ->
     case start_app() of
         ok ->
-            leo_object_storage_sup:start_child(ObjectStorageInfo);
+            leo_object_storage_sup:start_child(Option);
         {error, Cause} ->
             {error, Cause}
     end.
 
 
+-spec(start_with_path(Path) ->
+             ok | {error, any()} when Path::string()).
+start_with_path(Path) ->
+    case count_avs_containers(Path) of
+        {ok, 0} ->
+            {error, invalid_path};
+        {ok, NumOfContainers} ->
+            start([{NumOfContainers, Path}]);
+        Other ->
+            Other
+    end.
+
+
+%% @doc Retrieve the number of containers
+%% @private
+count_avs_containers(Path) ->
+    Path_1 = filename:join([Path, "object"]),
+    case file:list_dir(Path_1) of
+        {ok, []} ->
+            {ok, 0};
+        {ok, RetL} ->
+            count_avs_containers_1(RetL, 0);
+        Other ->
+            Other
+    end.
+
+%% @private
+count_avs_containers_1([], SoFar) ->
+    {ok, SoFar};
+count_avs_containers_1([Path|Rest], SoFar) ->
+    SoFar_1 =
+        case length(string:tokens(Path, "_")) > 1 of
+            true ->
+                SoFar;
+            false ->
+                SoFar + 1
+        end,
+    count_avs_containers_1(Rest, SoFar_1).
+
+
 %% @doc Insert an object into the object-storage
 %% @param Key = {$VNODE_ID, $OBJ_KEY}
 %%
--spec(put(tuple(), #?OBJECT{}) ->
-             {ok, integer()} | {error, any()}).
+-spec(put(AddrIdAndKey, Object) ->
+             {ok, integer()} | {error, any()} when AddrIdAndKey::addrid_and_key(),
+                                                   Object::#?OBJECT{}).
 put(AddrIdAndKey, Object) ->
     do_request(put, [AddrIdAndKey, Object]).
 
 
 %% @doc Retrieve an object and a metadata from the object-storage
 %%
--spec(get(tuple()) ->
-             {ok, list()} | not_found | {error, any()}).
+-spec(get(AddrIdAndKey) ->
+             {ok, list()} | not_found | {error, any()} when AddrIdAndKey::addrid_and_key()).
 get(AddrIdAndKey) ->
     get(AddrIdAndKey, 0, 0).
 
--spec(get(tuple(), integer(), integer()) ->
-             {ok, #?METADATA{}, #?OBJECT{}} | not_found | {error, any()}).
+-spec(get(AddrIdAndKey, StartPos, EndPos) ->
+             {ok, #?METADATA{}, #?OBJECT{}} |
+             not_found |
+             {error, any()} when AddrIdAndKey::addrid_and_key(),
+                                 StartPos::non_neg_integer(),
+                                 EndPos::non_neg_integer()).
 get(AddrIdAndKey, StartPos, EndPos) ->
     do_request(get, [AddrIdAndKey, StartPos, EndPos]).
 
 
 %% @doc Remove an object from the object-storage
 %%
--spec(delete(tuple(), #?OBJECT{}) ->
-             ok | {error, any()}).
+-spec(delete(AddrIdAndKey, Object) ->
+             ok | {error, any()} when AddrIdAndKey::addrid_and_key(),
+                                      Object::#?OBJECT{}).
 delete(AddrIdAndKey, Object) ->
     do_request(delete, [AddrIdAndKey, Object]).
 
 
 %% @doc Retrieve a metadata from the object-storage
 %%
--spec(head(tuple()) ->
-             {ok, binary()} | not_found | {error, any()}).
+-spec(head(AddrIdAndKey) ->
+             {ok, binary()} |
+             not_found |
+             {error, any()} when AddrIdAndKey::addrid_and_key()).
 head(AddrIdAndKey) ->
     do_request(head, [AddrIdAndKey]).
+
 
 %% @doc Retrieve a metada/data from backend_db/object-storage
 %%      AND calc MD5 based on the body data
 %%
--spec(head_with_calc_md5(tuple(), any()) ->
-             {ok, metadata, any()} | {error, any()}).
+-spec(head_with_calc_md5(AddrIdAndKey, MD5Context) ->
+             {ok, metadata, any()} | {error, any()} when AddrIdAndKey::addrid_and_key(),
+                                                         MD5Context::any()).
 head_with_calc_md5(AddrIdAndKey, MD5Context) ->
     do_request(head_with_calc_md5, [AddrIdAndKey, MD5Context]).
 
 
 %% @doc Fetch objects by ring-address-id
 %%
--spec(fetch_by_addr_id(_, fun()) ->
-             {ok, []} | not_found).
+-spec(fetch_by_addr_id(AddrId, Fun) ->
+             {ok, []} | not_found when AddrId::non_neg_integer(),
+                                       Fun::function()|undefined).
 fetch_by_addr_id(AddrId, Fun) ->
     fetch_by_addr_id(AddrId, Fun, undefined).
+
+-spec(fetch_by_addr_id(AddrId, Fun, MaxKeys) ->
+             {ok, []} | not_found when AddrId::non_neg_integer(),
+                                       Fun::function()|undefined,
+                                       MaxKeys::non_neg_integer()|undefined).
 fetch_by_addr_id(AddrId, Fun, MaxKeys) ->
     case get_object_storage_pid(all) of
         [] ->
@@ -139,7 +203,7 @@ fetch_by_addr_id_1([],_,_,_,Acc) ->
     lists:reverse(lists:flatten(Acc));
 fetch_by_addr_id_1([H|T], AddrId, Fun, MaxKeys, Acc) ->
     Acc_1 = case ?SERVER_MODULE:fetch(
-                          H, {AddrId, <<>>}, Fun, MaxKeys) of
+                    H, {AddrId, <<>>}, Fun, MaxKeys) of
                 {ok, Val} ->
                     [Val|Acc];
                 _ ->
@@ -149,12 +213,16 @@ fetch_by_addr_id_1([H|T], AddrId, Fun, MaxKeys, Acc) ->
 
 %% @doc Fetch objects by key (object-name)
 %%
--spec(fetch_by_key(binary(), function()) ->
-             {ok, list()} | not_found).
+-spec(fetch_by_key(Key, Fun) ->
+             {ok, list()} | not_found when Key::binary(),
+                                           Fun::function()).
 fetch_by_key(Key, Fun) ->
     fetch_by_key(Key, Fun, undefined).
--spec(fetch_by_key(binary(), function(), pos_integer()|undefined) ->
-             {ok, list()} | not_found).
+
+-spec(fetch_by_key(Key, Fun, MaxKeys) ->
+             {ok, list()} | not_found when Key::binary(),
+                                           Fun::function(),
+                                           MaxKeys::non_neg_integer()|undefined).
 fetch_by_key(Key, Fun, MaxKeys) ->
     case get_object_storage_pid(all) of
         [] ->
@@ -181,8 +249,9 @@ fetch_by_key(Key, Fun, MaxKeys) ->
 
 %% @doc Store metadata and data
 %%
--spec(store(#?METADATA{}, binary()) ->
-             ok | {error, any()}).
+-spec(store(Metadata, Bin) ->
+             ok | {error, any()} when Metadata::#?METADATA{},
+                                      Bin::binary()).
 store(Metadata, Bin) ->
     do_request(store, [Metadata, Bin]).
 
@@ -200,6 +269,40 @@ stats() ->
     end.
 
 
+%% @doc Retrieve the storage process-id
+-spec(get_object_storage_pid(Arg) ->
+             [atom()] when Arg::all | any()).
+get_object_storage_pid(Arg) ->
+    Ret = ets:tab2list(?ETS_CONTAINERS_TABLE),
+    get_object_storage_pid(Ret, Arg).
+
+
+-spec(get_object_storage_pid(List, Arg) ->
+             [atom()] when List::[{_,_}],
+                           Arg::all | any()).
+get_object_storage_pid([], _) ->
+    [];
+get_object_storage_pid(List, all) ->
+    lists:map(fun({_, Value}) ->
+                      leo_misc:get_value(obj_storage, Value)
+              end, List);
+get_object_storage_pid(List, Arg) ->
+    Index = (erlang:crc32(Arg) rem erlang:length(List)) + 1,
+    {_, Value} = lists:nth(Index, List),
+    Id = leo_misc:get_value(obj_storage, Value),
+    [Id].
+
+
+%% @doc Retrieve the first record of object-storage pids
+-spec(get_object_storage_pid_first() ->
+             Id when Id::atom()).
+get_object_storage_pid_first() ->
+    Key = ets:first(?ETS_CONTAINERS_TABLE),
+    [{Key, First}|_] = ets:lookup(?ETS_CONTAINERS_TABLE, Key),
+    Id = leo_misc:get_value(obj_storage, First),
+    Id.
+
+
 -ifdef(TEST).
 %% @doc Add incorrect datas on debug purpose
 %%
@@ -210,6 +313,50 @@ add_incorrect_data(Bin) ->
     ?SERVER_MODULE:add_incorrect_data(Pid, Bin).
 -endif.
 
+
+%%--------------------------------------------------------------------
+%% Compaction-related Functions
+%%--------------------------------------------------------------------
+%% @doc Execute data-compaction
+-spec(compact_data() ->
+             term()).
+compact_data() ->
+    leo_compact_fsm_controller:run().
+
+-spec(compact_data(MaxConn) ->
+             term() when MaxConn::integer()).
+compact_data(MaxConn) ->
+    leo_compact_fsm_controller:run(MaxConn).
+
+-spec(compact_data(MaxConn, CallbackFun) ->
+             term() when MaxConn::integer(),
+                         CallbackFun::function()).
+compact_data(MaxConn, CallbackFun) ->
+    leo_compact_fsm_controller:run(MaxConn, CallbackFun).
+
+-spec(compact_data(TargetPids, MaxConn, CallbackFun) ->
+             term() when TargetPids::[atom()],
+                         MaxConn::integer(),
+                         CallbackFun::function()).
+compact_data(TargetPids, MaxConn, CallbackFun) ->
+    leo_compact_fsm_controller:run(TargetPids, MaxConn, CallbackFun).
+
+
+%% @doc Diagnode the data
+-spec(diagnose_data() ->
+             term()).
+diagnose_data() ->
+    leo_compact_fsm_controller:diagnose().
+
+-spec(diagnose_data(Path) ->
+             ok | {error, any()} when Path::string()).
+diagnose_data(Path) ->
+    case start_with_path(Path) of
+        ok ->
+            leo_compact_fsm_controller:diagnose();
+        Error ->
+            Error
+    end.
 
 %%--------------------------------------------------------------------
 %% INNTERNAL FUNCTIONS
@@ -238,38 +385,6 @@ start_app() ->
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
-
-
-
-%% @doc Retrieve an object storage process-id
-%% @private
--spec(get_object_storage_pid(all | any()) ->
-             [atom()]).
-get_object_storage_pid(Arg) ->
-    Ret = ets:tab2list(?ETS_CONTAINERS_TABLE),
-    get_object_storage_pid(Ret, Arg).
-
-%% @private
-get_object_storage_pid([], _) ->
-    [];
-get_object_storage_pid(List, all) ->
-    lists:map(fun({_, Value}) ->
-                      leo_misc:get_value(obj_storage, Value)
-              end, List);
-get_object_storage_pid(List, Arg) ->
-    Index = (erlang:crc32(Arg) rem erlang:length(List)) + 1,
-    {_, Value} = lists:nth(Index, List),
-    Id = leo_misc:get_value(obj_storage, Value),
-    [Id].
-
-
-%% @doc for debug purpose
-%% @private
-get_object_storage_pid_first() ->
-    Key = ets:first(?ETS_CONTAINERS_TABLE),
-    [{Key, First}|_] = ets:lookup(?ETS_CONTAINERS_TABLE, Key),
-    Id = leo_misc:get_value(obj_storage, First),
-    Id.
 
 
 %% @doc Request an operation
@@ -309,7 +424,7 @@ do_request(put, [Key, Object]) ->
 do_request(delete, [Key, Object]) ->
     KeyBin = term_to_binary(Key),
     case get_object_storage_pid(KeyBin) of
-    [Pid|_] ->
+        [Pid|_] ->
             ?SERVER_MODULE:delete(Pid, Object);
         _ ->
             {error, ?ERROR_PROCESS_NOT_FOUND}

@@ -18,6 +18,9 @@
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% @doc FSM of the data-compaction controller, which manages FSM of the data-compaction's workers
+%% @reference https://github.com/leo-project/leo_object_storage/blob/master/src/leo_compact_fsm_controller.erl
+%% @end
 %%======================================================================
 -module(leo_compact_fsm_controller).
 
@@ -31,10 +34,14 @@
 
 %% API
 -export([start_link/0]).
--export([start/3, stop/1,
+-export([run/0, run/1, run/2, run/3,
+         diagnose/0,
+         stop/1,
          lock/1,
          suspend/0, resume/0,
-         state/0, finish/2]).
+         state/0,
+         finish/3
+        ]).
 
 -export([init/1,
          handle_event/3,
@@ -51,80 +58,147 @@
          suspending/2,
          suspending/3]).
 
--record(state, {max_num_of_concurrent = 1 :: non_neg_integer(),
-                callback_fun              :: function() | undefined,
-                total_num_of_targets = 0  :: non_neg_integer(),
-                reserved_targets = []     :: [atom()],
-                pending_targets  = []     :: [atom()],
-                ongoing_targets  = []     :: [atom()],
-                locked_targets   = []     :: [atom()],
-                child_pids       = []     :: orddict:orddict(), %% {Chid :: pid(), hasJob :: boolean()}
-                start_datetime   = 0      :: non_neg_integer(), %% gregory-sec
-                status = ?ST_IDLING :: state_of_compaction()
-               }).
+-record(state, {
+          max_num_of_concurrent = 1 :: non_neg_integer(),
+          is_diagnosing = false     :: boolean(),
+          callback_fun              :: function() | undefined,
+          total_num_of_targets = 0  :: non_neg_integer(),
+          reserved_targets = []     :: [atom()],
+          pending_targets  = []     :: [atom()],
+          ongoing_targets  = []     :: [atom()],
+          locked_targets   = []     :: [atom()],
+          child_pids       = []     :: orddict:orddict(), %% {Chid :: pid(), hasJob :: boolean()}
+          start_datetime   = 0      :: non_neg_integer(), %% gregory-sec
+          reports          = []     :: [#compaction_report{}],
+          status = ?ST_IDLING :: state_of_compaction()
+         }).
 
--define(DEF_TIMEOUT, 5).
+-record(event_info, {
+          id :: atom(),
+          event = ?EVENT_RUN    :: event_of_compaction(),
+          client_pid            :: pid(),
+          target_pids = []      :: [atom()],
+          finished_id           :: atom(),
+          report = #compaction_report{} :: #compaction_report{},
+          max_conns = 1         :: pos_integer(),
+          is_diagnosing = false :: boolean(),
+          callback :: function()
+         }).
+-define(DEF_TIMEOUT, 3000).
 
 %%====================================================================
 %% API
 %%====================================================================
-%% Function: start_link() -> {ok,Pid} | ignore | {error,Error}
-%% Description: Starts the server
+%% @doc Creates a gen_fsm process as part of a supervision tree
 -spec(start_link() ->
              {ok, pid()} | ignore | {error, any()}).
 start_link() ->
     gen_fsm:start_link({local, ?MODULE}, ?MODULE, [], []).
 
+
 %%--------------------------------------------------------------------
 %% API - object operations.
 %%--------------------------------------------------------------------
-%% @doc start compaction
--spec(start([string()|atom()], non_neg_integer(), function()) ->
+%% @doc Request launch of data-compaction to the data-compaction's workers
+%% @end
+-spec(run() ->
              term()).
-start(TargetPids, MaxConNum, CallbackFun) ->
+run() ->
+    run(1, undefined).
+
+-spec(run(MaxConn) ->
+             term() when MaxConn::pos_integer()).
+run(MaxConn) ->
+    run(MaxConn, undefined).
+
+-spec(run(MaxConn, CallbackFun) ->
+             term() when MaxConn::pos_integer(),
+                         CallbackFun::function()).
+run(MaxConn, CallbackFun) ->
+    TargetPids = leo_object_storage_api:get_object_storage_pid('all'),
+    run(TargetPids, MaxConn, CallbackFun).
+
+-spec(run(TargetPids, MaxConn, CallbackFun) ->
+             term() when TargetPids::[pid()|atom()],
+                         MaxConn::pos_integer(),
+                         CallbackFun::function()).
+run(TargetPids, MaxConn, CallbackFun) ->
     gen_fsm:sync_send_event(
-      ?MODULE, {?EVENT_RUN, TargetPids,
-                MaxConNum, CallbackFun}, ?DEF_TIMEOUT).
+      ?MODULE, #event_info{event = ?EVENT_RUN,
+                           target_pids   = TargetPids,
+                           max_conns     = MaxConn,
+                           is_diagnosing = false,
+                           callback    = CallbackFun}, ?DEF_TIMEOUT).
 
--spec(stop(_) ->
+
+%% @doc Request diagnosing data-compaction to the data-compaction's workers
+%% @end
+-spec(diagnose() ->
              term()).
+diagnose() ->
+    TargetPids = leo_object_storage_api:get_object_storage_pid('all'),
+    gen_fsm:sync_send_event(
+      ?MODULE, #event_info{event = ?EVENT_RUN,
+                           target_pids   = TargetPids,
+                           max_conns     = 1,
+                           is_diagnosing = true,
+                           callback      = undefined}, ?DEF_TIMEOUT).
+
+
+%% @doc Request stop of data-compaction to the data-compaction's workers
+%% @end
+-spec(stop(Id) ->
+             term() when Id::atom()).
 stop(_Id) ->
-    gen_fsm:sync_send_all_state_event(?MODULE, stop, ?DEF_TIMEOUT).
+    gen_fsm:sync_send_all_state_event(
+      ?MODULE, stop, ?DEF_TIMEOUT).
 
 
-%% @doc Terminate child
--spec(lock(atom()) ->
-             term()).
+%% @doc Request 'lock'
+-spec(lock(Id) ->
+             term() when Id::atom()).
 lock(Id) ->
-    gen_fsm:send_event(?MODULE, {?EVENT_LOCK, Id}).
+    gen_fsm:send_event(
+      ?MODULE, #event_info{id = Id,
+                           event = ?EVENT_LOCK}).
 
 
-%% @doc Suspend compaction
+%% @doc Request 'suspend compaction' to the data-compaction's workers
 -spec(suspend() ->
              term()).
 suspend() ->
-    gen_fsm:sync_send_event(?MODULE, ?EVENT_SUSPEND, ?DEF_TIMEOUT).
+    gen_fsm:sync_send_event(
+      ?MODULE, #event_info{event = ?EVENT_SUSPEND}, ?DEF_TIMEOUT).
 
 
-%% @doc Resume compaction
+%% @doc Request 'resume compaction' to the data-compaction's workers
 -spec(resume() ->
              term()).
 resume() ->
-    gen_fsm:sync_send_event(?MODULE, ?EVENT_RESUME, ?DEF_TIMEOUT).
+    gen_fsm:sync_send_event(
+      ?MODULE, #event_info{event = ?EVENT_RESUME}, ?DEF_TIMEOUT).
 
 
-%% @doc Retrieve all compaction statuses
+%% @doc Retrieve the all compaction statuses from the data-compaction's workers
 -spec(state() ->
              term()).
 state() ->
-    gen_fsm:sync_send_all_state_event(?MODULE, state, ?DEF_TIMEOUT).
+    gen_fsm:sync_send_all_state_event(
+      ?MODULE, state, ?DEF_TIMEOUT).
 
 
-%% @doc Terminate child
--spec(finish(pid(), atom()) ->
-             term()).
-finish(Pid, Id) ->
-    gen_fsm:send_event(?MODULE, {?EVENT_FINISH, Pid, Id}).
+%% @doc Terminate a child
+-spec(finish(Pid, FinishedId, Report) ->
+             term() when Pid::pid(),
+                         FinishedId::atom(),
+                         Report::#compaction_report{}).
+finish(Pid, FinishedId, Report) ->
+    gen_fsm:send_event(
+      ?MODULE, #event_info{event = ?EVENT_FINISH,
+                           client_pid  = Pid,
+                           finished_id = FinishedId,
+                           report      = Report
+                          }).
 
 
 %%====================================================================
@@ -132,6 +206,9 @@ finish(Pid, Id) ->
 %%====================================================================
 %% @doc Initiates the server
 %%
+-spec(init(Option) ->
+             {ok, ?ST_IDLING, State} when Option::[any()],
+                                          State::#state{}).
 init([]) ->
     AllTargets = leo_object_storage_api:get_object_storage_pid('all'),
     TotalNumOfTargets = erlang:length(AllTargets),
@@ -142,12 +219,18 @@ init([]) ->
 
 %% @doc State of 'idle'
 %%
--spec(idling({?EVENT_RUN, [], non_neg_integer(), function()}|_, _, #state{}) ->
-             {next_state, ?ST_RUNNING|?ST_IDLING, #state{}}).
-idling({?EVENT_RUN, TargetPids, MaxConNum, CallbackFun}, From, State) ->
-    AllTargets     = leo_object_storage_api:get_object_storage_pid('all'),
-    PendingTargets = State#state.pending_targets,
-
+-spec(idling(EventInfo, From, State) ->
+             {next_state, ?ST_RUNNING|?ST_IDLING, State}
+                 when EventInfo::#event_info{}|any(),
+                      From::{pid(),Tag::atom()},
+                      State::#state{}).
+idling(#event_info{event = ?EVENT_RUN,
+                   target_pids   = TargetPids,
+                   max_conns     = MaxConn,
+                   is_diagnosing = IsDiagnose,
+                   callback      = Callback}, From, State) ->
+    AllTargets      = leo_object_storage_api:get_object_storage_pid('all'),
+    PendingTargets  = State#state.pending_targets,
     ReservedTargets = case (length(TargetPids) == length(AllTargets)) of
                           true  ->
                               [];
@@ -162,9 +245,12 @@ idling({?EVENT_RUN, TargetPids, MaxConNum, CallbackFun}, From, State) ->
                        State#state{status = NextState,
                                    pending_targets       = TargetPids,
                                    reserved_targets      = ReservedTargets,
-                                   max_num_of_concurrent = MaxConNum,
-                                   callback_fun          = CallbackFun,
-                                   start_datetime        = leo_date:now()}),
+                                   max_num_of_concurrent = MaxConn,
+                                   is_diagnosing         = IsDiagnose,
+                                   callback_fun          = Callback,
+                                   start_datetime        = leo_date:now(),
+                                   reports = []
+                                  }),
     gen_fsm:reply(From, ok),
     {next_state, NextState, NewState};
 
@@ -173,23 +259,23 @@ idling(_, From, State) ->
     NextState = ?ST_IDLING,
     {next_state, NextState, State#state{status = NextState}}.
 
-
--spec(idling({?EVENT_FINISH,_,_},_) ->
-             {stop, string(), _}).
-idling({?EVENT_FINISH,_Pid,_Id}, State) ->
+%% @doc State of 'idle'
+%%
+-spec(idling(EventInfo, State) ->
+             {stop, string(), State} when EventInfo::#event_info{},
+                                          State::#state{}).
+idling(#event_info{event = ?EVENT_FINISH}, State) ->
     {stop, "receive an invalid message", State}.
 
 
 %% @doc State of 'running'
 %%
--spec(running({?EVENT_RUN,_,_,_}|?EVENT_SUSPEND|_, _, #state{}) ->
-             {next_state, ?ST_RUNNING|?ST_SUSPENDING, #state{}}).
-running({?EVENT_RUN,_,_,_}, From, State) ->
-    gen_fsm:reply(From, {error, badstate}),
-    NextState = ?ST_RUNNING,
-    {next_state, NextState, State#state{status = NextState}};
-
-running(?EVENT_SUSPEND, From, #state{child_pids = ChildPids} = State) ->
+-spec(running(EventInfo, From, State) ->
+             {next_state, ?ST_RUNNING|?ST_SUSPENDING, State}
+                 when EventInfo::#event_info{} | ?EVENT_SUSPEND | any(),
+                      From::{pid(),Tag::atom()},
+                      State::#state{}).
+running(#event_info{event = ?EVENT_SUSPEND}, From, #state{child_pids = ChildPids} = State) ->
     [erlang:send(Pid, suspend) || {Pid, _} <- orddict:to_list(ChildPids)],
     gen_fsm:reply(From, ok),
     NextState = ?ST_SUSPENDING,
@@ -200,40 +286,61 @@ running(_, From, State) ->
     NextState = ?ST_RUNNING,
     {next_state, NextState, State#state{status = NextState}}.
 
-
--spec(running({?EVENT_LOCK, atom()}|{?EVENT_FINISH, pid(), atom()}, #state{}) ->
-             {next_state, running, #state{}}).
-running({?EVENT_LOCK, Id}, #state{locked_targets = LockedTargets} = State) ->
+%% @doc State of 'running'
+%%
+-spec(running(EventInfo, State) ->
+             {next_state, running, State} when EventInfo::#event_info{},
+                                               State::#state{}).
+running(#event_info{id = Id,
+                    event = ?EVENT_LOCK}, #state{locked_targets = LockedTargets} = State) ->
     NextState = ?ST_RUNNING,
     {next_state, NextState,
      State#state{status = NextState,
                  locked_targets = [Id|LockedTargets]}};
 
-running({?EVENT_FINISH, Pid, FinishedId}, #state{pending_targets = [Id|Rest],
-                                                 ongoing_targets = InProgPids} = State) ->
+running(#event_info{event = ?EVENT_FINISH,
+                    client_pid  = Pid,
+                    finished_id = FinishedId,
+                    report      = Report}, #state{pending_targets = [Id|Rest],
+                                                  ongoing_targets = InProgPids,
+                                                  is_diagnosing   = IsDiagnose,
+                                                  reports         = AccReports} = State) ->
     %% Execute data-compaction of a pending target
-    erlang:send(Pid, {run, Id}),
+    erlang:send(Pid, {run, Id, IsDiagnose}),
     NextState = ?ST_RUNNING,
     {next_state, NextState,
      State#state{status = NextState,
                  pending_targets = Rest,
-                 ongoing_targets = [Id|lists:delete(FinishedId, InProgPids)]}};
+                 ongoing_targets = [Id|lists:delete(FinishedId, InProgPids)],
+                 reports = [Report|AccReports]
+                }};
 
-running({?EVENT_FINISH, Pid, FinishedId}, #state{pending_targets = [],
-                                                 ongoing_targets = [_,_|_],
-                                                 child_pids      = ChildPids} = State) ->
+running(#event_info{event = ?EVENT_FINISH,
+                    client_pid  = Pid,
+                    finished_id = FinishedId,
+                    report      = Report}, #state{pending_targets = [],
+                                                  ongoing_targets = [_,_|_],
+                                                  child_pids      = ChildPids,
+                                                  reports         = AccReports} = State) ->
     erlang:send(Pid, stop),
     NextState = ?ST_RUNNING,
     {next_state, NextState,
      State#state{status = NextState,
                  ongoing_targets = lists:delete(FinishedId, State#state.ongoing_targets),
-                 child_pids       = orddict:erase(Pid, ChildPids)}};
+                 child_pids      = orddict:erase(Pid, ChildPids),
+                 reports      = [Report|AccReports]
+                }};
 
-running({?EVENT_FINISH,_Pid,_FinishedId}, #state{pending_targets  = [],
-                                                 ongoing_targets  = [_|_],
-                                                 child_pids       = ChildPids,
-                                                 reserved_targets = ReservedTargets} = State) ->
+running(#event_info{event  = ?EVENT_FINISH,
+                    report = Report}, #state{pending_targets  = [],
+                                             ongoing_targets  = [_|_],
+                                             child_pids       = ChildPids,
+                                             reserved_targets = ReservedTargets,
+                                             reports = AccReports
+                                            } = State) ->
+    AccReports_1 = lists:sort(lists:flatten([Report|AccReports])),
     [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
+
     NextState = ?ST_IDLING,
     PendingTargets = pending_targets(ReservedTargets),
     {next_state, NextState, State#state{status = NextState,
@@ -241,17 +348,21 @@ running({?EVENT_FINISH,_Pid,_FinishedId}, #state{pending_targets  = [],
                                         pending_targets  = PendingTargets,
                                         ongoing_targets  = [],
                                         child_pids       = [],
-                                        locked_targets   = []
+                                        locked_targets   = [],
+                                        reports          = AccReports_1
                                        }}.
 
 
 %% @doc State of 'suspend'
 %%
--spec(suspending(?EVENT_RESUME|_, _, #state{}) ->
-             {next_state, ?ST_SUSPENDING | ?ST_RUNNING, #state{}}).
-suspending(?EVENT_RESUME, From, #state{pending_targets = [_|_],
-                                       ongoing_targets = InProgPids,
-                                       child_pids      = ChildPids} = State) ->
+-spec(suspending(EventInfo, From, State) ->
+             {next_state, ?ST_SUSPENDING | ?ST_RUNNING, State} when EventInfo::#event_info{},
+                                                                    From::{pid(),Tag::atom()},
+                                                                    State::#state{}).
+suspending(#event_info{event = ?EVENT_RESUME}, From, #state{pending_targets = [_|_],
+                                                            ongoing_targets = InProgPids,
+                                                            child_pids      = ChildPids,
+                                                            is_diagnosing   = IsDiagnose} = State) ->
     TargetPids = State#state.pending_targets,
 
     {NewTargetPids, NewInProgPids, NewChildPids} =
@@ -266,7 +377,7 @@ suspending(?EVENT_RESUME, From, #state{pending_targets = [_|_],
                           {[], InProgPidsIn, orddict:erase(Pid, ChildPidsIn)};
                       _ ->
                           Id = hd(TargetPidsIn),
-                          erlang:send(Pid, {run, Id}),
+                          erlang:send(Pid, {run, Id, IsDiagnose}),
 
                           {lists:delete(Id, TargetPidsIn),
                            [Id|InProgPidsIn], orddict:store(Pid, true, ChildPidsIn)}
@@ -280,8 +391,8 @@ suspending(?EVENT_RESUME, From, #state{pending_targets = [_|_],
                                         ongoing_targets = NewInProgPids,
                                         child_pids      = NewChildPids}};
 
-suspending(?EVENT_RESUME, From, #state{pending_targets = [],
-                                       ongoing_targets = [_|_]} = State) ->
+suspending(#event_info{event = ?EVENT_RESUME}, From, #state{pending_targets = [],
+                                                            ongoing_targets = [_|_]} = State) ->
     gen_fsm:reply(From, ok),
     NextState = ?ST_RUNNING,
     {next_state, NextState, State#state{status = NextState}};
@@ -291,12 +402,16 @@ suspending(_, From, State) ->
     NextState = ?ST_SUSPENDING,
     {next_state, NextState, State#state{status = NextState}}.
 
-
--spec(suspending({?EVENT_FINISH, pid(), atom()}, #state{}) ->
-             {next_state, ?ST_SUSPENDING|?ST_IDLING, #state{}}).
-suspending({?EVENT_FINISH, Pid, FinishedId}, #state{pending_targets = [_|_],
-                                                    ongoing_targets = InProgressPids0,
-                                                    child_pids      = ChildPids0} = State) ->
+%% @doc State of 'suspend'
+%%
+-spec(suspending(EventInfo, State) ->
+             {next_state, ?ST_SUSPENDING|?ST_IDLING, State} when EventInfo::#event_info{},
+                                                                 State::#state{}).
+suspending(#event_info{event = ?EVENT_FINISH,
+                       client_pid = Pid,
+                       finished_id = FinishedId}, #state{pending_targets = [_|_],
+                                                         ongoing_targets = InProgressPids0,
+                                                         child_pids      = ChildPids0} = State) ->
     InProgressPids1 = lists:delete(FinishedId, InProgressPids0),
     ChildPids1      = orddict:store(Pid, false, ChildPids0),
 
@@ -305,9 +420,11 @@ suspending({?EVENT_FINISH, Pid, FinishedId}, #state{pending_targets = [_|_],
                                         ongoing_targets = InProgressPids1,
                                         child_pids      = ChildPids1}};
 
-suspending({?EVENT_FINISH, Pid, FinishedId}, #state{pending_targets = [],
-                                                    ongoing_targets = [_,_|_],
-                                                    child_pids      = ChildPids0} = State) ->
+suspending(#event_info{event = ?EVENT_FINISH,
+                       client_pid = Pid,
+                       finished_id = FinishedId}, #state{pending_targets = [],
+                                                         ongoing_targets = [_,_|_],
+                                                         child_pids      = ChildPids0} = State) ->
     erlang:send(Pid, stop),
     InProgressPids = lists:delete(FinishedId, State#state.ongoing_targets),
     ChildPids1     = orddict:erase(Pid, ChildPids0),
@@ -317,10 +434,10 @@ suspending({?EVENT_FINISH, Pid, FinishedId}, #state{pending_targets = [],
                                         ongoing_targets = InProgressPids,
                                         child_pids      = ChildPids1}};
 
-suspending({?EVENT_FINISH,_Pid,_FinishedId}, #state{pending_targets  = [],
-                                                    ongoing_targets  = [_|_],
-                                                    child_pids       = ChildPids,
-                                                    reserved_targets = ReservedTargets} = State) ->
+suspending(#event_info{event = ?EVENT_FINISH}, #state{pending_targets  = [],
+                                                      ongoing_targets  = [_|_],
+                                                      child_pids       = ChildPids,
+                                                      reserved_targets = ReservedTargets} = State) ->
     [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
     NextState = ?ST_IDLING,
     PendingTargets = pending_targets(ReservedTargets),
@@ -344,7 +461,8 @@ handle_sync_event(state, _From, StateName, #state{status = Status,
                                                   pending_targets      = PendingTargets,
                                                   ongoing_targets      = OngoingTargets,
                                                   locked_targets       = LockedTargets,
-                                                  start_datetime       = LastestExecDate} = State) ->
+                                                  start_datetime       = LastestExecDate,
+                                                  reports              = AccReports} = State) ->
     {reply, {ok, #compaction_stats{status = Status,
                                    total_num_of_targets    = TotalNumOfTargets,
                                    num_of_reserved_targets = length(ReservedTargets),
@@ -354,23 +472,21 @@ handle_sync_event(state, _From, StateName, #state{status = Status,
                                    pending_targets         = PendingTargets,
                                    ongoing_targets         = OngoingTargets,
                                    locked_targets          = LockedTargets,
-                                   latest_exec_datetime    = LastestExecDate}}, StateName, State};
+                                   latest_exec_datetime    = LastestExecDate,
+                                   acc_reports             = AccReports
+                                  }}, StateName, State};
 
 %% @doc Handle 'stop' event
 handle_sync_event(stop, _From, _StateName, Status) ->
     {stop, shutdown, ok, Status}.
 
-%% Function: handle_info(Info, State) -> {noreply, State}          |
-%%                                       {noreply, State, Timeout} |
-%%                                       {stop, Reason, State}
-%% Description: Handling all non call/cast messages
+%% @doc Handling all non call/cast messages
 handle_info(_Info, StateName, State) ->
     {next_state, StateName, State}.
 
-%% Function: terminate(Reason, State) -> void()
-%% Description: This function is called by a gen_server when it is about to
-%% terminate. It should be the opposite of Module:init/1 and do any necessary
-%% cleaning up. When it returns, the gen_server terminates with Reason.
+%% @doc This function is called by a gen_server when it is about to
+%%      terminate. It should be the opposite of Module:init/1 and do any necessary
+%%      cleaning up. When it returns, the gen_server terminates with Reason.
 %% The return value is ignored.
 terminate(Reason, _StateName, _State) ->
     error_logger:info_msg("~p,~p,~p,~p~n",
@@ -378,11 +494,12 @@ terminate(Reason, _StateName, _State) ->
                            {line, ?LINE}, {body, Reason}]),
     ok.
 
-%% Func: code_change(OldVsn, State, Extra) -> {ok, NewState}
-%% Description: Convert process state when code is changed
+%% @doc Convert process state when code is changed
 code_change(_OldVsn, StateName, State, _Extra) ->
     {ok, StateName, State}.
 
+%% @doc This function is called by a gen_fsm when it should update
+%%      its internal state data during a release upgrade/downgrade
 format_status(_Opt, [_PDict, State]) ->
     State.
 
@@ -401,12 +518,13 @@ start_jobs_as_possible(#state{
                           pending_targets = [Id|Rest],
                           ongoing_targets = InProgPids,
                           max_num_of_concurrent = MaxProc,
-                          callback_fun = CallbackFun,
-                          child_pids   = ChildPids} = State, NumChild) when NumChild < MaxProc ->
+                          callback_fun  = CallbackFun,
+                          is_diagnosing = IsDiagnose,
+                          child_pids    = ChildPids} = State, NumChild) when NumChild < MaxProc ->
     Pid = spawn_link(fun() ->
                              loop(CallbackFun)
                      end),
-    erlang:send(Pid, {run, Id}),
+    erlang:send(Pid, {run, Id, IsDiagnose}),
     start_jobs_as_possible(
       State#state{pending_targets = Rest,
                   ongoing_targets = [Id|InProgPids],
@@ -427,9 +545,9 @@ loop(CallbackFun) ->
              ok | {error, any()}).
 loop(CallbackFun, TargetId) ->
     receive
-        {run, Id} ->
+        {run, Id, IsDiagnose} ->
             {ok, Id_1} = leo_object_storage_server:get_compaction_worker(Id),
-            ok = leo_compact_fsm_worker:run(Id_1, self(), CallbackFun),
+            ok = leo_compact_fsm_worker:run(Id_1, self(), IsDiagnose, CallbackFun),
             loop(CallbackFun, {Id, Id_1});
         {lock, Id} ->
             ok = lock(Id),
@@ -442,9 +560,9 @@ loop(CallbackFun, TargetId) ->
             {_ObjStorageId, CompactionWorkerId} = TargetId,
             ok = leo_compact_fsm_worker:resume(CompactionWorkerId),
             loop(CallbackFun, TargetId);
-        finish ->
+        {finish, {_ObjStorageId, Report}} ->
             {ObjStorageId,_CompactionWorkerId} = TargetId,
-            _  = finish(self(), ObjStorageId),
+            _  = finish(self(), ObjStorageId, Report),
             loop(CallbackFun, TargetId);
         stop ->
             ok;
