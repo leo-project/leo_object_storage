@@ -113,7 +113,7 @@ run(MaxConn) ->
 
 -spec(run(MaxConn, CallbackFun) ->
              term() when MaxConn::pos_integer(),
-                         CallbackFun::function()).
+                         CallbackFun::function()|undefined).
 run(MaxConn, CallbackFun) ->
     TargetPids = leo_object_storage_api:get_object_storage_pid('all'),
     run(TargetPids, MaxConn, CallbackFun).
@@ -121,14 +121,14 @@ run(MaxConn, CallbackFun) ->
 -spec(run(TargetPids, MaxConn, CallbackFun) ->
              term() when TargetPids::[pid()|atom()],
                          MaxConn::pos_integer(),
-                         CallbackFun::function()).
+                         CallbackFun::function()|undefined).
 run(TargetPids, MaxConn, CallbackFun) ->
     gen_fsm:sync_send_event(
       ?MODULE, #event_info{event = ?EVENT_RUN,
                            target_pids   = TargetPids,
                            max_conns     = MaxConn,
                            is_diagnosing = false,
-                           callback    = CallbackFun}, ?DEF_TIMEOUT).
+                           callback      = CallbackFun}, ?DEF_TIMEOUT).
 
 
 %% @doc Request diagnosing data-compaction to the data-compaction's workers
