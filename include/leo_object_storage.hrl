@@ -50,9 +50,9 @@
 -define(ST_IDLING,     'idling').
 -define(ST_RUNNING,    'running').
 -define(ST_SUSPENDING, 'suspending').
--type(state_of_compaction() :: ?ST_IDLING     |
-                               ?ST_RUNNING    |
-                               ?ST_SUSPENDING).
+-type(compaction_state() :: ?ST_IDLING     |
+                            ?ST_RUNNING    |
+                            ?ST_SUSPENDING).
 
 
 -undef(EVENT_RUN).
@@ -69,13 +69,13 @@
 -define(EVENT_RESUME,   'resume').
 -define(EVENT_FINISH,   'finish').
 -define(EVENT_STATE,    'state').
--type(event_of_compaction() ::?EVENT_RUN      |
-                              ?EVENT_DIAGNOSE |
-                              ?EVENT_LOCK     |
-                              ?EVENT_SUSPEND  |
-                              ?EVENT_RESUME   |
-                              ?EVENT_FINISH   |
-                              ?EVENT_STATE).
+-type(compaction_event() ::?EVENT_RUN      |
+                           ?EVENT_DIAGNOSE |
+                           ?EVENT_LOCK     |
+                           ?EVENT_SUSPEND  |
+                           ?EVENT_RESUME   |
+                           ?EVENT_FINISH   |
+                           ?EVENT_STATE).
 
 %% @doc Compaction related definitions
 -define(RET_SUCCESS, 'success').
@@ -108,7 +108,7 @@
          }).
 
 -record(compaction_stats, {
-          status = ?ST_IDLING :: state_of_compaction(),
+          status = ?ST_IDLING :: compaction_state(),
           total_num_of_targets    = 0  :: non_neg_integer(),
           num_of_reserved_targets = 0  :: non_neg_integer(),
           num_of_pending_targets  = 0  :: non_neg_integer(),

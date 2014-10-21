@@ -58,7 +58,7 @@
 
 -record(event_info, {
           id :: atom(),
-          event = ?EVENT_RUN :: event_of_compaction(),
+          event = ?EVENT_RUN :: compaction_event(),
           controller_pid :: pid(),
           client_pid     :: pid(),
           is_diagnosing = false :: boolean(),
@@ -85,7 +85,7 @@
           obj_storage_info = #backend_info{} :: #backend_info{},
           compact_cntl_pid      :: pid(),
           diagnosis_log_id      :: atom(),
-          status = ?ST_IDLING   :: state_of_compaction(),
+          status = ?ST_IDLING   :: compaction_state(),
           is_locked = false     :: boolean(),
           is_diagnosing = false :: boolean(),
           waiting_time = 0      :: non_neg_integer(),
