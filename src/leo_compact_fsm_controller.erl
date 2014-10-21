@@ -59,6 +59,7 @@
          suspending/3]).
 
 -record(state, {
+          id :: atom(),
           max_num_of_concurrent = 1 :: non_neg_integer(),
           is_diagnosing = false     :: boolean(),
           callback_fun              :: function() | undefined,
