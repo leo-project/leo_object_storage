@@ -44,6 +44,9 @@
 -define(STATE_ACTIVE,             'active').
 -type(storage_status() :: ?STATE_RUNNING_COMPACTION | ?STATE_ACTIVE).
 
+-undef(ST_IDLING).
+-undef(ST_RUNNING).
+-undef(ST_SUSPENDING).
 -define(ST_IDLING,     'idling').
 -define(ST_RUNNING,    'running').
 -define(ST_SUSPENDING, 'suspending').
@@ -51,6 +54,14 @@
                                ?ST_RUNNING    |
                                ?ST_SUSPENDING).
 
+
+-undef(EVENT_RUN).
+-undef(EVENT_DIAGNOSE).
+-undef(EVENT_LOCK).
+-undef(EVENT_SUSPEND).
+-undef(EVENT_RESUME).
+-undef(EVENT_FINISH).
+-undef(EVENT_STATE).
 -define(EVENT_RUN,      'run').
 -define(EVENT_DIAGNOSE, 'diagnose').
 -define(EVENT_LOCK,     'lock').
