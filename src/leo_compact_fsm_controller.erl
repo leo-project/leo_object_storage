@@ -59,6 +59,7 @@
          suspending/3]).
 
 -record(state, {
+          id :: atom(),
           max_num_of_concurrent = 1 :: non_neg_integer(),
           is_diagnosing = false     :: boolean(),
           callback_fun              :: function() | undefined,
@@ -70,12 +71,12 @@
           child_pids       = []     :: orddict:orddict(), %% {Chid :: pid(), hasJob :: boolean()}
           start_datetime   = 0      :: non_neg_integer(), %% gregory-sec
           reports          = []     :: [#compaction_report{}],
-          status = ?ST_IDLING :: state_of_compaction()
+          status = ?ST_IDLING :: compaction_state()
          }).
 
 -record(event_info, {
           id :: atom(),
-          event = ?EVENT_RUN    :: event_of_compaction(),
+          event = ?EVENT_RUN    :: compaction_event(),
           client_pid            :: pid(),
           target_pids = []      :: [atom()],
           finished_id           :: atom(),
