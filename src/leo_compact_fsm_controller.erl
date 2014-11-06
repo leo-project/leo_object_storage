@@ -33,7 +33,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 %% API
--export([start_link/0]).
+-export([start_link/1]).
 -export([run/0, run/1, run/2, run/3,
          diagnose/0,
          stop/1,
@@ -60,6 +60,7 @@
 
 -record(state, {
           id :: atom(),
+          server_pairs = [] :: [{atom(), atom()}],
           max_num_of_concurrent = 1 :: non_neg_integer(),
           is_diagnosing = false     :: boolean(),
           callback_fun              :: function() | undefined,
@@ -91,10 +92,12 @@
 %% API
 %%====================================================================
 %% @doc Creates a gen_fsm process as part of a supervision tree
--spec(start_link() ->
-             {ok, pid()} | ignore | {error, any()}).
-start_link() ->
-    gen_fsm:start_link({local, ?MODULE}, ?MODULE, [], []).
+-spec(start_link(ServerPairL) ->
+             {ok, pid()} |
+             ignore |
+             {error, any()} when ServerPairL::[{atom(), atom()}]).
+start_link(ServerPairL) ->
+    gen_fsm:start_link({local, ?MODULE}, ?MODULE, [ServerPairL], []).
 
 
 %%--------------------------------------------------------------------
@@ -210,10 +213,11 @@ finish(Pid, FinishedId, Report) ->
 -spec(init(Option) ->
              {ok, ?ST_IDLING, State} when Option::[any()],
                                           State::#state{}).
-init([]) ->
+init([ServerPairL]) ->
     AllTargets = leo_object_storage_api:get_object_storage_pid('all'),
     TotalNumOfTargets = erlang:length(AllTargets),
     {ok, ?ST_IDLING, #state{status = ?ST_IDLING,
+                            server_pairs = ServerPairL,
                             total_num_of_targets = TotalNumOfTargets,
                             pending_targets      = AllTargets}}.
 
@@ -229,7 +233,7 @@ idling(#event_info{event = ?EVENT_RUN,
                    target_pids   = TargetPids,
                    max_conns     = MaxConn,
                    is_diagnosing = IsDiagnose,
-                   callback      = Callback}, From, State) ->
+                   callback      = Callback}, From, #state{server_pairs = ServerPairs} = State) ->
     AllTargets      = leo_object_storage_api:get_object_storage_pid('all'),
     PendingTargets  = State#state.pending_targets,
     ReservedTargets = case (length(TargetPids) == length(AllTargets)) of
@@ -240,6 +244,9 @@ idling(#event_info{event = ?EVENT_RUN,
                           false when PendingTargets /= [] ->
                               lists:subtract(PendingTargets, TargetPids)
                       end,
+
+    [leo_object_storage_server:unlock(ObjStorageId)
+     || {_, ObjStorageId} <- ServerPairs],
 
     NextState = ?ST_RUNNING,
     {ok, NewState} = start_jobs_as_possible(
@@ -293,47 +300,71 @@ running(_, From, State) ->
              {next_state, running, State} when EventInfo::#event_info{},
                                                State::#state{}).
 running(#event_info{id = Id,
-                    event = ?EVENT_LOCK}, #state{locked_targets = LockedTargets} = State) ->
+                    event = ?EVENT_LOCK}, #state{server_pairs   = ServerPairs,
+                                                 locked_targets = LockedTargets} = State) ->
+    %% Set locked target ids
+    LockedTargets_1 = [Id|LockedTargets],
+    ObjStorageId = leo_misc:get_value(Id, ServerPairs),
+    ok = leo_object_storage_server:lock(ObjStorageId),
+
     NextState = ?ST_RUNNING,
     {next_state, NextState,
      State#state{status = NextState,
-                 locked_targets = [Id|LockedTargets]}};
+                 locked_targets = LockedTargets_1}};
 
 running(#event_info{event = ?EVENT_FINISH,
                     client_pid  = Pid,
                     finished_id = FinishedId,
-                    report      = Report}, #state{pending_targets = [Id|Rest],
+                    report      = Report}, #state{server_pairs    = ServerPairs,
+                                                  pending_targets = [Id|Rest],
                                                   ongoing_targets = InProgPids,
+                                                  locked_targets  = LockedTargets,
                                                   is_diagnosing   = IsDiagnose,
                                                   reports         = AccReports} = State) ->
     %% Execute data-compaction of a pending target
     erlang:send(Pid, {run, Id, IsDiagnose}),
+    %% Set locked target ids
+    LockedTargets_1 = lists:delete(FinishedId, LockedTargets),
+    ObjStorageId = leo_misc:get_value(FinishedId, ServerPairs),
+    ok = leo_object_storage_server:unlock(ObjStorageId),
+
     NextState = ?ST_RUNNING,
     {next_state, NextState,
      State#state{status = NextState,
                  pending_targets = Rest,
                  ongoing_targets = [Id|lists:delete(FinishedId, InProgPids)],
+                 locked_targets  = LockedTargets_1,
                  reports = [Report|AccReports]
                 }};
 
 running(#event_info{event = ?EVENT_FINISH,
                     client_pid  = Pid,
                     finished_id = FinishedId,
-                    report      = Report}, #state{pending_targets = [],
+                    report      = Report}, #state{server_pairs    = ServerPairs,
+                                                  pending_targets = [],
                                                   ongoing_targets = [_,_|_],
+                                                  locked_targets  = LockedTargets,
                                                   child_pids      = ChildPids,
                                                   reports         = AccReports} = State) ->
+    %% Send stop message to client
     erlang:send(Pid, stop),
+    %% Set locked target ids
+    LockedTargets_1 = lists:delete(FinishedId, LockedTargets),
+    ObjStorageId = leo_misc:get_value(FinishedId, ServerPairs),
+    ok = leo_object_storage_server:unlock(ObjStorageId),
+
     NextState = ?ST_RUNNING,
     {next_state, NextState,
      State#state{status = NextState,
                  ongoing_targets = lists:delete(FinishedId, State#state.ongoing_targets),
+                 locked_targets  = LockedTargets_1,
                  child_pids      = orddict:erase(Pid, ChildPids),
-                 reports      = [Report|AccReports]
+                 reports = [Report|AccReports]
                 }};
 
 running(#event_info{event  = ?EVENT_FINISH,
-                    report = Report}, #state{pending_targets  = [],
+                    report = Report}, #state{server_pairs     = ServerPairs,
+                                             pending_targets  = [],
                                              ongoing_targets  = [_|_],
                                              child_pids       = ChildPids,
                                              reserved_targets = ReservedTargets,
@@ -341,6 +372,8 @@ running(#event_info{event  = ?EVENT_FINISH,
                                             } = State) ->
     AccReports_1 = lists:sort(lists:flatten([Report|AccReports])),
     [erlang:send(Pid, stop) || {Pid, _} <- orddict:to_list(ChildPids)],
+    [leo_object_storage_server:unlock(ObjStorageId)
+     || {_, ObjStorageId} <- ServerPairs],
 
     NextState = ?ST_IDLING,
     PendingTargets = pending_targets(ReservedTargets),

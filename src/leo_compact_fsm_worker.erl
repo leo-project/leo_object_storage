@@ -361,6 +361,10 @@ running(#event_info{event = ?EVENT_FINISH}, #state{obj_storage_id   = ObjStorage
 
     %% Notify a message to the compaction-manager
     erlang:send(CntlPid, {finish, {ObjStorageId, Report}}),
+
+    %% Unlock handling request
+    ok = leo_object_storage_server:unlock(ObjStorageId),
+
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus,
                                          error_pos = 0,

@@ -43,7 +43,7 @@
          head_with_calc_md5/3,
          close/1,
          get_backend_info/2,
-         lock/1,
+         lock/1, unlock/1,
          switch_container/4,
          append_compaction_history/2,
          get_compaction_worker/1
@@ -253,12 +253,24 @@ get_backend_info(Id, ServerType) ->
     gen_server:call(Id, {get_backend_info, ServerType}, ?DEF_TIMEOUT).
 
 
-%% @doc Retrieve object-storage/metadata-storage info
+%% @doc Lock handling objects for put/delete/store
 %%
 -spec(lock(Id) ->
              ok when Id::atom()).
+lock(undefined) ->
+    ok;
 lock(Id) ->
     gen_server:call(Id, lock, ?DEF_TIMEOUT).
+
+
+%% @doc Unlock handling objects for put/delete/store
+%%
+-spec(unlock(Id) ->
+             ok when Id::atom()).
+unlock(undefined) ->
+    ok;
+unlock(Id) ->
+    gen_server:call(Id, unlock, ?DEF_TIMEOUT).
 
 
 %% @doc Open the object-container
@@ -556,6 +568,10 @@ handle_call({get_backend_info, ?SERVER_OBJ_STORAGE}, _From,
 %% Lock the object-container
 handle_call(lock, _From, State) ->
     {reply, ok, State#state{is_locked = true}};
+
+%% Unlock the object-container
+handle_call(unlock, _From, State) ->
+    {reply, ok, State#state{is_locked = false}};
 
 %% Open the object-container
 handle_call({switch_container, FilePath,

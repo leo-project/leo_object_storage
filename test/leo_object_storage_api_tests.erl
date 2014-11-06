@@ -191,20 +191,21 @@ check_status() ->
             ok;
         {ok, #compaction_stats{locked_targets = []}} ->
             check_status();
-        {ok, #compaction_stats{locked_targets = [ID|_]}} ->
+        {ok, #compaction_stats{locked_targets = LockedTargets}} ->
+            [ID|_] = LockedTargets,
             ok = leo_compact_fsm_worker:state(ID, self()),
             receive
                 idling ->
                     void;
                 _Status ->
-                    ?debugVal(_Status),
                     Ret = put_regular_bin_1(300),
                     ?assertEqual({error, ?ERROR_LOCKED_CONTAINER}, Ret)
             end,
             check_status();
-        {ok, _} ->
+        {ok, _Other} ->
             check_status();
         Error ->
+            ?debugVal(Error),
             Error
     end.
 
@@ -748,6 +749,7 @@ compact_2() ->
         = get_avs_stats_summary(Res2),
 
     io:format(user, "[debug] summary:~p~n", [{SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2}]),
+    ?debugVal({SumTotal2, SumActive2}),
     ?assertEqual(13, SumTotal2),
     ?assertEqual(13, SumActive2),
     ?assertEqual(true, SumTotalSize2 == SumActiveSize2),
