@@ -382,17 +382,22 @@
             _Path_1 = binary_to_list(_Key),
 
             {_Path_2, _CIndex} =
-                case string:str(_Path_1, "\n") of
-                    0 ->
-                        {_Path_1, 0};
-                    _Index ->
-                        case catch list_to_integer(string:sub_string(_Path_1, _Index + 1)) of
-                            {'EXIT',_} ->
-                                {_Path_1, 0};
-                            _Num->
-                                {string:sub_string(_Path_1, 1, _Index -1), _Num}
-                        end
+                begin
+                    _Tokens = string:tokens(_Path_1, "\n"),
+                    case length(_Tokens) of
+                        1 ->
+                            {_Path_1, 0};
+                        _ ->
+                            [_ParentPath,_CNum|_] = _Tokens,
+                            case catch list_to_integer(_CNum) of
+                                {'EXIT',_} ->
+                                    {_ParentPath, 0};
+                                _Num->
+                                    {_ParentPath, _Num}
+                            end
+                    end
                 end,
+
             leo_logger_client_base:append(
               {LoggerId, #message_log{format  = "~w\t~w\t~s\t~w\t~w\t~w\t~s\t~w~n",
                                       message = [_Offset,
