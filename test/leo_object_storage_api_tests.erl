@@ -134,9 +134,9 @@ diagnose() ->
 
     %% Check # of active objects and total of objects
     timer:sleep(1000),
-    {ok, [{_,#storage_stats{total_num  = TotalNum,
-                            active_num = ActiveNum
-                           }}|_]} = leo_object_storage_api:stats(),
+    {ok, [#storage_stats{total_num  = TotalNum,
+                         active_num = ActiveNum
+                        }|_]} = leo_object_storage_api:stats(),
     ?debugVal({TotalNum, ActiveNum}),
     ?assertEqual(128, TotalNum),
     ?assertEqual(99,  ActiveNum),
@@ -176,9 +176,9 @@ compact() ->
 
     %% Check # of active objects and total of objects
     timer:sleep(1000),
-    {ok, [{_,#storage_stats{total_num  = TotalNum,
-                            active_num = ActiveNum
-                           }}|_]} = leo_object_storage_api:stats(),
+    {ok, [#storage_stats{total_num  = TotalNum,
+                         active_num = ActiveNum
+                        }|_]} = leo_object_storage_api:stats(),
     ?assertEqual(151, TotalNum),
     ?assertEqual(TotalNum, ActiveNum),
     ok.
@@ -587,9 +587,9 @@ stats_test_() ->
              ?assertEqual(8, length(Res)),
              {SumTotal0, SumActive0} =
                  lists:foldl(
-                   fun({ok, #storage_stats{file_path  = _ObjPath,
-                                           total_num  = Total,
-                                           active_num = Active}},
+                   fun(#storage_stats{file_path  = _ObjPath,
+                                      total_num  = Total,
+                                      active_num = Active},
                        {SumTotal, SumActive}) ->
                            {SumTotal + Total, SumActive + Active}
                    end, {0, 0}, Res1),
@@ -650,9 +650,10 @@ compact_2() ->
     ok = put_test_data(4095, <<"air/on/g/string/7">>, <<"JSB7">>), %% 2nd time
     {ok, Res0} = leo_object_storage_api:stats(),
     {SumTotal0, SumActive0} =
-        lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
-                                            total_num  = Total,
-                                            active_num = Active}}, {SumTotal, SumActive}) ->
+        lists:foldl(fun(#storage_stats{file_path  = _ObjPath,
+                                       total_num  = Total,
+                                       active_num = Active},
+                        {SumTotal, SumActive}) ->
                             {SumTotal + Total, SumActive + Active}
                     end, {0, 0}, Res0),
     ?assertEqual(9, SumTotal0),
@@ -801,11 +802,11 @@ compact_2() ->
 %%--------------------------------------------------------------------
 get_avs_stats_summary(ResStats) ->
     lists:foldl(
-      fun({ok, #storage_stats{file_path  = _ObjPath,
-                              total_sizes = TotalSize,
-                              active_sizes = ActiveSize,
-                              total_num  = Total,
-                              active_num = Active} = StorageStats},
+      fun(#storage_stats{file_path  = _ObjPath,
+                         total_sizes = TotalSize,
+                         active_sizes = ActiveSize,
+                         total_num  = Total,
+                         active_num = Active} = StorageStats,
           {SumTotal, SumActive, SumTotalSize, SumActiveSize}) ->
               io:format(user, "[debug] ~p~n",[StorageStats]),
               {SumTotal      + Total,

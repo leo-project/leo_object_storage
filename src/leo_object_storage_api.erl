@@ -259,13 +259,15 @@ store(Metadata, Bin) ->
 %% @doc Retrieve the storage stats
 %%
 -spec(stats() ->
-             {ok, list()} | not_found).
+             {ok, [#storage_stats{}]} | not_found).
 stats() ->
     case get_object_storage_pid(all) of
         [] ->
             not_found;
         List ->
-            {ok, [?SERVER_MODULE:get_stats(Id) || Id <- List]}
+            {ok, [Stat ||
+                     {ok, Stat} <-
+                          [?SERVER_MODULE:get_stats(Id) || Id <- List]]}
     end.
 
 
