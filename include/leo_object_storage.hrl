@@ -44,6 +44,11 @@
 -define(STATE_ACTIVE,             'active').
 -type(storage_status() :: ?STATE_RUNNING_COMPACTION | ?STATE_ACTIVE).
 
+-define(DEF_MIN_COMPACTION_WT,  0).                %% 0msec
+-define(DEF_MAX_COMPACTION_WT,  timer:seconds(1)). %% 1000msec
+-define(DEF_STEP_COMPACTION_WT, 100).              %% 100msec
+-define(DEF_COMPACTION_BATCH_PROCS, 25).
+
 -undef(ST_IDLING).
 -undef(ST_RUNNING).
 -undef(ST_SUSPENDING).
@@ -69,13 +74,18 @@
 -define(EVENT_RESUME,   'resume').
 -define(EVENT_FINISH,   'finish').
 -define(EVENT_STATE,    'state').
+-define(EVENT_INCR_WT,  'incr_waiting_time').
+-define(EVENT_DECR_WT,  'decr_waiting_time').
 -type(compaction_event() ::?EVENT_RUN      |
                            ?EVENT_DIAGNOSE |
                            ?EVENT_LOCK     |
                            ?EVENT_SUSPEND  |
                            ?EVENT_RESUME   |
                            ?EVENT_FINISH   |
-                           ?EVENT_STATE).
+                           ?EVENT_STATE    |
+                           ?EVENT_INCR_WT  |
+                           ?EVENT_DECR_WT
+                           ).
 
 %% @doc Compaction related definitions
 -define(RET_SUCCESS, 'success').
@@ -342,6 +352,42 @@
                 true;
             _ ->
                 false
+        end).
+
+-define(env_min_compaction_waiting_time(),
+        case application:get_env(leo_object_storage,
+                                 min_compaction_waiting_time) of
+            {ok, EnvMinCompactionWT} when is_integer(EnvMinCompactionWT) ->
+                EnvMinCompactionWT;
+            _ ->
+                ?DEF_MIN_COMPACTION_WT
+        end).
+
+-define(env_max_compaction_waiting_time(),
+        case application:get_env(leo_object_storage,
+                                 max_compaction_waiting_time) of
+            {ok, EnvMaxCompactionWT} when is_integer(EnvMaxCompactionWT) ->
+                EnvMaxCompactionWT;
+            _ ->
+                ?DEF_MAX_COMPACTION_WT
+        end).
+
+-define(env_step_compaction_waiting_time(),
+        case application:get_env(leo_object_storage,
+                                 step_compaction_waiting_time) of
+            {ok, EnvStepCompactionWT} when is_integer(EnvStepCompactionWT) ->
+                EnvStepCompactionWT;
+            _ ->
+                ?DEF_STEP_COMPACTION_WT
+        end).
+
+-define(env_compaction_batch_procs(),
+        case application:get_env(leo_object_storage,
+                                 compaction_batch_procs) of
+            {ok, EnvCompactionBP} when is_integer(EnvCompactionBP) ->
+                EnvCompactionBP;
+            _ ->
+                ?DEF_COMPACTION_BATCH_PROCS
         end).
 
 

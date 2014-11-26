@@ -40,7 +40,9 @@
          lock/1,
          suspend/0, resume/0,
          state/0,
-         finish/3
+         finish/3,
+         incr_waiting_time/0,
+         decr_waiting_time/0
         ]).
 
 -export([init/1,
@@ -205,6 +207,22 @@ finish(Pid, FinishedId, Report) ->
                           }).
 
 
+%% @doc Request 'increment waiting time' to the data-compaction's workers
+-spec(incr_waiting_time() ->
+             term()).
+incr_waiting_time() ->
+    gen_fsm:sync_send_event(
+      ?MODULE, #event_info{event = ?EVENT_INCR_WT}, ?DEF_TIMEOUT).
+
+
+%% @doc Request 'decrement waiting time' to the data-compaction's workers
+-spec(decr_waiting_time() ->
+             term()).
+decr_waiting_time() ->
+    gen_fsm:sync_send_event(
+      ?MODULE, #event_info{event = ?EVENT_DECR_WT}, ?DEF_TIMEOUT).
+
+
 %%====================================================================
 %% GEN_SERVER CALLBACKS
 %%====================================================================
@@ -287,6 +305,18 @@ running(#event_info{event = ?EVENT_SUSPEND}, From, #state{child_pids = ChildPids
     [erlang:send(Pid, suspend) || {Pid, _} <- orddict:to_list(ChildPids)],
     gen_fsm:reply(From, ok),
     NextState = ?ST_SUSPENDING,
+    {next_state, NextState, State#state{status = NextState}};
+
+running(#event_info{event = ?EVENT_INCR_WT}, From, #state{child_pids = ChildPids} = State) ->
+    [erlang:send(Pid, ?EVENT_INCR_WT) || {Pid, _} <- orddict:to_list(ChildPids)],
+    gen_fsm:reply(From, ok),
+    NextState = ?ST_RUNNING,
+    {next_state, NextState, State#state{status = NextState}};
+
+running(#event_info{event = ?EVENT_DECR_WT}, From, #state{child_pids = ChildPids} = State) ->
+    [erlang:send(Pid, ?EVENT_DECR_WT) || {Pid, _} <- orddict:to_list(ChildPids)],
+    gen_fsm:reply(From, ok),
+    NextState = ?ST_RUNNING,
     {next_state, NextState, State#state{status = NextState}};
 
 running(_, From, State) ->
@@ -384,7 +414,10 @@ running(#event_info{event  = ?EVENT_FINISH,
                                         child_pids       = [],
                                         locked_targets   = [],
                                         reports          = AccReports_1
-                                       }}.
+                                       }};
+
+running(_, State) ->
+    {next_state, ?ST_RUNNING, State}.
 
 
 %% @doc State of 'suspend'
@@ -586,23 +619,41 @@ loop(CallbackFun, TargetId) ->
         {lock, Id} ->
             ok = lock(Id),
             loop(CallbackFun, TargetId);
-        suspend ->
-            {_ObjStorageId, CompactionWorkerId} = TargetId,
-            ok = leo_compact_fsm_worker:suspend(CompactionWorkerId),
+        suspend = Event ->
+            operate(Event, TargetId),
             loop(CallbackFun, TargetId);
-        resume ->
-            {_ObjStorageId, CompactionWorkerId} = TargetId,
-            ok = leo_compact_fsm_worker:resume(CompactionWorkerId),
+        resume = Event ->
+            operate(Event, TargetId),
             loop(CallbackFun, TargetId);
-        {finish, {_ObjStorageId, Report}} ->
-            {ObjStorageId,_CompactionWorkerId} = TargetId,
-            _  = finish(self(), ObjStorageId, Report),
+        {finish, {ObjStorageId, Report}} ->
+            ok = finish(self(), ObjStorageId, Report),
             loop(CallbackFun, TargetId);
+
+        incr_waiting_time = Event ->
+            operate(Event, TargetId),
+            loop(CallbackFun, TargetId);
+        decr_waiting_time = Event ->
+            operate(Event, TargetId),
+            loop(CallbackFun, TargetId);
+
         stop ->
             ok;
         _ ->
             {error, unknown_message}
     end.
+
+
+%% @private
+operate(?EVENT_SUSPEND, {_,CompactionWorkerId}) ->
+    leo_compact_fsm_worker:suspend(CompactionWorkerId);
+operate(?EVENT_RESUME, {_,CompactionWorkerId}) ->
+    leo_compact_fsm_worker:resume(CompactionWorkerId);
+operate(?EVENT_INCR_WT, {_,CompactionWorkerId}) ->
+    leo_compact_fsm_worker:incr_waiting_time(CompactionWorkerId);
+operate(?EVENT_DECR_WT, {_,CompactionWorkerId}) ->
+    leo_compact_fsm_worker:decr_waiting_time(CompactionWorkerId);
+operate(_,_) ->
+    ok.
 
 
 %% @doc Retrieve pending targets

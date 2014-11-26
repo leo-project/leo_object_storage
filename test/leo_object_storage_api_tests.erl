@@ -171,14 +171,28 @@ compact() ->
     ok = put_regular_bin_with_cmeta(225, 15),
     ok = put_regular_bin(240, 10),
 
+    %% Change waiting-time of the procs
+    ok = leo_compact_fsm_controller:incr_waiting_time(),
+    timer:sleep(10),
+    ok = leo_compact_fsm_controller:incr_waiting_time(),
+    timer:sleep(10),
+    ok = leo_compact_fsm_controller:incr_waiting_time(),
+    timer:sleep(10),
+    ok = leo_compact_fsm_controller:incr_waiting_time(),
+    timer:sleep(1000),
+    ok = leo_compact_fsm_controller:decr_waiting_time(),
+    timer:sleep(10),
+    ok = leo_compact_fsm_controller:decr_waiting_time(),
+
     %% Check comaction status
     ok = check_status(),
 
     %% Check # of active objects and total of objects
     timer:sleep(1000),
+    Stats = leo_object_storage_api:stats(),
     {ok, [#storage_stats{total_num  = TotalNum,
                          active_num = ActiveNum
-                        }|_]} = leo_object_storage_api:stats(),
+                        }|_]} = Stats,
     ?assertEqual(151, TotalNum),
     ?assertEqual(TotalNum, ActiveNum),
     ok.

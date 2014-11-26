@@ -38,7 +38,10 @@
          suspend/1,
          resume/1,
          finish/1,
-         state/2]).
+         state/2,
+         incr_waiting_time/1,
+         decr_waiting_time/1
+        ]).
 
 %% gen_fsm callbacks
 -export([init/1,
@@ -83,12 +86,16 @@
           obj_storage_id :: atom(),
           meta_db_id     :: atom(),
           obj_storage_info = #backend_info{} :: #backend_info{},
-          compact_cntl_pid      :: pid(),
-          diagnosis_log_id      :: atom(),
-          status = ?ST_IDLING   :: compaction_state(),
-          is_locked = false     :: boolean(),
-          is_diagnosing = false :: boolean(),
-          waiting_time = 0      :: non_neg_integer(),
+          compact_cntl_pid       :: pid(),
+          diagnosis_log_id       :: atom(),
+          status = ?ST_IDLING    :: compaction_state(),
+          is_locked = false      :: boolean(),
+          is_diagnosing = false  :: boolean(),
+          waiting_time = 0       :: non_neg_integer(),
+          max_waiting_time = 0   :: non_neg_integer(),
+          min_waiting_time = 0   :: non_neg_integer(),
+          step_waiting_time = 0  :: non_neg_integer(),
+          num_of_batch_procs = 0 :: non_neg_integer(),
           compaction_prms = #compaction_prms{} :: #compaction_prms{},
           start_datetime = 0 :: non_neg_integer(),
           error_pos = 0      :: non_neg_integer(),
@@ -176,8 +183,24 @@ finish(Id) ->
              ok | {error, any()} when Id::atom(),
                                       Client::pid()).
 state(Id, Client) ->
-    gen_fsm:send_event(Id, #event_info{event = state,
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_STATE,
                                        client_pid = Client}).
+
+
+%% @doc Increase waiting time of data-compaction
+%%
+-spec(incr_waiting_time(Id) ->
+             ok when Id::atom()).
+incr_waiting_time(Id) ->
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_INCR_WT}).
+
+
+%% @doc Decrease waiting time of data-compaction
+%%
+-spec(decr_waiting_time(Id) ->
+             ok when Id::atom()).
+decr_waiting_time(Id) ->
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_DECR_WT}).
 
 
 %%====================================================================
@@ -187,9 +210,14 @@ state(Id, Client) ->
 %%
 init([Id, ObjStorageId, MetaDBId, LoggerId]) ->
     {ok, ?ST_IDLING, #state{id = Id,
-                            obj_storage_id   = ObjStorageId,
-                            meta_db_id       = MetaDBId,
-                            diagnosis_log_id = LoggerId,
+                            obj_storage_id     = ObjStorageId,
+                            meta_db_id         = MetaDBId,
+                            diagnosis_log_id   = LoggerId,
+                            waiting_time       = ?env_min_compaction_waiting_time(),
+                            min_waiting_time   = ?env_min_compaction_waiting_time(),
+                            max_waiting_time   = ?env_max_compaction_waiting_time(),
+                            step_waiting_time  = ?env_step_compaction_waiting_time(),
+                            num_of_batch_procs = ?env_compaction_batch_procs(),
                             compaction_prms = #compaction_prms{
                                                  key_bin  = <<>>,
                                                  body_bin = <<>>,
@@ -259,6 +287,11 @@ idling(#event_info{event = ?EVENT_RUN,
                           error_pos     = 0,
                           set_errors    = sets:new(),
                           acc_errors    = [],
+                          waiting_time       = ?env_min_compaction_waiting_time(),
+                          min_waiting_time   = ?env_min_compaction_waiting_time(),
+                          max_waiting_time   = ?env_max_compaction_waiting_time(),
+                          step_waiting_time  = ?env_step_compaction_waiting_time(),
+                          num_of_batch_procs = ?env_compaction_batch_procs(),
                           compaction_prms =
                               CompactionPrms#compaction_prms{
                                 num_of_active_objs  = 0,
@@ -302,12 +335,30 @@ idling(_, State) ->
                                                    State::#state{}).
 running(#event_info{event = ?EVENT_RUN,
                     is_diagnosing = IsDiagnose}, #state{id = Id,
-                                                        obj_storage_id   = ObjStorageId,
+                                                        obj_storage_id = ObjStorageId,
                                                         compact_cntl_pid = CompactCntlPid,
+                                                        waiting_time = WaitingTime,
+                                                        num_of_batch_procs = NumOfBatchProcs,
                                                         compaction_prms  =
                                                             #compaction_prms{
                                                                start_lock_offset = StartLockOffset
                                                               }} = State) ->
+    %% Temporally suspend the compaction
+    %% in order to decrease i/o load
+    NumOfBatchProcs_1 =
+        case NumOfBatchProcs < 1 of
+            true ->
+                case (WaitingTime > 0) of
+                    true ->
+                        timer:sleep(WaitingTime);
+                    false ->
+                        void
+                end,
+                ?env_compaction_batch_procs();
+            false ->
+                NumOfBatchProcs - 1
+        end,
+
     NextStatus = ?ST_RUNNING,
     State_3 =
         case catch execute(State#state{is_diagnosing = IsDiagnose}) of
@@ -348,7 +399,8 @@ running(#event_info{event = ?EVENT_RUN,
                 {_,State_2} = after_execute({error, Cause}, State_1),
                 State_2
         end,
-    {next_state, NextStatus, State_3#state{status = NextStatus}};
+    {next_state, NextStatus, State_3#state{status = NextStatus,
+                                           num_of_batch_procs = NumOfBatchProcs_1}};
 
 running(#event_info{event = ?EVENT_SUSPEND}, State) ->
     NextStatus = ?ST_SUSPENDING,
@@ -375,11 +427,43 @@ running(#event_info{event = ?EVENT_FINISH}, #state{obj_storage_id   = ObjStorage
                                          start_datetime = 0,
                                          result = undefined
                                         }};
+
 running(#event_info{event = ?EVENT_STATE,
                     client_pid = Client}, State) ->
     NextStatus = ?ST_RUNNING,
     erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#state{status = NextStatus}};
+
+running(#event_info{event = ?EVENT_INCR_WT}, #state{waiting_time = WaitingTime,
+                                                    max_waiting_time  = MaxWaitingTime,
+                                                    step_waiting_time = StepWaitingTime} = State) ->
+    WaitingTime_1 = WaitingTime + StepWaitingTime,
+    WaitingTime_2 =
+        case (WaitingTime_1 >= MaxWaitingTime) of
+            true ->
+                MaxWaitingTime;
+            false ->
+                WaitingTime_1
+        end,
+    NextStatus = ?ST_RUNNING,
+    {next_state, NextStatus, State#state{waiting_time = WaitingTime_2,
+                                         status = NextStatus}};
+
+running(#event_info{event = ?EVENT_DECR_WT}, #state{waiting_time = WaitingTime,
+                                                    min_waiting_time  = MinWaitingTime,
+                                                    step_waiting_time = StepWaitingTime} = State) ->
+    WaitingTime_1 = WaitingTime - StepWaitingTime,
+    WaitingTime_2 =
+        case (WaitingTime_1 < MinWaitingTime) of
+            true ->
+                MinWaitingTime;
+            false ->
+                WaitingTime_1
+        end,
+    NextStatus = ?ST_RUNNING,
+    {next_state, NextStatus, State#state{waiting_time = WaitingTime_2,
+                                         status = NextStatus}};
+
 running(_, State) ->
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
@@ -559,7 +643,6 @@ prepare_1(LinkedPath, FilePath, #state{meta_db_id = MetaDBId,
 execute(#state{meta_db_id       = MetaDBId,
                diagnosis_log_id = LoggerId,
                obj_storage_info = StorageInfo,
-               waiting_time     = WaitingTime,
                is_diagnosing    = IsDiagnose,
                compaction_prms  = CompactionPrms} = State) ->
     %% Initialize set-error property
@@ -567,14 +650,6 @@ execute(#state{meta_db_id       = MetaDBId,
 
     Offset   = CompactionPrms#compaction_prms.next_offset,
     Metadata = CompactionPrms#compaction_prms.metadata,
-
-    %% Temporally suspend the compaction in order to decrease i/o load
-    case (WaitingTime == 0) of
-        true  ->
-            void;
-        false ->
-            timer:sleep(WaitingTime)
-    end,
 
     %% Execute compaction
     case (Offset == ?AVS_SUPER_BLOCK_LEN) of
