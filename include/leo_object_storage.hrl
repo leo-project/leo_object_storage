@@ -44,9 +44,13 @@
 -define(STATE_ACTIVE,             'active').
 -type(storage_status() :: ?STATE_RUNNING_COMPACTION | ?STATE_ACTIVE).
 
--define(DEF_MIN_COMPACTION_WT,  0).                %% 0msec
--define(DEF_MAX_COMPACTION_WT,  timer:seconds(1)). %% 1000msec
--define(DEF_STEP_COMPACTION_WT, 100).              %% 100msec
+-define(DEF_MIN_COMPACTION_WT, 0).   %% 0msec
+-ifdef(TEST).
+-define(DEF_MAX_COMPACTION_WT, 300). %% 300msec
+-else.
+-define(DEF_MAX_COMPACTION_WT, timer:seconds(1)). %% 1000msec
+-endif.
+-define(DEF_STEP_COMPACTION_WT, 100). %% 100msec
 -define(DEF_COMPACTION_BATCH_PROCS, 25).
 
 -undef(ST_IDLING).

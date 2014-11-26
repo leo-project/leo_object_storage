@@ -366,8 +366,7 @@ running(#event_info{event = ?EVENT_RUN,
             %%     reject requests during the data-compaction
             {ok, {next, #state{is_locked = IsLocked,
                                compaction_prms =
-                                   #compaction_prms{
-                                      next_offset = NextOffset}
+                                   #compaction_prms{next_offset = NextOffset}
                               } = State_1}} when NextOffset > StartLockOffset ->
                 State_2 = case IsLocked of
                               true ->
@@ -429,50 +428,55 @@ running(#event_info{event = ?EVENT_FINISH}, #state{obj_storage_id   = ObjStorage
                                         }};
 
 running(#event_info{event = ?EVENT_STATE,
-                    client_pid = Client}, State) ->
+                    client_pid = Client}, #state{id = Id,
+                                                 is_diagnosing = IsDiagnose} = State) ->
+    ok = run(Id, IsDiagnose),
     NextStatus = ?ST_RUNNING,
     erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#state{status = NextStatus}};
 
-running(#event_info{event = ?EVENT_INCR_WT}, #state{waiting_time = WaitingTime,
+running(#event_info{event = ?EVENT_INCR_WT}, #state{id = Id,
+                                                    is_diagnosing = IsDiagnose,
+                                                    waiting_time = WaitingTime,
                                                     max_waiting_time  = MaxWaitingTime,
                                                     step_waiting_time = StepWaitingTime} = State) ->
-    WaitingTime_1 = WaitingTime + StepWaitingTime,
-    WaitingTime_2 =
-        case (WaitingTime_1 >= MaxWaitingTime) of
-            true ->
-                MaxWaitingTime;
-            false ->
-                WaitingTime_1
-        end,
-    NextStatus = ?ST_RUNNING,
-    {next_state, NextStatus, State#state{waiting_time = WaitingTime_2,
+    {IsOverThreshold, WaitingTime_1} =
+        incr_waiting_time_fun(
+          WaitingTime, MaxWaitingTime, StepWaitingTime),
+    NextStatus = case IsOverThreshold of
+                     true ->
+                         ?ST_SUSPENDING;
+                     false ->
+                         ok = run(Id, IsDiagnose),
+                         ?ST_RUNNING
+                 end,
+    {next_state, NextStatus, State#state{waiting_time = WaitingTime_1,
                                          status = NextStatus}};
 
-running(#event_info{event = ?EVENT_DECR_WT}, #state{waiting_time = WaitingTime,
+running(#event_info{event = ?EVENT_DECR_WT}, #state{id = Id,
+                                                    is_diagnosing = IsDiagnose,
+                                                    waiting_time = WaitingTime,
                                                     min_waiting_time  = MinWaitingTime,
                                                     step_waiting_time = StepWaitingTime} = State) ->
-    WaitingTime_1 = WaitingTime - StepWaitingTime,
-    WaitingTime_2 =
-        case (WaitingTime_1 < MinWaitingTime) of
-            true ->
-                MinWaitingTime;
-            false ->
-                WaitingTime_1
-        end,
+    WaitingTime_1 = decr_waiting_time_fun(
+                      WaitingTime, MinWaitingTime, StepWaitingTime),
+    ok = run(Id, IsDiagnose),
     NextStatus = ?ST_RUNNING,
-    {next_state, NextStatus, State#state{waiting_time = WaitingTime_2,
+    {next_state, NextStatus, State#state{waiting_time = WaitingTime_1,
                                          status = NextStatus}};
-
-running(_, State) ->
+running(_, #state{id = Id,
+                  is_diagnosing = IsDiagnose} = State) ->
+    ok = run(Id, IsDiagnose),
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
 
 
 -spec(running( _, _, #state{}) ->
              {next_state, ?ST_SUSPENDING|?ST_RUNNING, #state{}}).
-running(_, From, State) ->
+running(_, From, #state{id = Id,
+                        is_diagnosing = IsDiagnose} = State) ->
     gen_fsm:reply(From, {error, badstate}),
+    ok = run(Id, IsDiagnose),
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
 
@@ -485,14 +489,32 @@ running(_, From, State) ->
 suspending(#event_info{event = ?EVENT_RUN}, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}};
+
 suspending(#event_info{event = ?EVENT_STATE,
                        client_pid = Client}, State) ->
     NextStatus = ?ST_SUSPENDING,
     erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#state{status = NextStatus}};
+
+suspending(#event_info{event = ?EVENT_DECR_WT}, #state{id = Id,
+                                                       is_diagnosing = IsDiagnose,
+                                                       waiting_time  = WaitingTime,
+                                                       min_waiting_time  = MinWaitingTime,
+                                                       step_waiting_time = StepWaitingTime} = State) ->
+    WaitingTime_1 =
+        decr_waiting_time_fun(
+          WaitingTime, MinWaitingTime, StepWaitingTime),
+
+    %% resume the data-compaction
+    NextStatus = ?ST_RUNNING,
+    timer:apply_after(
+      timer:seconds(1), ?MODULE, run, [Id, IsDiagnose]),
+    {next_state, NextStatus, State#state{waiting_time = WaitingTime_1,
+                                         status = NextStatus}};
 suspending(_, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
+
 
 -spec(suspending(EventInfo, From, State) ->
              {next_state, ?ST_SUSPENDING | ?ST_RUNNING, State} when EventInfo::#event_info{},
@@ -500,10 +522,12 @@ suspending(_, State) ->
                                                                     State::#state{}).
 suspending(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id,
                                                             is_diagnosing = IsDiagnose} = State) ->
+    %% resume the data-compaction
     gen_fsm:reply(From, ok),
-    ok = run(Id, IsDiagnose),
 
     NextStatus = ?ST_RUNNING,
+    timer:apply_after(
+      timer:seconds(1), ?MODULE, run, [Id, IsDiagnose]),
     {next_state, NextStatus, State#state{status = NextStatus}};
 
 suspending(_, From, State) ->
@@ -1054,3 +1078,38 @@ gen_compaction_report(State) ->
                            {function, "gen_compaction_report/1"},
                            {line, ?LINE}, {body, [Report]}]),
     {ok, Report}.
+
+
+%% @doc Increase the waiting time
+%% @private
+-spec(incr_waiting_time_fun(WaitingTime, MaxWaitingTime, StepWaitingTime) ->
+             {IsOverThreshold, NewWaitingTime} when WaitingTime::non_neg_integer(),
+                                                    MaxWaitingTime::non_neg_integer(),
+                                                    StepWaitingTime::non_neg_integer(),
+                                                    IsOverThreshold::boolean(),
+                                                    NewWaitingTime::non_neg_integer()).
+incr_waiting_time_fun(WaitingTime, MaxWaitingTime, StepWaitingTime) ->
+    WaitingTime_1 = WaitingTime + StepWaitingTime,
+    case (WaitingTime_1 > MaxWaitingTime) of
+        true ->
+            {true, MaxWaitingTime};
+        false ->
+            {false, WaitingTime_1}
+    end.
+
+
+%% @doc Decrease the waiting time
+%% @private
+-spec(decr_waiting_time_fun(WaitingTime, MinWaitingTime, StepWaitingTime) ->
+             NewWaitingTime when WaitingTime::non_neg_integer(),
+                                 MinWaitingTime::non_neg_integer(),
+                                 StepWaitingTime::non_neg_integer(),
+                                 NewWaitingTime::non_neg_integer()).
+decr_waiting_time_fun(WaitingTime, MinWaitingTime, StepWaitingTime) ->
+    WaitingTime_1 = WaitingTime - StepWaitingTime,
+    case (WaitingTime_1 < MinWaitingTime) of
+        true ->
+            MinWaitingTime;
+        false ->
+            WaitingTime_1
+    end.
