@@ -37,7 +37,6 @@
 -export([run/2, run/4,
          suspend/1,
          resume/1,
-         finish/1,
          state/2,
          incr_waiting_time/1,
          decr_waiting_time/1
@@ -90,6 +89,7 @@
           diagnosis_log_id       :: atom(),
           status = ?ST_IDLING    :: compaction_state(),
           is_locked = false      :: boolean(),
+          is_finished = false    :: boolean(),
           is_diagnosing = false  :: boolean(),
           waiting_time = 0       :: non_neg_integer(),
           max_waiting_time = 0   :: non_neg_integer(),
@@ -167,13 +167,12 @@ suspend(Id) ->
 resume(Id) ->
     gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_RESUME}, ?DEF_TIMEOUT).
 
-
-%% @doc Remove an object from the object-storage - (logical-delete)
-%%
--spec(finish(Id) ->
-             ok | {error, any()} when Id::atom()).
-finish(Id) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_FINISH}).
+%% %% @doc Remove an object from the object-storage - (logical-delete)
+%% %%
+%% -spec(finish(Id) ->
+%%              ok | {error, any()} when Id::atom()).
+%% finish(Id) ->
+%%     gen_fsm:send_event(Id, #event_info{event = ?EVENT_FINISH}).
 
 
 %% @doc Retrieve the storage stats specfied by Id
@@ -283,6 +282,7 @@ idling(#event_info{event = ?EVENT_RUN,
     NextStatus = ?ST_RUNNING,
     State_1 = State#state{compact_cntl_pid = ControllerPid,
                           status        = NextStatus,
+                          is_finished   = false,
                           is_diagnosing = IsDiagnose,
                           error_pos     = 0,
                           set_errors    = sets:new(),
@@ -301,7 +301,6 @@ idling(#event_info{event = ?EVENT_RUN,
                                },
                           start_datetime = leo_date:now()
                          },
-
     case prepare(State_1) of
         {ok, State_2} ->
             gen_fsm:reply(From, ok),
@@ -333,8 +332,13 @@ idling(_, State) ->
 -spec(running(EventInfo, State) ->
              {next_state, ?ST_RUNNING, State} when EventInfo::#event_info{},
                                                    State::#state{}).
+running(#event_info{event = ?EVENT_RUN}, #state{is_finished = true} = State) ->
+    NextStatus = ?ST_IDLING,
+    {next_state, NextStatus, State#state{status = NextStatus,
+                                         is_finished = false}};
 running(#event_info{event = ?EVENT_RUN,
                     is_diagnosing = IsDiagnose}, #state{id = Id,
+                                                        is_finished = false,
                                                         obj_storage_id = ObjStorageId,
                                                         compact_cntl_pid = CompactCntlPid,
                                                         waiting_time = WaitingTime,
@@ -348,19 +352,17 @@ running(#event_info{event = ?EVENT_RUN,
     NumOfBatchProcs_1 =
         case NumOfBatchProcs < 1 of
             true ->
-                case (WaitingTime > 0) of
-                    true ->
-                        timer:sleep(WaitingTime);
-                    false ->
-                        void
-                end,
+                WaitingTime_1 = case WaitingTime of
+                                    0 -> ?DEF_STEP_COMPACTION_WT;
+                                    _ -> WaitingTime
+                                end,
+                timer:sleep(WaitingTime_1),
                 ?env_compaction_batch_procs();
             false ->
                 NumOfBatchProcs - 1
         end,
 
-    NextStatus = ?ST_RUNNING,
-    State_3 =
+    {NextStatus, State_3} =
         case catch execute(State#state{is_diagnosing = IsDiagnose}) of
             %% Lock the object-storage in order to
             %%     reject requests during the data-compaction
@@ -377,26 +379,26 @@ running(#event_info{event = ?EVENT_RUN,
                                   State_1#state{is_locked = true}
                           end,
                 ok = run(Id, IsDiagnose),
-                State_2;
+                {?ST_RUNNING, State_2};
             %% Execute the data-compaction repeatedly
             {ok, {next, State_1}} ->
                 ok = run(Id, IsDiagnose),
-                State_1;
+                {?ST_RUNNING, State_1};
             %% An unxepected error has occured
             {'EXIT', Cause} ->
-                ok = finish(Id),
-                {_,State_2} = after_execute({error, Cause}, State),
-                State_2;
+                ok = finish(State#state{result = ?RET_FAIL}),
+                ok = after_execute({error, Cause}, State),
+                {?ST_IDLING, #state{}};
             %% Reached end of the object-container
             {ok, {eof, State_1}} ->
-                ok = finish(Id),
-                {_,State_2} = after_execute(ok, State_1),
-                State_2;
+                ok = finish(State_1#state{result = ?RET_SUCCESS}),
+                ok = after_execute(ok, State_1),
+                {?ST_IDLING, #state{}};
             %% An epected error has occured
             {{error, Cause}, State_1} ->
-                ok = finish(Id),
-                {_,State_2} = after_execute({error, Cause}, State_1),
-                State_2
+                ok = finish(State_1#state{result = ?RET_FAIL}),
+                ok = after_execute({error, Cause}, State_1),
+                {?ST_IDLING, #state{}}
         end,
     {next_state, NextStatus, State_3#state{status = NextStatus,
                                            num_of_batch_procs = NumOfBatchProcs_1}};
@@ -418,6 +420,7 @@ running(#event_info{event = ?EVENT_FINISH}, #state{obj_storage_id   = ObjStorage
 
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus,
+                                         is_finished = false,
                                          error_pos = 0,
                                          set_errors = sets:new(),
                                          acc_errors = [],
@@ -840,6 +843,19 @@ execute_2(Ret, CompactionPrms, Metadata, NumOfActiveObjs, ActiveSize, State) ->
 
 
 %% @private
+finish(#state{obj_storage_id   = ObjStorageId,
+              compact_cntl_pid = CntlPid} = State) ->
+    %% Generate the compaction report
+    {ok, Report} = gen_compaction_report(State),
+
+    %% Notify a message to the compaction-manager
+    erlang:send(CntlPid, {finish, {ObjStorageId, Report}}),
+
+    %% Unlock handling request
+    ok = leo_object_storage_server:unlock(ObjStorageId),
+    ok.
+
+%% @private
 after_execute(Ret, #state{obj_storage_info = StorageInfo,
                           is_diagnosing    = IsDiagnose,
                           diagnosis_log_id = LoggerId} = State) ->
@@ -866,8 +882,8 @@ after_execute_1({ok, #state{is_diagnosing = true,
                             compaction_prms =
                                 #compaction_prms{
                                    num_of_active_objs  = _NumActiveObjs,
-                                   size_of_active_objs = _SizeActiveObjs}} = State}) ->
-    {ok, State#state{result = ?RET_SUCCESS}};
+                                   size_of_active_objs = _SizeActiveObjs}}}) ->
+    ok;
 
 after_execute_1({ok, #state{meta_db_id       = MetaDBId,
                             obj_storage_id   = ObjStorageId,
@@ -875,7 +891,7 @@ after_execute_1({ok, #state{meta_db_id       = MetaDBId,
                             compaction_prms =
                                 #compaction_prms{
                                    num_of_active_objs  = NumActiveObjs,
-                                   size_of_active_objs = SizeActiveObjs}} = State}) ->
+                                   size_of_active_objs = SizeActiveObjs}}}) ->
     %% Unlink the symbol
     LinkedPath = StorageInfo#backend_info.linked_path,
     FilePath   = StorageInfo#backend_info.file_path,
@@ -887,22 +903,20 @@ after_execute_1({ok, #state{meta_db_id       = MetaDBId,
             ok = leo_object_storage_server:switch_container(
                    ObjStorageId, FilePath, NumActiveObjs, SizeActiveObjs),
             ok = leo_backend_db_api:finish_compaction(MetaDBId, true),
-
-            {ok, State#state{result = ?RET_SUCCESS}};
-        {error, Cause} ->
+            ok;
+        {error,_Cause} ->
             leo_backend_db_api:finish_compaction(MetaDBId, false),
-            {{error, Cause}, State#state{result = ?RET_FAIL}}
+            ok
     end;
 
 %% @doc Rollback - delete the tmp-files
 %% @private
 after_execute_1({_Error, #state{meta_db_id       = MetaDBId,
-                                obj_storage_info = StorageInfo} = State}) ->
+                                obj_storage_info = StorageInfo}}) ->
     %% must reopen the original file when handling at another process:
     catch file:delete(StorageInfo#backend_info.file_path),
     leo_backend_db_api:finish_compaction(MetaDBId, false),
-
-    {ok, State#state{result = ?RET_FAIL}}.
+    ok.
 
 
 %% @doc Output the diagnosis log
