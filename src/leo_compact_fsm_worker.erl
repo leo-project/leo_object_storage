@@ -90,6 +90,7 @@
           diagnosis_log_id       :: atom(),
           status = ?ST_IDLING    :: compaction_state(),
           is_locked = false      :: boolean(),
+          is_finished = false    :: boolean(),
           is_diagnosing = false  :: boolean(),
           waiting_time = 0       :: non_neg_integer(),
           max_waiting_time = 0   :: non_neg_integer(),
@@ -166,7 +167,6 @@ suspend(Id) ->
              ok | {error, any()} when Id::atom()).
 resume(Id) ->
     gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_RESUME}, ?DEF_TIMEOUT).
-
 
 %% @doc Remove an object from the object-storage - (logical-delete)
 %%
@@ -283,6 +283,7 @@ idling(#event_info{event = ?EVENT_RUN,
     NextStatus = ?ST_RUNNING,
     State_1 = State#state{compact_cntl_pid = ControllerPid,
                           status        = NextStatus,
+                          is_finished   = false,
                           is_diagnosing = IsDiagnose,
                           error_pos     = 0,
                           set_errors    = sets:new(),
@@ -301,7 +302,6 @@ idling(#event_info{event = ?EVENT_RUN,
                                },
                           start_datetime = leo_date:now()
                          },
-
     case prepare(State_1) of
         {ok, State_2} ->
             gen_fsm:reply(From, ok),
@@ -333,8 +333,13 @@ idling(_, State) ->
 -spec(running(EventInfo, State) ->
              {next_state, ?ST_RUNNING, State} when EventInfo::#event_info{},
                                                    State::#state{}).
+running(#event_info{event = ?EVENT_RUN}, #state{is_finished = true} = State) ->
+    NextStatus = ?ST_IDLING,
+    {next_state, NextStatus, State#state{status = NextStatus,
+                                         is_finished = false}};
 running(#event_info{event = ?EVENT_RUN,
                     is_diagnosing = IsDiagnose}, #state{id = Id,
+                                                        is_finished = false,
                                                         obj_storage_id = ObjStorageId,
                                                         compact_cntl_pid = CompactCntlPid,
                                                         waiting_time = WaitingTime,
@@ -348,12 +353,11 @@ running(#event_info{event = ?EVENT_RUN,
     NumOfBatchProcs_1 =
         case NumOfBatchProcs < 1 of
             true ->
-                case (WaitingTime > 0) of
-                    true ->
-                        timer:sleep(WaitingTime);
-                    false ->
-                        void
-                end,
+                WaitingTime_1 = case WaitingTime of
+                                    0 -> ?DEF_STEP_COMPACTION_WT;
+                                    _ -> WaitingTime
+                                end,
+                timer:sleep(WaitingTime_1),
                 ?env_compaction_batch_procs();
             false ->
                 NumOfBatchProcs - 1
@@ -418,6 +422,7 @@ running(#event_info{event = ?EVENT_FINISH}, #state{obj_storage_id   = ObjStorage
 
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus,
+                                         is_finished = false,
                                          error_pos = 0,
                                          set_errors = sets:new(),
                                          acc_errors = [],
@@ -867,7 +872,8 @@ after_execute_1({ok, #state{is_diagnosing = true,
                                 #compaction_prms{
                                    num_of_active_objs  = _NumActiveObjs,
                                    size_of_active_objs = _SizeActiveObjs}} = State}) ->
-    {ok, State#state{result = ?RET_SUCCESS}};
+    {ok, State#state{result = ?RET_SUCCESS,
+                     is_finished = true}};
 
 after_execute_1({ok, #state{meta_db_id       = MetaDBId,
                             obj_storage_id   = ObjStorageId,
@@ -887,11 +893,12 @@ after_execute_1({ok, #state{meta_db_id       = MetaDBId,
             ok = leo_object_storage_server:switch_container(
                    ObjStorageId, FilePath, NumActiveObjs, SizeActiveObjs),
             ok = leo_backend_db_api:finish_compaction(MetaDBId, true),
-
-            {ok, State#state{result = ?RET_SUCCESS}};
+            {ok, State#state{result = ?RET_SUCCESS,
+                             is_finished = true}};
         {error, Cause} ->
             leo_backend_db_api:finish_compaction(MetaDBId, false),
-            {{error, Cause}, State#state{result = ?RET_FAIL}}
+            {{error, Cause}, State#state{result = ?RET_FAIL,
+                                         is_finished = true}}
     end;
 
 %% @doc Rollback - delete the tmp-files
@@ -901,8 +908,8 @@ after_execute_1({_Error, #state{meta_db_id       = MetaDBId,
     %% must reopen the original file when handling at another process:
     catch file:delete(StorageInfo#backend_info.file_path),
     leo_backend_db_api:finish_compaction(MetaDBId, false),
-
-    {ok, State#state{result = ?RET_FAIL}}.
+    {ok, State#state{result = ?RET_FAIL,
+                     is_finished = true}}.
 
 
 %% @doc Output the diagnosis log
