@@ -167,13 +167,6 @@ suspend(Id) ->
 resume(Id) ->
     gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_RESUME}, ?DEF_TIMEOUT).
 
-%% %% @doc Remove an object from the object-storage - (logical-delete)
-%% %%
-%% -spec(finish(Id) ->
-%%              ok | {error, any()} when Id::atom()).
-%% finish(Id) ->
-%%     gen_fsm:send_event(Id, #event_info{event = ?EVENT_FINISH}).
-
 
 %% @doc Retrieve the storage stats specfied by Id
 %%      which contains number of objects and so on.
