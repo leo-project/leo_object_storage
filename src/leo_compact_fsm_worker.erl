@@ -89,7 +89,6 @@
           diagnosis_log_id       :: atom(),
           status = ?ST_IDLING    :: compaction_state(),
           is_locked = false      :: boolean(),
-          is_finished = false    :: boolean(),
           is_diagnosing = false  :: boolean(),
           waiting_time = 0       :: non_neg_integer(),
           max_waiting_time = 0   :: non_neg_integer(),
@@ -275,7 +274,6 @@ idling(#event_info{event = ?EVENT_RUN,
     NextStatus = ?ST_RUNNING,
     State_1 = State#state{compact_cntl_pid = ControllerPid,
                           status        = NextStatus,
-                          is_finished   = false,
                           is_diagnosing = IsDiagnose,
                           error_pos     = 0,
                           set_errors    = sets:new(),
@@ -325,21 +323,24 @@ idling(_, State) ->
 -spec(running(EventInfo, State) ->
              {next_state, ?ST_RUNNING, State} when EventInfo::#event_info{},
                                                    State::#state{}).
-running(#event_info{event = ?EVENT_RUN}, #state{is_finished = true} = State) ->
+running(#event_info{event = ?EVENT_RUN},
+        #state{obj_storage_id = #backend_info{linked_path = []}} = State) ->
     NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#state{status = NextStatus,
-                                         is_finished = false}};
+    {next_state, NextStatus, State#state{status = NextStatus}};
+running(#event_info{event = ?EVENT_RUN},
+        #state{obj_storage_id = #backend_info{file_path = []}} = State) ->
+    NextStatus = ?ST_IDLING,
+    {next_state, NextStatus, State#state{status = NextStatus}};
 running(#event_info{event = ?EVENT_RUN,
-                    is_diagnosing = IsDiagnose}, #state{id = Id,
-                                                        is_finished = false,
-                                                        obj_storage_id = ObjStorageId,
-                                                        compact_cntl_pid = CompactCntlPid,
-                                                        waiting_time = WaitingTime,
-                                                        num_of_batch_procs = NumOfBatchProcs,
-                                                        compaction_prms  =
-                                                            #compaction_prms{
-                                                               start_lock_offset = StartLockOffset
-                                                              }} = State) ->
+                    is_diagnosing = IsDiagnose},
+        #state{id = Id,
+               obj_storage_id = ObjStorageId,
+               compact_cntl_pid = CompactCntlPid,
+               waiting_time = WaitingTime,
+               num_of_batch_procs = NumOfBatchProcs,
+               compaction_prms  =
+                   #compaction_prms{
+                      start_lock_offset = StartLockOffset}} = State) ->
     %% Temporally suspend the compaction
     %% in order to decrease i/o load
     NumOfBatchProcs_1 =
@@ -377,21 +378,22 @@ running(#event_info{event = ?EVENT_RUN,
             {ok, {next, State_1}} ->
                 ok = run(Id, IsDiagnose),
                 {?ST_RUNNING, State_1};
+
             %% An unxepected error has occured
             {'EXIT', Cause} ->
-                ok = finish(State#state{result = ?RET_FAIL}),
-                ok = after_execute({error, Cause}, State),
-                {?ST_IDLING, #state{}};
+                {ok, State_1} = after_execute({error, Cause},
+                                              State#state{result = ?RET_FAIL}),
+                {?ST_IDLING, State_1};
             %% Reached end of the object-container
             {ok, {eof, State_1}} ->
-                ok = finish(State_1#state{result = ?RET_SUCCESS}),
-                ok = after_execute(ok, State_1),
-                {?ST_IDLING, #state{}};
+                {ok, State_2} = after_execute(ok,
+                                              State_1#state{result = ?RET_SUCCESS}),
+                {?ST_IDLING, State_2};
             %% An epected error has occured
             {{error, Cause}, State_1} ->
-                ok = finish(State_1#state{result = ?RET_FAIL}),
-                ok = after_execute({error, Cause}, State_1),
-                {?ST_IDLING, #state{}}
+                {ok, State_2} = after_execute({error, Cause},
+                                              State_1#state{result = ?RET_FAIL}),
+                {?ST_IDLING, State_2}
         end,
     {next_state, NextStatus, State_3#state{status = NextStatus,
                                            num_of_batch_procs = NumOfBatchProcs_1}};
@@ -399,29 +401,6 @@ running(#event_info{event = ?EVENT_RUN,
 running(#event_info{event = ?EVENT_SUSPEND}, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}};
-
-running(#event_info{event = ?EVENT_FINISH}, #state{obj_storage_id   = ObjStorageId,
-                                                   compact_cntl_pid = CntlPid} = State) ->
-    %% Generate the compaction report
-    {ok, Report} = gen_compaction_report(State),
-
-    %% Notify a message to the compaction-manager
-    erlang:send(CntlPid, {finish, {ObjStorageId, Report}}),
-
-    %% Unlock handling request
-    ok = leo_object_storage_server:unlock(ObjStorageId),
-
-    NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#state{status = NextStatus,
-                                         is_finished = false,
-                                         error_pos = 0,
-                                         set_errors = sets:new(),
-                                         acc_errors = [],
-                                         obj_storage_info = #backend_info{},
-                                         compaction_prms = #compaction_prms{},
-                                         start_datetime = 0,
-                                         result = undefined
-                                        }};
 
 running(#event_info{event = ?EVENT_STATE,
                     client_pid = Client}, #state{id = Id,
@@ -846,7 +825,12 @@ finish(#state{obj_storage_id   = ObjStorageId,
 
     %% Unlock handling request
     ok = leo_object_storage_server:unlock(ObjStorageId),
-    ok.
+    {ok, State#state{start_datetime = 0,
+                     error_pos  = 0,
+                     set_errors = sets:new(),
+                     acc_errors = [],
+                     obj_storage_info = #backend_info{},
+                     result = undefined}}.
 
 %% @private
 after_execute(Ret, #state{obj_storage_info = StorageInfo,
@@ -866,7 +850,8 @@ after_execute(Ret, #state{obj_storage_info = StorageInfo,
     end,
 
     %% Finish compaction
-    after_execute_1({Ret, State}).
+    ok = after_execute_1({Ret, State}),
+    finish(State).
 
 
 %% @doc Reduce objects from the object-container.
@@ -1073,6 +1058,10 @@ gen_compaction_report(State) ->
                     Report_1 = lists:zip(record_info(fields, compaction_report),
                                          tl(tuple_to_list(Report))),
                     catch leo_file:file_unconsult(LogFilePath, Report_1),
+                    error_logger:info_msg("~p,~p,~p,~p~n",
+                                          [{module, ?MODULE_STRING},
+                                           {function, "gen_compaction_report/1"},
+                                           {line, ?LINE}, {body, [Report_1]}]),
                     ok;
                 false ->
                     void
@@ -1080,10 +1069,6 @@ gen_compaction_report(State) ->
         _ ->
             void
     end,
-    error_logger:info_msg("~p,~p,~p,~p~n",
-                          [{module, ?MODULE_STRING},
-                           {function, "gen_compaction_report/1"},
-                           {line, ?LINE}, {body, [Report]}]),
     {ok, Report}.
 
 
