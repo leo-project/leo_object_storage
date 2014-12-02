@@ -71,6 +71,8 @@
 -undef(EVENT_RESUME).
 -undef(EVENT_FINISH).
 -undef(EVENT_STATE).
+-undef(EVENT_INCR_WT).
+-undef(EVENT_DECR_WT).
 -define(EVENT_RUN,      'run').
 -define(EVENT_DIAGNOSE, 'diagnose').
 -define(EVENT_LOCK,     'lock').
