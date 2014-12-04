@@ -325,23 +325,29 @@ add_incorrect_data(Bin) ->
 compact_data() ->
     leo_compact_fsm_controller:run().
 
--spec(compact_data(MaxConn) ->
-             term() when MaxConn::integer()).
-compact_data(MaxConn) ->
-    leo_compact_fsm_controller:run(MaxConn).
+-spec(compact_data(NumOfConcurrency) ->
+             term() when NumOfConcurrency::integer()).
+compact_data(NumOfConcurrency) ->
+    NumOfConcurrency_1 =
+        ?num_of_compaction_concurrency(NumOfConcurrency),
+    leo_compact_fsm_controller:run(NumOfConcurrency_1).
 
--spec(compact_data(MaxConn, CallbackFun) ->
-             term() when MaxConn::integer(),
+-spec(compact_data(NumOfConcurrency, CallbackFun) ->
+             term() when NumOfConcurrency::integer(),
                          CallbackFun::function()).
-compact_data(MaxConn, CallbackFun) ->
-    leo_compact_fsm_controller:run(MaxConn, CallbackFun).
+compact_data(NumOfConcurrency, CallbackFun) ->
+    NumOfConcurrency_1 =
+        ?num_of_compaction_concurrency(NumOfConcurrency),
+    leo_compact_fsm_controller:run(NumOfConcurrency_1, CallbackFun).
 
--spec(compact_data(TargetPids, MaxConn, CallbackFun) ->
+-spec(compact_data(TargetPids, NumOfConcurrency, CallbackFun) ->
              term() when TargetPids::[atom()],
-                         MaxConn::integer(),
+                         NumOfConcurrency::integer(),
                          CallbackFun::function()).
-compact_data(TargetPids, MaxConn, CallbackFun) ->
-    leo_compact_fsm_controller:run(TargetPids, MaxConn, CallbackFun).
+compact_data(TargetPids, NumOfConcurrency, CallbackFun) ->
+    NumOfConcurrency_1 =
+        ?num_of_compaction_concurrency(NumOfConcurrency),
+    leo_compact_fsm_controller:run(TargetPids, NumOfConcurrency_1, CallbackFun).
 
 
 %% @doc Diagnode the data

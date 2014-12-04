@@ -63,7 +63,7 @@
 -record(state, {
           id :: atom(),
           server_pairs = [] :: [{atom(), atom()}],
-          max_num_of_concurrent = 1 :: non_neg_integer(),
+          num_of_concurrency = 1 :: non_neg_integer(),
           is_diagnosing = false     :: boolean(),
           callback_fun              :: function() | undefined,
           total_num_of_targets = 0  :: non_neg_integer(),
@@ -84,7 +84,7 @@
           target_pids = []      :: [atom()],
           finished_id           :: atom(),
           report = #compaction_report{} :: #compaction_report{},
-          max_conns = 1         :: pos_integer(),
+          num_of_concurrency = 1         :: pos_integer(),
           is_diagnosing = false :: boolean(),
           callback :: function()
          }).
@@ -112,27 +112,28 @@ start_link(ServerPairL) ->
 run() ->
     run(1, undefined).
 
--spec(run(MaxConn) ->
-             term() when MaxConn::pos_integer()).
-run(MaxConn) ->
-    run(MaxConn, undefined).
+-spec(run(NumOfConcurrency) ->
+             term() when NumOfConcurrency::pos_integer()).
+run(NumOfConcurrency) ->
+    run(NumOfConcurrency, undefined).
 
--spec(run(MaxConn, CallbackFun) ->
-             term() when MaxConn::pos_integer(),
+-spec(run(NumOfConcurrency, CallbackFun) ->
+             term() when NumOfConcurrency::pos_integer(),
                          CallbackFun::function()|undefined).
-run(MaxConn, CallbackFun) ->
+run(NumOfConcurrency, CallbackFun) ->
     TargetPids = leo_object_storage_api:get_object_storage_pid('all'),
-    run(TargetPids, MaxConn, CallbackFun).
+    run(TargetPids, NumOfConcurrency, CallbackFun).
 
--spec(run(TargetPids, MaxConn, CallbackFun) ->
+-spec(run(TargetPids, NumOfConcurrency, CallbackFun) ->
              term() when TargetPids::[pid()|atom()],
-                         MaxConn::pos_integer(),
+                         NumOfConcurrency::pos_integer(),
                          CallbackFun::function()|undefined).
-run(TargetPids, MaxConn, CallbackFun) ->
+run(TargetPids, NumOfConcurrency, CallbackFun) ->
+    ?debugVal({TargetPids, NumOfConcurrency, CallbackFun}),
     gen_fsm:sync_send_event(
       ?MODULE, #event_info{event = ?EVENT_RUN,
-                           target_pids   = TargetPids,
-                           max_conns     = MaxConn,
+                           target_pids = TargetPids,
+                           num_of_concurrency = NumOfConcurrency,
                            is_diagnosing = false,
                            callback      = CallbackFun}, ?DEF_TIMEOUT).
 
@@ -145,8 +146,8 @@ diagnose() ->
     TargetPids = leo_object_storage_api:get_object_storage_pid('all'),
     gen_fsm:sync_send_event(
       ?MODULE, #event_info{event = ?EVENT_RUN,
-                           target_pids   = TargetPids,
-                           max_conns     = 1,
+                           target_pids = TargetPids,
+                           num_of_concurrency = 1,
                            is_diagnosing = true,
                            callback      = undefined}, ?DEF_TIMEOUT).
 
@@ -248,8 +249,8 @@ init([ServerPairL]) ->
                       From::{pid(),Tag::atom()},
                       State::#state{}).
 idling(#event_info{event = ?EVENT_RUN,
-                   target_pids   = TargetPids,
-                   max_conns     = MaxConn,
+                   target_pids = TargetPids,
+                   num_of_concurrency = NumOfConcurrency,
                    is_diagnosing = IsDiagnose,
                    callback      = Callback}, From, #state{server_pairs = ServerPairs} = State) ->
     AllTargets      = leo_object_storage_api:get_object_storage_pid('all'),
@@ -269,12 +270,12 @@ idling(#event_info{event = ?EVENT_RUN,
     NextState = ?ST_RUNNING,
     {ok, NewState} = start_jobs_as_possible(
                        State#state{status = NextState,
-                                   pending_targets       = TargetPids,
-                                   reserved_targets      = ReservedTargets,
-                                   max_num_of_concurrent = MaxConn,
-                                   is_diagnosing         = IsDiagnose,
-                                   callback_fun          = Callback,
-                                   start_datetime        = leo_date:now(),
+                                   pending_targets    = TargetPids,
+                                   reserved_targets   = ReservedTargets,
+                                   num_of_concurrency = NumOfConcurrency,
+                                   is_diagnosing      = IsDiagnose,
+                                   callback_fun       = Callback,
+                                   start_datetime     = leo_date:now(),
                                    reports = []
                                   }),
     gen_fsm:reply(From, ok),
@@ -584,10 +585,10 @@ start_jobs_as_possible(State) ->
 start_jobs_as_possible(#state{
                           pending_targets = [Id|Rest],
                           ongoing_targets = InProgPids,
-                          max_num_of_concurrent = MaxProc,
+                          num_of_concurrency = NumOfConcurrency,
                           callback_fun  = CallbackFun,
                           is_diagnosing = IsDiagnose,
-                          child_pids    = ChildPids} = State, NumChild) when NumChild < MaxProc ->
+                          child_pids    = ChildPids} = State, NumChild) when NumChild < NumOfConcurrency ->
     Pid = spawn_link(fun() ->
                              loop(CallbackFun)
                      end),

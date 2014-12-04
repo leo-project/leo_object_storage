@@ -44,7 +44,8 @@
 -define(STATE_ACTIVE,             'active').
 -type(storage_status() :: ?STATE_RUNNING_COMPACTION | ?STATE_ACTIVE).
 
--define(DEF_MIN_COMPACTION_WT, 0).   %% 0msec
+-define(DEF_LIMIT_COMPACTION_PROCS, 4).
+-define(DEF_MIN_COMPACTION_WT, 0). %% 0msec
 -ifdef(TEST).
 -define(DEF_MAX_COMPACTION_WT, 300). %% 300msec
 -else.
@@ -360,6 +361,15 @@
                 false
         end).
 
+-define(env_limit_num_of_compaction_procs(),
+        case application:get_env(leo_object_storage,
+                                 limit_num_of_compaction_procs) of
+            {ok, EnvLimitCompactionProcs} when is_integer(EnvLimitCompactionProcs) ->
+                EnvLimitCompactionProcs;
+            _ ->
+                ?DEF_LIMIT_COMPACTION_PROCS
+        end).
+
 -define(env_min_compaction_waiting_time(),
         case application:get_env(leo_object_storage,
                                  min_compaction_waiting_time) of
@@ -396,6 +406,15 @@
                 ?DEF_COMPACTION_BATCH_PROCS
         end).
 
+
+-define(num_of_compaction_concurrency(_PrmNumOfConcurrency),
+        begin
+            _EnvNumOfConcurrency = ?env_limit_num_of_compaction_procs(),
+            case (_PrmNumOfConcurrency > _EnvNumOfConcurrency) of
+                true  -> _EnvNumOfConcurrency;
+                false -> _PrmNumOfConcurrency
+            end
+        end).
 
 %% custom-metadata's items for MDC-replication:
 -define(PROP_CMETA_CLUSTER_ID, 'cluster_id').
