@@ -129,7 +129,6 @@ run(NumOfConcurrency, CallbackFun) ->
                          NumOfConcurrency::pos_integer(),
                          CallbackFun::function()|undefined).
 run(TargetPids, NumOfConcurrency, CallbackFun) ->
-    ?debugVal({TargetPids, NumOfConcurrency, CallbackFun}),
     gen_fsm:sync_send_event(
       ?MODULE, #event_info{event = ?EVENT_RUN,
                            target_pids = TargetPids,
