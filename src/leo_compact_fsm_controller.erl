@@ -40,7 +40,7 @@
          lock/1,
          suspend/0, resume/0,
          state/0,
-         finish/3,
+         finish/2, finish/3,
          incr_waiting_time/0,
          decr_waiting_time/0
         ]).
@@ -63,6 +63,7 @@
 -record(state, {
           id :: atom(),
           server_pairs = [] :: [{atom(), atom()}],
+          pid_pairs = []    :: [{pid(), atom()}],
           num_of_concurrency = 1 :: non_neg_integer(),
           is_diagnosing = false     :: boolean(),
           callback_fun              :: function() | undefined,
@@ -71,7 +72,7 @@
           pending_targets  = []     :: [atom()],
           ongoing_targets  = []     :: [atom()],
           locked_targets   = []     :: [atom()],
-          child_pids       = []     :: orddict:orddict(), %% {Chid :: pid(), hasJob :: boolean()}
+          child_pids       = []     :: orddict:orddict(), %% {Child :: pid(), hasJob :: boolean()}
           start_datetime   = 0      :: non_neg_integer(), %% gregory-sec
           reports          = []     :: [#compaction_report{}],
           status = ?ST_IDLING :: compaction_state()
@@ -83,7 +84,7 @@
           client_pid            :: pid(),
           target_pids = []      :: [atom()],
           finished_id           :: atom(),
-          report = #compaction_report{} :: #compaction_report{},
+          report = #compaction_report{} :: #compaction_report{}|undefined,
           num_of_concurrency = 1         :: pos_integer(),
           is_diagnosing = false :: boolean(),
           callback :: function()
@@ -194,6 +195,17 @@ state() ->
 
 
 %% @doc Terminate a child
+-spec(finish(Pid, FinishedId) ->
+             term() when Pid::pid(),
+                         FinishedId::atom()).
+finish(Pid, FinishedId) ->
+    gen_fsm:send_event(
+      ?MODULE, #event_info{event = ?EVENT_FINISH,
+                           client_pid  = Pid,
+                           finished_id = FinishedId,
+                           report      = undefined
+                          }).
+
 -spec(finish(Pid, FinishedId, Report) ->
              term() when Pid::pid(),
                          FinishedId::atom(),
@@ -291,7 +303,8 @@ idling(_, From, State) ->
              {stop, string(), State} when EventInfo::#event_info{},
                                           State::#state{}).
 idling(#event_info{event = ?EVENT_FINISH}, State) ->
-    {stop, "receive an invalid message", State}.
+    NextState = ?ST_IDLING,
+    {next_state, NextState, State#state{status = NextState}}.
 
 
 %% @doc State of 'running'
@@ -349,6 +362,7 @@ running(#event_info{event = ?EVENT_FINISH,
                                                   pending_targets = [Id|Rest],
                                                   ongoing_targets = InProgPids,
                                                   locked_targets  = LockedTargets,
+                                                  child_pids      = _ChildPids,
                                                   is_diagnosing   = IsDiagnose,
                                                   reports         = AccReports} = State) ->
     %% Execute data-compaction of a pending target
@@ -415,7 +429,6 @@ running(#event_info{event  = ?EVENT_FINISH,
                                         locked_targets   = [],
                                         reports          = AccReports_1
                                        }};
-
 running(_, State) ->
     {next_state, ?ST_RUNNING, State}.
 
@@ -544,10 +557,18 @@ handle_sync_event(state, _From, StateName, #state{status = Status,
                                   }}, StateName, State};
 
 %% @doc Handle 'stop' event
-handle_sync_event(stop, _From, _StateName, Status) ->
-    {stop, shutdown, ok, Status}.
+handle_sync_event(stop, _From, _StateName, State) ->
+    {stop, shutdown, ok, State}.
 
 %% @doc Handling all non call/cast messages
+handle_info({'DOWN',_Ref,_, Pid,_}, StateName, #state{pid_pairs = PidPairs} = State) ->
+    case lists:keyfind(Pid, 1, PidPairs) of
+        false ->
+            void;
+        {_,ObjStorageId} ->
+            finish(Pid, ObjStorageId)
+    end,
+    {next_state, StateName, State};
 handle_info(_Info, StateName, State) ->
     {next_state, StateName, State}.
 
@@ -582,20 +603,23 @@ start_jobs_as_possible(State) ->
     start_jobs_as_possible(State#state{child_pids = []}, 0).
 
 start_jobs_as_possible(#state{
+                          pid_pairs = PidPairs,
                           pending_targets = [Id|Rest],
                           ongoing_targets = InProgPids,
                           num_of_concurrency = NumOfConcurrency,
                           callback_fun  = CallbackFun,
                           is_diagnosing = IsDiagnose,
                           child_pids    = ChildPids} = State, NumChild) when NumChild < NumOfConcurrency ->
-    Pid = spawn_link(fun() ->
-                             loop(CallbackFun)
-                     end),
+    Pid = spawn(fun() ->
+                        loop(CallbackFun)
+                end),
+    _Ref = erlang:monitor(process, Pid),
     erlang:send(Pid, {run, Id, IsDiagnose}),
     start_jobs_as_possible(
       State#state{pending_targets = Rest,
                   ongoing_targets = [Id|InProgPids],
-                  child_pids      = orddict:store(Pid, true, ChildPids)}, NumChild + 1);
+                  pid_pairs  = [{Pid, Id}|PidPairs],
+                  child_pids = orddict:store(Pid, true, ChildPids)}, NumChild + 1);
 
 start_jobs_as_possible(State, _NumChild) ->
     {ok, State}.
@@ -614,8 +638,13 @@ loop(CallbackFun, TargetId) ->
     receive
         {run, Id, IsDiagnose} ->
             {ok, Id_1} = leo_object_storage_server:get_compaction_worker(Id),
-            ok = leo_compact_fsm_worker:run(Id_1, self(), IsDiagnose, CallbackFun),
-            loop(CallbackFun, {Id, Id_1});
+            case leo_compact_fsm_worker:run(
+                   Id_1, self(), IsDiagnose, CallbackFun) of
+                ok ->
+                    loop(CallbackFun, {Id, Id_1});
+                {error,_Cause} ->
+                    ok = finish(self(), Id)
+            end;
         {lock, Id} ->
             ok = lock(Id),
             loop(CallbackFun, TargetId);

@@ -772,10 +772,11 @@ compact_2() ->
     %% confirm whether first compaction have broken avs files or not
     ok = leo_compact_fsm_controller:run(TargetPids, 2, FunHasChargeOfNode),
     ok = check_status(),
-    timer:sleep(1000),
+    timer:sleep(3000),
     {ok, Res3} = leo_object_storage_api:stats(),
-    ?debugVal(Res3),
-    {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2} = get_avs_stats_summary(Res3),
+    Ret3_1 = get_avs_stats_summary(Res3),
+    ?debugVal(Ret3_1),
+    {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2} = Ret3_1,
 
     %% inspect for after compaction
     TestAddrId0 = 0,
