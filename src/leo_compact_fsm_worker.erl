@@ -297,7 +297,10 @@ idling(#event_info{event = ?EVENT_RUN,
             gen_fsm:reply(From, ok),
             ok = run(Id, IsDiagnose),
             {next_state, NextStatus, State_2};
-        {{error, Cause},_State} ->
+        {{error, Cause}, #state{obj_storage_info =
+                                    #backend_info{write_handler = WriteHandler,
+                                                  read_handler  = ReadHandler}}} ->
+            catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
             gen_fsm:reply(From, {error, Cause}),
             {next_state, ?ST_IDLING, State_1}
     end;
