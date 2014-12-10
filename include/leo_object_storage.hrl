@@ -45,14 +45,27 @@
 -type(storage_status() :: ?STATE_RUNNING_COMPACTION | ?STATE_ACTIVE).
 
 -define(DEF_LIMIT_COMPACTION_PROCS, 4).
--define(DEF_MIN_COMPACTION_WT, 0). %% 0msec
+
 -ifdef(TEST).
--define(DEF_MAX_COMPACTION_WT, 300). %% 300msec
+-define(DEF_MIN_COMPACTION_WT,  0).    %% 0msec
+-define(DEF_MAX_COMPACTION_WT,  300).  %% 300msec
+-define(DEF_STEP_COMPACTION_WT, 100).  %% 100msec
 -else.
--define(DEF_MAX_COMPACTION_WT, timer:seconds(1)). %% 1000msec
+-define(DEF_MIN_COMPACTION_WT,  0).    %% 0msec
+-define(DEF_MAX_COMPACTION_WT,  1000). %% 1000msec
+-define(DEF_STEP_COMPACTION_WT, 100).  %% 100msec
 -endif.
--define(DEF_STEP_COMPACTION_WT, 100). %% 100msec
--define(DEF_COMPACTION_BATCH_PROCS, 25).
+
+-ifdef(TEST).
+-define(DEF_MIN_COMPACTION_BP,  10).  %% 10
+-define(DEF_MAX_COMPACTION_BP,  150). %% 200
+-define(DEF_STEP_COMPACTION_BP, 100). %% 100
+-else.
+-define(DEF_MIN_COMPACTION_BP,  10).    %% 10
+-define(DEF_MAX_COMPACTION_BP,  1000). %% 1000
+-define(DEF_STEP_COMPACTION_BP, 100).   %% 100
+-endif.
+
 
 -undef(ST_IDLING).
 -undef(ST_RUNNING).
@@ -83,6 +96,8 @@
 -define(EVENT_STATE,    'state').
 -define(EVENT_INCR_WT,  'incr_waiting_time').
 -define(EVENT_DECR_WT,  'decr_waiting_time').
+-define(EVENT_INCR_BP,  'incr_batch_procs').
+-define(EVENT_DECR_BP,  'decr_batch_procs').
 -type(compaction_event() ::?EVENT_RUN      |
                            ?EVENT_DIAGNOSE |
                            ?EVENT_LOCK     |
@@ -91,7 +106,9 @@
                            ?EVENT_FINISH   |
                            ?EVENT_STATE    |
                            ?EVENT_INCR_WT  |
-                           ?EVENT_DECR_WT
+                           ?EVENT_DECR_WT  |
+                           ?EVENT_INCR_BP  |
+                           ?EVENT_DECR_BP
                            ).
 
 %% @doc Compaction related definitions
@@ -397,13 +414,30 @@
                 ?DEF_STEP_COMPACTION_WT
         end).
 
--define(env_compaction_batch_procs(),
+-define(env_max_batch_procs(),
         case application:get_env(leo_object_storage,
-                                 compaction_batch_procs) of
-            {ok, EnvCompactionBP} when is_integer(EnvCompactionBP) ->
-                EnvCompactionBP;
+                                 max_batch_procs) of
+            {ok, EnvMaxCompactionBP} when is_integer(EnvMaxCompactionBP) ->
+                EnvMaxCompactionBP;
             _ ->
-                ?DEF_COMPACTION_BATCH_PROCS
+                ?DEF_MAX_COMPACTION_BP
+        end).
+
+-define(env_min_batch_procs(),
+        case application:get_env(leo_object_storage,
+                                 min_batch_procs) of
+            {ok, EnvMinCompactionBP} when is_integer(EnvMinCompactionBP) ->
+                EnvMinCompactionBP;
+            _ ->
+                ?DEF_MIN_COMPACTION_BP
+        end).
+-define(env_step_batch_procs(),
+        case application:get_env(leo_object_storage,
+                                 step_batch_procs) of
+            {ok, EnvStepCompactionBP} when is_integer(EnvStepCompactionBP) ->
+                EnvStepCompactionBP;
+            _ ->
+                ?DEF_STEP_COMPACTION_BP
         end).
 
 

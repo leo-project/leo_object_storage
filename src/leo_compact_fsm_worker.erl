@@ -39,7 +39,9 @@
          resume/1,
          state/2,
          incr_waiting_time/1,
-         decr_waiting_time/1
+         decr_waiting_time/1,
+         incr_batch_procs/1,
+         decr_batch_procs/1
         ]).
 
 %% gen_fsm callbacks
@@ -90,11 +92,18 @@
           status = ?ST_IDLING    :: compaction_state(),
           is_locked = false      :: boolean(),
           is_diagnosing = false  :: boolean(),
+          %% waiting_time:
           waiting_time = 0       :: non_neg_integer(),
           max_waiting_time = 0   :: non_neg_integer(),
           min_waiting_time = 0   :: non_neg_integer(),
           step_waiting_time = 0  :: non_neg_integer(),
-          num_of_batch_procs = 0 :: non_neg_integer(),
+          %% batch-procs:
+          count_procs = 0        :: non_neg_integer(),
+          batch_procs = 0        :: non_neg_integer(),
+          max_batch_procs = 0    :: non_neg_integer(),
+          min_batch_procs = 0    :: non_neg_integer(),
+          step_batch_procs = 0   :: non_neg_integer(),
+          %% compaction-info:
           compaction_prms = #compaction_prms{} :: #compaction_prms{},
           start_datetime = 0 :: non_neg_integer(),
           error_pos = 0      :: non_neg_integer(),
@@ -194,6 +203,22 @@ decr_waiting_time(Id) ->
     gen_fsm:send_event(Id, #event_info{event = ?EVENT_DECR_WT}).
 
 
+%% @doc Increase number of batch procs
+%%
+-spec(incr_batch_procs(Id) ->
+             ok when Id::atom()).
+incr_batch_procs(Id) ->
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_INCR_BP}).
+
+
+%% @doc Decrease number of batch procs
+%%
+-spec(decr_batch_procs(Id) ->
+             ok when Id::atom()).
+decr_batch_procs(Id) ->
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_DECR_BP}).
+
+
 %%====================================================================
 %% GEN_SERVER CALLBACKS
 %%====================================================================
@@ -208,7 +233,10 @@ init([Id, ObjStorageId, MetaDBId, LoggerId]) ->
                             min_waiting_time   = ?env_min_compaction_waiting_time(),
                             max_waiting_time   = ?env_max_compaction_waiting_time(),
                             step_waiting_time  = ?env_step_compaction_waiting_time(),
-                            num_of_batch_procs = ?env_compaction_batch_procs(),
+                            batch_procs        = ?env_max_batch_procs(),
+                            max_batch_procs    = ?env_max_batch_procs(),
+                            min_batch_procs    = ?env_min_batch_procs(),
+                            step_batch_procs   = ?env_step_batch_procs(),
                             compaction_prms = #compaction_prms{
                                                  key_bin  = <<>>,
                                                  body_bin = <<>>,
@@ -282,7 +310,9 @@ idling(#event_info{event = ?EVENT_RUN,
                           min_waiting_time   = ?env_min_compaction_waiting_time(),
                           max_waiting_time   = ?env_max_compaction_waiting_time(),
                           step_waiting_time  = ?env_step_compaction_waiting_time(),
-                          num_of_batch_procs = ?env_compaction_batch_procs(),
+                          batch_procs        = ?env_max_batch_procs(),
+                          min_batch_procs    = ?env_min_batch_procs(),
+                          step_batch_procs   = ?env_step_batch_procs(),
                           compaction_prms =
                               CompactionPrms#compaction_prms{
                                 num_of_active_objs  = 0,
@@ -337,27 +367,27 @@ running(#event_info{event = ?EVENT_RUN},
 running(#event_info{event = ?EVENT_RUN,
                     is_diagnosing = IsDiagnose},
         #state{id = Id,
-               obj_storage_id = ObjStorageId,
+               obj_storage_id   = ObjStorageId,
                compact_cntl_pid = CompactCntlPid,
-               waiting_time = WaitingTime,
-               num_of_batch_procs = NumOfBatchProcs,
+               waiting_time     = WaitingTime,
+               count_procs      = CountProcs,
+               batch_procs      = BatchProcs,
                compaction_prms  =
                    #compaction_prms{
                       start_lock_offset = StartLockOffset}} = State) ->
     %% Temporally suspend the compaction
     %% in order to decrease i/o load
-    NumOfBatchProcs_1 =
-        case NumOfBatchProcs < 1 of
-            true ->
-                WaitingTime_1 = case WaitingTime of
-                                    0 -> ?DEF_STEP_COMPACTION_WT;
-                                    _ -> WaitingTime
-                                end,
-                timer:sleep(WaitingTime_1),
-                ?env_compaction_batch_procs();
-            false ->
-                NumOfBatchProcs - 1
-        end,
+    CountProcs_1 = case (CountProcs < 1) of
+                       true ->
+                           WaitingTime_1 = case (WaitingTime < 1) of
+                                               true  -> ?DEF_MAX_COMPACTION_WT;
+                                               false -> WaitingTime
+                                           end,
+                           timer:sleep(WaitingTime_1),
+                           BatchProcs;
+                       false ->
+                           CountProcs - 1
+                   end,
 
     {NextStatus, State_3} =
         case catch execute(State#state{is_diagnosing = IsDiagnose}) of
@@ -399,7 +429,7 @@ running(#event_info{event = ?EVENT_RUN,
                 {?ST_IDLING, State_2}
         end,
     {next_state, NextStatus, State_3#state{status = NextStatus,
-                                           num_of_batch_procs = NumOfBatchProcs_1}};
+                                           count_procs = CountProcs_1}};
 
 running(#event_info{event = ?EVENT_SUSPEND}, State) ->
     NextStatus = ?ST_SUSPENDING,
@@ -417,17 +447,20 @@ running(#event_info{event = ?EVENT_INCR_WT}, #state{id = Id,
                                                     is_diagnosing = IsDiagnose,
                                                     waiting_time = WaitingTime,
                                                     max_waiting_time  = MaxWaitingTime,
-                                                    step_waiting_time = StepWaitingTime} = State) ->
-    {IsOverThreshold, WaitingTime_1} =
-        incr_waiting_time_fun(
-          WaitingTime, MaxWaitingTime, StepWaitingTime),
-    NextStatus = case IsOverThreshold of
-                     true ->
-                         ?ST_SUSPENDING;
-                     false ->
-                         ok = run(Id, IsDiagnose),
-                         ?ST_RUNNING
-                 end,
+                                                    step_waiting_time = StepWaitingTime,
+                                                    batch_procs = BatchProcs,
+                                                    min_batch_procs = MinBatchProcs} = State) ->
+    {NextStatus, WaitingTime_1} =
+        case (WaitingTime >= MaxWaitingTime andalso
+              BatchProcs  =< MinBatchProcs) of
+            true ->
+                {?ST_SUSPENDING, MaxWaitingTime};
+            false ->
+                ok = run(Id, IsDiagnose),
+                {?ST_RUNNING,
+                 incr_waiting_time_fun(WaitingTime, MaxWaitingTime, StepWaitingTime)}
+
+        end,
     {next_state, NextStatus, State#state{waiting_time = WaitingTime_1,
                                          status = NextStatus}};
 
@@ -442,6 +475,38 @@ running(#event_info{event = ?EVENT_DECR_WT}, #state{id = Id,
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{waiting_time = WaitingTime_1,
                                          status = NextStatus}};
+
+running(#event_info{event = ?EVENT_INCR_BP}, #state{id = Id,
+                                                    is_diagnosing    = IsDiagnose,
+                                                    batch_procs      = BatchProcs,
+                                                    max_batch_procs  = MaxBatchProcs,
+                                                    step_batch_procs = StepBatchProcs} = State) ->
+    BatchProcs_1 = incr_batch_procs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
+    ok = run(Id, IsDiagnose),
+    NextStatus = ?ST_RUNNING,
+    {next_state, NextStatus, State#state{batch_procs = BatchProcs_1,
+                                         status = NextStatus}};
+
+running(#event_info{event = ?EVENT_DECR_BP}, #state{id = Id,
+                                                    is_diagnosing    = IsDiagnose,
+                                                    batch_procs      = BatchProcs,
+                                                    min_batch_procs  = MinBatchProcs,
+                                                    step_batch_procs = StepBatchProcs,
+                                                    waiting_time     = WaitingTime,
+                                                    max_waiting_time = MaxWaitingTime} = State) ->
+    {NextStatus, BatchProcs_1} =
+        case (WaitingTime >= MaxWaitingTime andalso
+              BatchProcs  =< MinBatchProcs) of
+            true ->
+                {?ST_SUSPENDING, MinBatchProcs};
+            false ->
+                ok = run(Id, IsDiagnose),
+                {?ST_RUNNING,
+                 decr_batch_procs_fun(BatchProcs, MinBatchProcs, StepBatchProcs)}
+        end,
+    {next_state, NextStatus, State#state{batch_procs = BatchProcs_1,
+                                         status = NextStatus}};
+
 running(_, #state{id = Id,
                   is_diagnosing = IsDiagnose} = State) ->
     ok = run(Id, IsDiagnose),
@@ -1078,18 +1143,15 @@ gen_compaction_report(State) ->
 %% @doc Increase the waiting time
 %% @private
 -spec(incr_waiting_time_fun(WaitingTime, MaxWaitingTime, StepWaitingTime) ->
-             {IsOverThreshold, NewWaitingTime} when WaitingTime::non_neg_integer(),
-                                                    MaxWaitingTime::non_neg_integer(),
-                                                    StepWaitingTime::non_neg_integer(),
-                                                    IsOverThreshold::boolean(),
-                                                    NewWaitingTime::non_neg_integer()).
+             NewWaitingTime when WaitingTime::non_neg_integer(),
+                                 MaxWaitingTime::non_neg_integer(),
+                                 StepWaitingTime::non_neg_integer(),
+                                 NewWaitingTime::non_neg_integer()).
 incr_waiting_time_fun(WaitingTime, MaxWaitingTime, StepWaitingTime) ->
     WaitingTime_1 = WaitingTime + StepWaitingTime,
     case (WaitingTime_1 > MaxWaitingTime) of
-        true ->
-            {true, MaxWaitingTime};
-        false ->
-            {false, WaitingTime_1}
+        true  -> MaxWaitingTime;
+        false -> WaitingTime_1
     end.
 
 
@@ -1103,8 +1165,35 @@ incr_waiting_time_fun(WaitingTime, MaxWaitingTime, StepWaitingTime) ->
 decr_waiting_time_fun(WaitingTime, MinWaitingTime, StepWaitingTime) ->
     WaitingTime_1 = WaitingTime - StepWaitingTime,
     case (WaitingTime_1 < MinWaitingTime) of
-        true ->
-            MinWaitingTime;
-        false ->
-            WaitingTime_1
+        true  -> MinWaitingTime;
+        false -> WaitingTime_1
+    end.
+
+
+%% @doc Increase the batch procs
+%% @private
+-spec(incr_batch_procs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs) ->
+             NewBatchProcs when BatchProcs::non_neg_integer(),
+                                MaxBatchProcs::non_neg_integer(),
+                                StepBatchProcs::non_neg_integer(),
+                                NewBatchProcs::non_neg_integer()).
+incr_batch_procs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs) ->
+    BatchProcs_1 = BatchProcs + StepBatchProcs,
+    case (BatchProcs_1 > MaxBatchProcs) of
+        true  -> MaxBatchProcs;
+        false -> BatchProcs_1
+    end.
+
+%% @doc Increase the batch procs
+%% @private
+-spec(decr_batch_procs_fun(BatchProcs, MinBatchProcs, StepBatchProcs) ->
+             NewBatchProcs when BatchProcs::non_neg_integer(),
+                                MinBatchProcs::non_neg_integer(),
+                                StepBatchProcs::non_neg_integer(),
+                                NewBatchProcs::non_neg_integer()).
+decr_batch_procs_fun(BatchProcs, MinBatchProcs, StepBatchProcs) ->
+    BatchProcs_1 = BatchProcs - StepBatchProcs,
+    case (BatchProcs_1 < MinBatchProcs) of
+        true  -> MinBatchProcs;
+        false -> BatchProcs_1
     end.

@@ -173,16 +173,23 @@ compact() ->
 
     %% Change waiting-time of the procs
     ok = leo_compact_fsm_controller:incr_waiting_time(),
+    ok = leo_compact_fsm_controller:decr_batch_procs(),
     timer:sleep(10),
     ok = leo_compact_fsm_controller:incr_waiting_time(),
+    ok = leo_compact_fsm_controller:decr_batch_procs(),
     timer:sleep(10),
     ok = leo_compact_fsm_controller:incr_waiting_time(),
+    ok = leo_compact_fsm_controller:decr_batch_procs(),
     timer:sleep(10),
     ok = leo_compact_fsm_controller:incr_waiting_time(),
-    timer:sleep(1000),
+    ok = leo_compact_fsm_controller:decr_batch_procs(),
+    timer:sleep(3000),
+
     ok = leo_compact_fsm_controller:decr_waiting_time(),
+    ok = leo_compact_fsm_controller:incr_batch_procs(),
     timer:sleep(10),
     ok = leo_compact_fsm_controller:decr_waiting_time(),
+    ok = leo_compact_fsm_controller:incr_batch_procs(),
 
     %% Check comaction status
     ok = check_status(),
@@ -772,7 +779,7 @@ compact_2() ->
     %% confirm whether first compaction have broken avs files or not
     ok = leo_compact_fsm_controller:run(TargetPids, 2, FunHasChargeOfNode),
     ok = check_status(),
-    timer:sleep(3000),
+    timer:sleep(5000),
     {ok, Res3} = leo_object_storage_api:stats(),
     Ret3_1 = get_avs_stats_summary(Res3),
     ?debugVal(Ret3_1),

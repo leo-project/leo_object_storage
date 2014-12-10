@@ -42,7 +42,9 @@
          state/0,
          finish/2, finish/3,
          incr_waiting_time/0,
-         decr_waiting_time/0
+         decr_waiting_time/0,
+         incr_batch_procs/0,
+         decr_batch_procs/0
         ]).
 
 -export([init/1,
@@ -235,6 +237,22 @@ decr_waiting_time() ->
       ?MODULE, #event_info{event = ?EVENT_DECR_WT}, ?DEF_TIMEOUT).
 
 
+%% @doc Request 'increment # of batch procs' to the data-compaction's workers
+-spec(incr_batch_procs() ->
+             term()).
+incr_batch_procs() ->
+    gen_fsm:sync_send_event(
+      ?MODULE, #event_info{event = ?EVENT_INCR_BP}, ?DEF_TIMEOUT).
+
+
+%% @doc Request 'decrement # of batch procs' to the data-compaction's workers
+-spec(decr_batch_procs() ->
+             term()).
+decr_batch_procs() ->
+    gen_fsm:sync_send_event(
+      ?MODULE, #event_info{event = ?EVENT_DECR_BP}, ?DEF_TIMEOUT).
+
+
 %%====================================================================
 %% GEN_SERVER CALLBACKS
 %%====================================================================
@@ -328,6 +346,18 @@ running(#event_info{event = ?EVENT_INCR_WT}, From, #state{child_pids = ChildPids
 
 running(#event_info{event = ?EVENT_DECR_WT}, From, #state{child_pids = ChildPids} = State) ->
     [erlang:send(Pid, ?EVENT_DECR_WT) || {Pid, _} <- orddict:to_list(ChildPids)],
+    gen_fsm:reply(From, ok),
+    NextState = ?ST_RUNNING,
+    {next_state, NextState, State#state{status = NextState}};
+
+running(#event_info{event = ?EVENT_INCR_BP}, From, #state{child_pids = ChildPids} = State) ->
+    [erlang:send(Pid, ?EVENT_INCR_BP) || {Pid, _} <- orddict:to_list(ChildPids)],
+    gen_fsm:reply(From, ok),
+    NextState = ?ST_RUNNING,
+    {next_state, NextState, State#state{status = NextState}};
+
+running(#event_info{event = ?EVENT_DECR_BP}, From, #state{child_pids = ChildPids} = State) ->
+    [erlang:send(Pid, ?EVENT_DECR_BP) || {Pid, _} <- orddict:to_list(ChildPids)],
     gen_fsm:reply(From, ok),
     NextState = ?ST_RUNNING,
     {next_state, NextState, State#state{status = NextState}};
@@ -665,6 +695,13 @@ loop(CallbackFun, TargetId) ->
             operate(Event, TargetId),
             loop(CallbackFun, TargetId);
 
+        incr_batch_procs = Event ->
+            operate(Event, TargetId),
+            loop(CallbackFun, TargetId);
+        decr_batch_procs = Event ->
+            operate(Event, TargetId),
+            loop(CallbackFun, TargetId);
+
         stop ->
             ok;
         _ ->
@@ -681,6 +718,10 @@ operate(?EVENT_INCR_WT, {_,CompactionWorkerId}) ->
     leo_compact_fsm_worker:incr_waiting_time(CompactionWorkerId);
 operate(?EVENT_DECR_WT, {_,CompactionWorkerId}) ->
     leo_compact_fsm_worker:decr_waiting_time(CompactionWorkerId);
+operate(?EVENT_INCR_BP, {_,CompactionWorkerId}) ->
+    leo_compact_fsm_worker:incr_batch_procs(CompactionWorkerId);
+operate(?EVENT_DECR_BP, {_,CompactionWorkerId}) ->
+    leo_compact_fsm_worker:decr_batch_procs(CompactionWorkerId);
 operate(_,_) ->
     ok.
 
