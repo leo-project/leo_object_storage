@@ -36,6 +36,7 @@
 -export([start_link/1]).
 -export([run/0, run/1, run/2, run/3,
          diagnose/0,
+         recover_metadata/0,
          stop/1,
          lock/1,
          suspend/0, resume/0,
@@ -68,6 +69,7 @@
           pid_pairs = []    :: [{pid(), atom()}],
           num_of_concurrency = 1 :: non_neg_integer(),
           is_diagnosing = false     :: boolean(),
+          is_recovering = false :: boolean(),
           callback_fun              :: function() | undefined,
           total_num_of_targets = 0  :: non_neg_integer(),
           reserved_targets = []     :: [atom()],
@@ -89,6 +91,7 @@
           report = #compaction_report{} :: #compaction_report{}|undefined,
           num_of_concurrency = 1         :: pos_integer(),
           is_diagnosing = false :: boolean(),
+          is_recovering = false :: boolean(),
           callback :: function()
          }).
 -define(DEF_TIMEOUT, 3000).
@@ -151,6 +154,22 @@ diagnose() ->
                            target_pids = TargetPids,
                            num_of_concurrency = 1,
                            is_diagnosing = true,
+                           is_recovering = false,
+                           callback      = undefined}, ?DEF_TIMEOUT).
+
+
+%% @doc Request recover metadata to the data-compaction's workers
+%% @end
+-spec(recover_metadata() ->
+             term()).
+recover_metadata() ->
+    TargetPids = leo_object_storage_api:get_object_storage_pid('all'),
+    gen_fsm:sync_send_event(
+      ?MODULE, #event_info{event = ?EVENT_RUN,
+                           target_pids = TargetPids,
+                           num_of_concurrency = 1,
+                           is_diagnosing = true,
+                           is_recovering = true,
                            callback      = undefined}, ?DEF_TIMEOUT).
 
 
@@ -281,6 +300,7 @@ idling(#event_info{event = ?EVENT_RUN,
                    target_pids = TargetPids,
                    num_of_concurrency = NumOfConcurrency,
                    is_diagnosing = IsDiagnose,
+                   is_recovering = IsRecovering,
                    callback      = Callback}, From, #state{server_pairs = ServerPairs} = State) ->
     AllTargets      = leo_object_storage_api:get_object_storage_pid('all'),
     PendingTargets  = State#state.pending_targets,
@@ -303,6 +323,7 @@ idling(#event_info{event = ?EVENT_RUN,
                                    reserved_targets   = ReservedTargets,
                                    num_of_concurrency = NumOfConcurrency,
                                    is_diagnosing      = IsDiagnose,
+                                   is_recovering      = IsRecovering,
                                    callback_fun       = Callback,
                                    start_datetime     = leo_date:now(),
                                    reports = []
@@ -394,9 +415,10 @@ running(#event_info{event = ?EVENT_FINISH,
                                                   locked_targets  = LockedTargets,
                                                   child_pids      = _ChildPids,
                                                   is_diagnosing   = IsDiagnose,
+                                                  is_recovering   = IsRecovering,
                                                   reports         = AccReports} = State) ->
     %% Execute data-compaction of a pending target
-    erlang:send(Pid, {run, Id, IsDiagnose}),
+    erlang:send(Pid, {run, Id, IsDiagnose, IsRecovering}),
     %% Set locked target ids
     LockedTargets_1 = lists:delete(FinishedId, LockedTargets),
     ObjStorageId = leo_misc:get_value(FinishedId, ServerPairs),
@@ -472,7 +494,8 @@ running(_, State) ->
 suspending(#event_info{event = ?EVENT_RESUME}, From, #state{pending_targets = [_|_],
                                                             ongoing_targets = InProgPids,
                                                             child_pids      = ChildPids,
-                                                            is_diagnosing   = IsDiagnose} = State) ->
+                                                            is_diagnosing   = IsDiagnose,
+                                                            is_recovering   = IsRecovering} = State) ->
     TargetPids = State#state.pending_targets,
 
     {NewTargetPids, NewInProgPids, NewChildPids} =
@@ -487,7 +510,7 @@ suspending(#event_info{event = ?EVENT_RESUME}, From, #state{pending_targets = [_
                           {[], InProgPidsIn, orddict:erase(Pid, ChildPidsIn)};
                       _ ->
                           Id = hd(TargetPidsIn),
-                          erlang:send(Pid, {run, Id, IsDiagnose}),
+                          erlang:send(Pid, {run, Id, IsDiagnose, IsRecovering}),
 
                           {lists:delete(Id, TargetPidsIn),
                            [Id|InProgPidsIn], orddict:store(Pid, true, ChildPidsIn)}
@@ -632,19 +655,19 @@ format_status(_Opt, [_PDict, State]) ->
 start_jobs_as_possible(State) ->
     start_jobs_as_possible(State#state{child_pids = []}, 0).
 
-start_jobs_as_possible(#state{
-                          pid_pairs = PidPairs,
-                          pending_targets = [Id|Rest],
-                          ongoing_targets = InProgPids,
-                          num_of_concurrency = NumOfConcurrency,
-                          callback_fun  = CallbackFun,
-                          is_diagnosing = IsDiagnose,
-                          child_pids    = ChildPids} = State, NumChild) when NumChild < NumOfConcurrency ->
+start_jobs_as_possible(#state{pid_pairs = PidPairs,
+                              pending_targets = [Id|Rest],
+                              ongoing_targets = InProgPids,
+                              num_of_concurrency = NumOfConcurrency,
+                              callback_fun  = CallbackFun,
+                              is_diagnosing = IsDiagnose,
+                              is_recovering = IsRecovering,
+                              child_pids    = ChildPids} = State, NumChild) when NumChild < NumOfConcurrency ->
     Pid = spawn(fun() ->
                         loop(CallbackFun)
                 end),
     _Ref = erlang:monitor(process, Pid),
-    erlang:send(Pid, {run, Id, IsDiagnose}),
+    erlang:send(Pid, {run, Id, IsDiagnose, IsRecovering}),
     start_jobs_as_possible(
       State#state{pending_targets = Rest,
                   ongoing_targets = [Id|InProgPids],
@@ -666,10 +689,10 @@ loop(CallbackFun) ->
              ok | {error, any()}).
 loop(CallbackFun, TargetId) ->
     receive
-        {run, Id, IsDiagnose} ->
+        {run, Id, IsDiagnose, IsRecovering} ->
             {ok, Id_1} = leo_object_storage_server:get_compaction_worker(Id),
             case leo_compact_fsm_worker:run(
-                   Id_1, self(), IsDiagnose, CallbackFun) of
+                   Id_1, self(), IsDiagnose, IsRecovering, CallbackFun) of
                 ok ->
                     loop(CallbackFun, {Id, Id_1});
                 {error,_Cause} ->

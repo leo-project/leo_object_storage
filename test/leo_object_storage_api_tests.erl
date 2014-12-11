@@ -60,8 +60,35 @@ diagnosis_test_() ->
              ok
      end,
      [
-      {"test dianosis - irregular case",
+      {"test dianosis",
        {timeout, 1000, fun diagnose/0}}
+     ]}.
+
+recovery_test_() ->
+    {setup,
+     fun ( ) ->
+             ?debugVal("### RECOVERY.START ###"),
+             os:cmd("rm -rf " ++ ?AVS_DIR_FOR_COMPACTION),
+             application:start(sasl),
+             application:start(os_mon),
+             application:start(crypto),
+             application:start(leo_object_storage),
+             ok
+     end,
+     fun (_) ->
+             application:stop(crypto),
+             application:stop(os_mon),
+             application:stop(sasl),
+             timer:sleep(1000),
+             application:stop(leo_object_storage),
+             timer:sleep(1000),
+             ?debugVal("### RECOVERY.END ###"),
+             timer:sleep(5000),
+             ok
+     end,
+     [
+      {"test recoverys",
+       {timeout, 1000, fun recover/0}}
      ]}.
 
 compaction_test_() ->
@@ -86,7 +113,7 @@ compaction_test_() ->
              ok
      end,
      [
-      {"test compaction - irregular case",
+      {"test compaction",
        {timeout, 1000, fun compact/0}}
      ]}.
 
@@ -144,6 +171,62 @@ diagnose() ->
     {ok, State} = leo_compact_fsm_controller:state(),
     ?debugVal(State#compaction_stats.acc_reports),
     ok.
+
+recover() ->
+    %% Launch object-storage
+    leo_object_storage_api:start([{1, ?AVS_DIR_FOR_COMPACTION}]),
+    ?debugVal(leo_compact_fsm_controller:state()),
+
+    ok = put_regular_bin(1, 50),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(36, 25),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin_with_cmeta(51, 50),
+    ok = put_irregular_bin(),
+    ok = put_large_bin(101),
+    ok = leo_object_storage_api:delete({1, <<"TEST_10">>},
+                                       #?OBJECT{method    = delete,
+                                                addr_id   = 1,
+                                                key       = <<"TEST_10">>,
+                                                ksize     = 7,
+                                                data      = <<>>,
+                                                dsize     = 0,
+                                                checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
+                                                timestamp = leo_date:now(),
+                                                clock     = leo_date:clock(),
+                                                del = 1
+                                               }),
+    ok = leo_object_storage_api:delete({1, <<"TEST_50">>},
+                                       #?OBJECT{method    = delete,
+                                                addr_id   = 1,
+                                                key       = <<"TEST_50">>,
+                                                ksize     = 7,
+                                                data      = <<>>,
+                                                dsize     = 0,
+                                                checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
+                                                timestamp = leo_date:now(),
+                                                clock     = leo_date:clock(),
+                                                del = 1
+                                               }),
+
+    %% Execute to diagnose data
+    timer:sleep(3000),
+    ok = leo_compact_fsm_controller:recover_metadata(),
+    ok = check_status(),
+
+    %% Check # of active objects and total of objects
+    timer:sleep(3000),
+    {ok, [#storage_stats{total_num  = TotalNum,
+                         active_num = ActiveNum
+                        }|_]} = leo_object_storage_api:stats(),
+    ?debugVal({TotalNum, ActiveNum}),
+
+    {ok, State} = leo_compact_fsm_controller:state(),
+    ?debugVal(State#compaction_stats.acc_reports),
+
+    ok = check_metadata(101),
+    ok.
+
 
 compact() ->
     %% Launch object-storage
@@ -318,6 +401,18 @@ put_irregular_bin() ->
     _ = leo_object_storage_api:add_incorrect_data(Bin),
     ok.
 
+
+%% @private
+check_metadata(0) ->
+    ok;
+check_metadata(Index) ->
+    KeyBin = list_to_binary(lists:append(["TEST_", integer_to_list(Index)])),
+    case leo_backend_db_api:get('leo_metadata_0', KeyBin) of
+        {ok, _Bin} ->
+            check_metadata(Index - 1);
+        _ ->
+            {error, invalid_key}
+    end.
 
 %%======================================================================
 %% Suite TEST
