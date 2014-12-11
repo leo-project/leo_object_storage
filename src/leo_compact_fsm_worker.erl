@@ -306,12 +306,11 @@ idling(#event_info{event = ?EVENT_RUN,
                           error_pos     = 0,
                           set_errors    = sets:new(),
                           acc_errors    = [],
-                          waiting_time       = ?env_min_compaction_waiting_time(),
                           min_waiting_time   = ?env_min_compaction_waiting_time(),
                           max_waiting_time   = ?env_max_compaction_waiting_time(),
                           step_waiting_time  = ?env_step_compaction_waiting_time(),
-                          batch_procs        = ?env_max_batch_procs(),
                           min_batch_procs    = ?env_min_batch_procs(),
+                          max_batch_procs    = ?env_max_batch_procs(),
                           step_batch_procs   = ?env_step_batch_procs(),
                           compaction_prms =
                               CompactionPrms#compaction_prms{
