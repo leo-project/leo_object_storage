@@ -729,7 +729,7 @@ execute(#state{meta_db_id       = MetaDBId,
                diagnosis_log_id = LoggerId,
                obj_storage_info = StorageInfo,
                is_diagnosing    = IsDiagnosing,
-               is_recovering    = _IsRecovering,
+               is_recovering    = IsRecovering,
                compaction_prms  = CompactionPrms} = State) ->
     %% Initialize set-error property
     State_1 = State#state{set_errors = sets:new()},
@@ -757,8 +757,8 @@ execute(#state{meta_db_id       = MetaDBId,
                                       CallbackFun(Key, NumOfReplicas)
                               end,
 
-            case (is_deleted_rec(MetaDBId, StorageInfo, Metadata)
-                  orelse HasChargeOfNode == false) of
+            case (is_deleted_rec(MetaDBId, StorageInfo, Metadata, IsRecovering)
+                  orelse HasChargeOfNode == false)  of
                 true when IsDiagnosing == false ->
                     execute_1(State_1);
                 true when IsDiagnosing == true ->
@@ -828,8 +828,10 @@ execute_1(State) ->
              {ok, {next|eof, State}} |
              {{error, any()}, State} when Ret::ok|{error,any()},
                                           State::#state{}).
-execute_1(ok, #state{obj_storage_info = StorageInfo,
-                     compaction_prms  = CompactionPrms} = State) ->
+execute_1(ok, #state{meta_db_id       = MetaDBId,
+                     obj_storage_info = StorageInfo,
+                     compaction_prms  = CompactionPrms,
+                     is_recovering    = IsRecovering} = State) ->
     erlang:garbage_collect(self()),
     ReadHandler = StorageInfo#backend_info.read_handler,
     NextOffset  = CompactionPrms#compaction_prms.next_offset,
@@ -838,6 +840,28 @@ execute_1(ok, #state{obj_storage_info = StorageInfo,
            ReadHandler, NextOffset) of
         {ok, NewMetadata, [_HeaderValue, NewKeyValue,
                            NewBodyValue, NewNextOffset]} ->
+            %% If is-recovering is true, put a metadata to the backend-db
+            case IsRecovering of
+                true ->
+                    #?METADATA{key = Key,
+                               addr_id = AddrId} = NewMetadata,
+                    KeyOfMetadata = ?gen_backend_key(
+                                       StorageInfo#backend_info.avs_ver_prv, AddrId, Key),
+                    case leo_backend_db_api:put(
+                           MetaDBId, KeyOfMetadata, term_to_binary(NewMetadata)) of
+                        ok ->
+                            ok;
+                        {error, Cause} ->
+                            error_logger:info_msg("~p,~p,~p,~p~n",
+                                                  [{module, ?MODULE_STRING},
+                                                   {function, "execute_1/2"},
+                                                   {line, ?LINE}, {body, Cause}]),
+                            void
+                    end;
+                false ->
+                    void
+            end,
+            %% Goto next object
             {ok, State_1} = output_accumulated_errors(State, NextOffset),
             {ok, {next, State_1#state{
                           error_pos  = 0,
@@ -1024,15 +1048,18 @@ output_accumulated_errors(#state{obj_storage_id = ObjStorageId,
 
 %% @doc Is deleted a record ?
 %% @private
--spec(is_deleted_rec(MetaDBId, StorageInfo, Metadata) ->
+-spec(is_deleted_rec(MetaDBId, StorageInfo, Metadata, IsRecovering) ->
              boolean() when MetaDBId::atom(),
                             StorageInfo::#backend_info{},
-                            Metadata::#?METADATA{}).
-is_deleted_rec(_MetaDBId, _StorageInfo, #?METADATA{del = ?DEL_TRUE}) ->
+                            Metadata::#?METADATA{},
+                            IsRecovering::boolean()).
+is_deleted_rec(_MetaDBId,_StorageInfo, #?METADATA{del = ?DEL_TRUE},_IsRecovering) ->
     true;
+is_deleted_rec(_MetaDBId,_StorageInfo,_Metdata, true) ->
+    false;
 is_deleted_rec(MetaDBId, #backend_info{avs_ver_prv = AVSVsnBinPrv} = StorageInfo,
-               #?METADATA{key      = Key,
-                          addr_id  = AddrId} = MetaFromAvs) ->
+               #?METADATA{key = Key,
+                          addr_id = AddrId} = MetaFromAvs,_IsRecovering) ->
     KeyOfMetadata = ?gen_backend_key(AVSVsnBinPrv, AddrId, Key),
     case leo_backend_db_api:get(MetaDBId, KeyOfMetadata) of
         {ok, MetaBin} ->
@@ -1040,7 +1067,7 @@ is_deleted_rec(MetaDBId, #backend_info{avs_ver_prv = AVSVsnBinPrv} = StorageInfo
                 #?METADATA{del = ?DEL_TRUE} ->
                     true;
                 Metadata ->
-                    is_deleted_rec(MetaDBId, StorageInfo, MetaFromAvs, Metadata)
+                    is_deleted_rec_1(MetaDBId, StorageInfo, MetaFromAvs, Metadata)
             end;
         not_found ->
             true;
@@ -1049,16 +1076,16 @@ is_deleted_rec(MetaDBId, #backend_info{avs_ver_prv = AVSVsnBinPrv} = StorageInfo
     end.
 
 %% @private
--spec(is_deleted_rec(MetaDBId, StorageInfo, Metadata_1, Metadata_2) ->
+-spec(is_deleted_rec_1(MetaDBId, StorageInfo, Metadata_1, Metadata_2) ->
              boolean() when MetaDBId::atom(),
                             StorageInfo::#backend_info{},
                             Metadata_1::#?METADATA{},
                             Metadata_2::#?METADATA{}).
-is_deleted_rec(_MetaDBId,_StorageInfo,
-               #?METADATA{offset = Offset_1},
-               #?METADATA{offset = Offset_2}) when Offset_1 /= Offset_2 ->
+is_deleted_rec_1(_MetaDBId,_StorageInfo,
+                 #?METADATA{offset = Offset_1},
+                 #?METADATA{offset = Offset_2}) when Offset_1 /= Offset_2 ->
     true;
-is_deleted_rec(_MetaDBId,_StorageInfo,_Meta_1,_Meta_2) ->
+is_deleted_rec_1(_MetaDBId,_StorageInfo,_Meta_1,_Meta_2) ->
     false.
 
 
