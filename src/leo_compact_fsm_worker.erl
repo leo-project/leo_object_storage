@@ -34,7 +34,7 @@
 
 %% API
 -export([start_link/4, stop/1]).
--export([run/2, run/4,
+-export([run/3, run/5,
          suspend/1,
          resume/1,
          state/2,
@@ -66,6 +66,7 @@
           controller_pid :: pid(),
           client_pid     :: pid(),
           is_diagnosing = false :: boolean(),
+          is_recovering = false :: boolean(),
           callback :: function()
          }).
 
@@ -92,6 +93,7 @@
           status = ?ST_IDLING    :: compaction_state(),
           is_locked = false      :: boolean(),
           is_diagnosing = false  :: boolean(),
+          is_recovering = false  :: boolean(),
           %% waiting_time:
           waiting_time = 0       :: non_neg_integer(),
           max_waiting_time = 0   :: non_neg_integer(),
@@ -140,23 +142,27 @@ stop(Id) ->
 
 %% @doc Run the process
 %%
--spec(run(Id, IsDiagnose) ->
+-spec(run(Id, IsDiagnosing, IsRecovering) ->
              ok | {error, any()} when Id::atom(),
-                                      IsDiagnose::boolean()).
-run(Id, IsDiagnose) ->
+                                      IsDiagnosing::boolean(),
+                                      IsRecovering::boolean()).
+run(Id, IsDiagnosing, IsRecovering) ->
     gen_fsm:send_event(Id, #event_info{event = ?EVENT_RUN,
-                                       is_diagnosing = IsDiagnose
+                                       is_diagnosing = IsDiagnosing,
+                                       is_recovering = IsRecovering
                                       }).
 
--spec(run(Id, ControllerPid, IsDiagnose, CallbackFun) ->
+-spec(run(Id, ControllerPid, IsDiagnosing, IsRecovering, CallbackFun) ->
              ok | {error, any()} when Id::atom(),
                                       ControllerPid::pid(),
-                                      IsDiagnose::boolean(),
+                                      IsDiagnosing::boolean(),
+                                      IsRecovering::boolean(),
                                       CallbackFun::function()).
-run(Id, ControllerPid, IsDiagnose, CallbackFun) ->
+run(Id, ControllerPid, IsDiagnosing, IsRecovering, CallbackFun) ->
     gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_RUN,
                                             controller_pid = ControllerPid,
-                                            is_diagnosing  = IsDiagnose,
+                                            is_diagnosing  = IsDiagnosing,
+                                            is_recovering  = IsRecovering,
                                             callback = CallbackFun}, ?DEF_TIMEOUT).
 
 
@@ -295,14 +301,16 @@ format_status(_Opt, [_PDict, State]) ->
                                                                 State::#state{}).
 idling(#event_info{event = ?EVENT_RUN,
                    controller_pid = ControllerPid,
-                   is_diagnosing  = IsDiagnose,
+                   is_diagnosing  = IsDiagnosing,
+                   is_recovering  = IsRecovering,
                    callback = CallbackFun}, From, #state{id = Id,
                                                          compaction_prms =
                                                              CompactionPrms} = State) ->
     NextStatus = ?ST_RUNNING,
     State_1 = State#state{compact_cntl_pid = ControllerPid,
                           status        = NextStatus,
-                          is_diagnosing = IsDiagnose,
+                          is_diagnosing = IsDiagnosing,
+                          is_recovering = IsRecovering,
                           error_pos     = 0,
                           set_errors    = sets:new(),
                           acc_errors    = [],
@@ -324,7 +332,7 @@ idling(#event_info{event = ?EVENT_RUN,
     case prepare(State_1) of
         {ok, State_2} ->
             gen_fsm:reply(From, ok),
-            ok = run(Id, IsDiagnose),
+            ok = run(Id, IsDiagnosing, IsRecovering),
             {next_state, NextStatus, State_2};
         {{error, Cause}, #state{obj_storage_info =
                                     #backend_info{write_handler = WriteHandler,
@@ -364,7 +372,8 @@ running(#event_info{event = ?EVENT_RUN},
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus}};
 running(#event_info{event = ?EVENT_RUN,
-                    is_diagnosing = IsDiagnose},
+                    is_diagnosing = IsDiagnosing,
+                    is_recovering = IsRecovering},
         #state{id = Id,
                obj_storage_id   = ObjStorageId,
                compact_cntl_pid = CompactCntlPid,
@@ -389,7 +398,8 @@ running(#event_info{event = ?EVENT_RUN,
                    end,
 
     {NextStatus, State_3} =
-        case catch execute(State#state{is_diagnosing = IsDiagnose}) of
+        case catch execute(State#state{is_diagnosing = IsDiagnosing,
+                                       is_recovering = IsRecovering}) of
             %% Lock the object-storage in order to
             %%     reject requests during the data-compaction
             {ok, {next, #state{is_locked = IsLocked,
@@ -404,11 +414,11 @@ running(#event_info{event = ?EVENT_RUN,
                                   erlang:send(CompactCntlPid, {lock, Id}),
                                   State_1#state{is_locked = true}
                           end,
-                ok = run(Id, IsDiagnose),
+                ok = run(Id, IsDiagnosing, IsRecovering),
                 {?ST_RUNNING, State_2};
             %% Execute the data-compaction repeatedly
             {ok, {next, State_1}} ->
-                ok = run(Id, IsDiagnose),
+                ok = run(Id, IsDiagnosing, IsRecovering),
                 {?ST_RUNNING, State_1};
 
             %% An unxepected error has occured
@@ -436,14 +446,16 @@ running(#event_info{event = ?EVENT_SUSPEND}, State) ->
 
 running(#event_info{event = ?EVENT_STATE,
                     client_pid = Client}, #state{id = Id,
-                                                 is_diagnosing = IsDiagnose} = State) ->
-    ok = run(Id, IsDiagnose),
+                                                 is_diagnosing = IsDiagnosing,
+                                                 is_recovering = IsRecovering} = State) ->
+    ok = run(Id, IsDiagnosing, IsRecovering),
     NextStatus = ?ST_RUNNING,
     erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#state{status = NextStatus}};
 
 running(#event_info{event = ?EVENT_INCR_WT}, #state{id = Id,
-                                                    is_diagnosing = IsDiagnose,
+                                                    is_diagnosing = IsDiagnosing,
+                                                    is_recovering = IsRecovering,
                                                     waiting_time = WaitingTime,
                                                     max_waiting_time  = MaxWaitingTime,
                                                     step_waiting_time = StepWaitingTime,
@@ -455,7 +467,7 @@ running(#event_info{event = ?EVENT_INCR_WT}, #state{id = Id,
             true ->
                 {?ST_SUSPENDING, MaxWaitingTime};
             false ->
-                ok = run(Id, IsDiagnose),
+                ok = run(Id, IsDiagnosing, IsRecovering),
                 {?ST_RUNNING,
                  incr_waiting_time_fun(WaitingTime, MaxWaitingTime, StepWaitingTime)}
 
@@ -464,30 +476,33 @@ running(#event_info{event = ?EVENT_INCR_WT}, #state{id = Id,
                                          status = NextStatus}};
 
 running(#event_info{event = ?EVENT_DECR_WT}, #state{id = Id,
-                                                    is_diagnosing = IsDiagnose,
+                                                    is_diagnosing = IsDiagnosing,
+                                                    is_recovering = IsRecovering,
                                                     waiting_time = WaitingTime,
                                                     min_waiting_time  = MinWaitingTime,
                                                     step_waiting_time = StepWaitingTime} = State) ->
     WaitingTime_1 = decr_waiting_time_fun(
                       WaitingTime, MinWaitingTime, StepWaitingTime),
-    ok = run(Id, IsDiagnose),
+    ok = run(Id, IsDiagnosing, IsRecovering),
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{waiting_time = WaitingTime_1,
                                          status = NextStatus}};
 
 running(#event_info{event = ?EVENT_INCR_BP}, #state{id = Id,
-                                                    is_diagnosing    = IsDiagnose,
+                                                    is_diagnosing    = IsDiagnosing,
+                                                    is_recovering    = IsRecovering,
                                                     batch_procs      = BatchProcs,
                                                     max_batch_procs  = MaxBatchProcs,
                                                     step_batch_procs = StepBatchProcs} = State) ->
     BatchProcs_1 = incr_batch_procs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
-    ok = run(Id, IsDiagnose),
+    ok = run(Id, IsDiagnosing, IsRecovering),
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{batch_procs = BatchProcs_1,
                                          status = NextStatus}};
 
 running(#event_info{event = ?EVENT_DECR_BP}, #state{id = Id,
-                                                    is_diagnosing    = IsDiagnose,
+                                                    is_diagnosing    = IsDiagnosing,
+                                                    is_recovering    = IsRecovering,
                                                     batch_procs      = BatchProcs,
                                                     min_batch_procs  = MinBatchProcs,
                                                     step_batch_procs = StepBatchProcs,
@@ -499,7 +514,7 @@ running(#event_info{event = ?EVENT_DECR_BP}, #state{id = Id,
             true ->
                 {?ST_SUSPENDING, MinBatchProcs};
             false ->
-                ok = run(Id, IsDiagnose),
+                ok = run(Id, IsDiagnosing, IsRecovering),
                 {?ST_RUNNING,
                  decr_batch_procs_fun(BatchProcs, MinBatchProcs, StepBatchProcs)}
         end,
@@ -507,8 +522,9 @@ running(#event_info{event = ?EVENT_DECR_BP}, #state{id = Id,
                                          status = NextStatus}};
 
 running(_, #state{id = Id,
-                  is_diagnosing = IsDiagnose} = State) ->
-    ok = run(Id, IsDiagnose),
+                  is_diagnosing = IsDiagnosing,
+                  is_recovering = IsRecovering} = State) ->
+    ok = run(Id, IsDiagnosing, IsRecovering),
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
 
@@ -516,9 +532,10 @@ running(_, #state{id = Id,
 -spec(running( _, _, #state{}) ->
              {next_state, ?ST_SUSPENDING|?ST_RUNNING, #state{}}).
 running(_, From, #state{id = Id,
-                        is_diagnosing = IsDiagnose} = State) ->
+                        is_diagnosing = IsDiagnosing,
+                        is_recovering = IsRecovering} = State) ->
     gen_fsm:reply(From, {error, badstate}),
-    ok = run(Id, IsDiagnose),
+    ok = run(Id, IsDiagnosing, IsRecovering),
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
 
@@ -539,7 +556,8 @@ suspending(#event_info{event = ?EVENT_STATE,
     {next_state, NextStatus, State#state{status = NextStatus}};
 
 suspending(#event_info{event = ?EVENT_DECR_WT}, #state{id = Id,
-                                                       is_diagnosing = IsDiagnose,
+                                                       is_diagnosing = IsDiagnosing,
+                                                       is_recovering = IsRecovering,
                                                        waiting_time  = WaitingTime,
                                                        min_waiting_time  = MinWaitingTime,
                                                        step_waiting_time = StepWaitingTime} = State) ->
@@ -550,7 +568,7 @@ suspending(#event_info{event = ?EVENT_DECR_WT}, #state{id = Id,
     %% resume the data-compaction
     NextStatus = ?ST_RUNNING,
     timer:apply_after(
-      timer:seconds(1), ?MODULE, run, [Id, IsDiagnose]),
+      timer:seconds(1), ?MODULE, run, [Id, IsDiagnosing, IsRecovering]),
     {next_state, NextStatus, State#state{waiting_time = WaitingTime_1,
                                          status = NextStatus}};
 suspending(_, State) ->
@@ -563,13 +581,14 @@ suspending(_, State) ->
                                                                     From::{pid(),Tag::atom()},
                                                                     State::#state{}).
 suspending(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id,
-                                                            is_diagnosing = IsDiagnose} = State) ->
+                                                            is_diagnosing = IsDiagnosing,
+                                                            is_recovering = IsRecovering} = State) ->
     %% resume the data-compaction
     gen_fsm:reply(From, ok),
 
     NextStatus = ?ST_RUNNING,
     timer:apply_after(
-      timer:seconds(1), ?MODULE, run, [Id, IsDiagnose]),
+      timer:seconds(1), ?MODULE, run, [Id, IsDiagnosing, IsRecovering]),
     {next_state, NextStatus, State#state{status = NextStatus}};
 
 suspending(_, From, State) ->
@@ -709,7 +728,8 @@ prepare_1(LinkedPath, FilePath, #state{meta_db_id = MetaDBId,
 execute(#state{meta_db_id       = MetaDBId,
                diagnosis_log_id = LoggerId,
                obj_storage_info = StorageInfo,
-               is_diagnosing    = IsDiagnose,
+               is_diagnosing    = IsDiagnosing,
+               is_recovering    = _IsRecovering,
                compaction_prms  = CompactionPrms} = State) ->
     %% Initialize set-error property
     State_1 = State#state{set_errors = sets:new()},
@@ -739,9 +759,9 @@ execute(#state{meta_db_id       = MetaDBId,
 
             case (is_deleted_rec(MetaDBId, StorageInfo, Metadata)
                   orelse HasChargeOfNode == false) of
-                true when IsDiagnose == false ->
+                true when IsDiagnosing == false ->
                     execute_1(State_1);
-                true when IsDiagnose == true ->
+                true when IsDiagnosing == true ->
                     ok = output_diagnosis_log(LoggerId, Metadata),
                     execute_1(State_1#state{
                                 compaction_prms = CompactionPrms#compaction_prms{
@@ -752,7 +772,7 @@ execute(#state{meta_db_id       = MetaDBId,
                 %%
                 %% For data-compaction processing
                 %%
-                false when IsDiagnose == false ->
+                false when IsDiagnosing == false ->
                     %% Insert into the temporary object-container.
                     {Ret_1, NewState} =
                         case leo_object_storage_haystack:put_obj_to_new_cntnr(
@@ -779,7 +799,7 @@ execute(#state{meta_db_id       = MetaDBId,
                 %%
                 %% For diagnosis processing
                 %%
-                false when IsDiagnose == true ->
+                false when IsDiagnosing == true ->
                     ok = output_diagnosis_log(LoggerId, Metadata),
                     {Ret_1, NewState} = execute_2(
                                           ok, CompactionPrms, Metadata,
@@ -901,7 +921,8 @@ finish(#state{obj_storage_id   = ObjStorageId,
 
 %% @private
 after_execute(Ret, #state{obj_storage_info = StorageInfo,
-                          is_diagnosing    = IsDiagnose,
+                          is_diagnosing    = IsDiagnosing,
+                          is_recovering    = _IsRecovering,
                           diagnosis_log_id = LoggerId} = State) ->
     %% Close file handlers
     ReadHandler  = StorageInfo#backend_info.read_handler,
@@ -909,7 +930,7 @@ after_execute(Ret, #state{obj_storage_info = StorageInfo,
     catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
 
     %% rotate the diagnosis-log
-    case IsDiagnose of
+    case IsDiagnosing of
         true when LoggerId /= undefined ->
             leo_logger_client_base:force_rotation(LoggerId);
         _ ->
@@ -1052,6 +1073,7 @@ gen_compaction_report(State) ->
                                             avs_ver_cur = AVSVerCur},
            start_datetime = StartDateTime,
            is_diagnosing  = IsDiagnosing,
+           is_recovering  = _IsRecovering,
            acc_errors     = AccErrors,
            result = Ret} = State,
 

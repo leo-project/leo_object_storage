@@ -48,7 +48,9 @@
 -export([compact_data/0, compact_data/1,
          compact_data/2, compact_data/3,
          diagnose_data/0,
-         diagnose_data/1
+         diagnose_data/1,
+         recover_metadata/0,
+         recover_metadata/1
         ]).
 
 -ifdef(TEST).
@@ -365,6 +367,24 @@ diagnose_data(Path) ->
         Error ->
             Error
     end.
+
+
+%% @doc Diagnode the data
+-spec(recover_metadata() ->
+             term()).
+recover_metadata() ->
+    leo_compact_fsm_controller:recover_metadata().
+
+-spec(recover_metadata(Path) ->
+             ok | {error, any()} when Path::string()).
+recover_metadata(Path) ->
+    case start_with_path(Path) of
+        ok ->
+            leo_compact_fsm_controller:recover_metadata();
+        Error ->
+            Error
+    end.
+
 
 %%--------------------------------------------------------------------
 %% INNTERNAL FUNCTIONS
