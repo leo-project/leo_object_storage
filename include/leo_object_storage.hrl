@@ -48,22 +48,26 @@
 
 -ifdef(TEST).
 -define(DEF_MIN_COMPACTION_WT,  0).    %% 0msec
+-define(DEF_REG_COMPACTION_WT,  100).  %% 100msec
 -define(DEF_MAX_COMPACTION_WT,  300).  %% 300msec
 -define(DEF_STEP_COMPACTION_WT, 100).  %% 100msec
 -else.
--define(DEF_MIN_COMPACTION_WT,  0).    %% 0msec
+-define(DEF_MIN_COMPACTION_WT,  100).  %% 100msec
+-define(DEF_REG_COMPACTION_WT,  300).  %% 300msec
 -define(DEF_MAX_COMPACTION_WT,  1000). %% 1000msec
 -define(DEF_STEP_COMPACTION_WT, 100).  %% 100msec
 -endif.
 
 -ifdef(TEST).
--define(DEF_MIN_COMPACTION_BP,  10).  %% 10
--define(DEF_MAX_COMPACTION_BP,  150). %% 200
--define(DEF_STEP_COMPACTION_BP, 100). %% 100
+-define(DEF_MIN_COMPACTION_BP,   10). %% 10
+-define(DEF_REG_COMPACTION_BP,   50). %% 50
+-define(DEF_MAX_COMPACTION_BP,  150). %% 150
+-define(DEF_STEP_COMPACTION_BP,  50). %% 100
 -else.
--define(DEF_MIN_COMPACTION_BP,  10).    %% 10
--define(DEF_MAX_COMPACTION_BP,  1000). %% 1000
--define(DEF_STEP_COMPACTION_BP, 100).   %% 100
+-define(DEF_MIN_COMPACTION_BP,    1000). %%   1,000
+-define(DEF_REG_COMPACTION_BP,   10000). %%  10,000
+-define(DEF_MAX_COMPACTION_BP,  100000). %% 100,000
+-define(DEF_STEP_COMPACTION_BP,   1000). %%   1,000
 -endif.
 
 
@@ -396,6 +400,15 @@
                 ?DEF_MIN_COMPACTION_WT
         end).
 
+-define(env_regular_compaction_waiting_time(),
+        case application:get_env(leo_object_storage,
+                                 regular_compaction_waiting_time) of
+            {ok, EnvRegCompactionWT} when is_integer(EnvRegCompactionWT) ->
+                EnvRegCompactionWT;
+            _ ->
+                ?DEF_REG_COMPACTION_WT
+        end).
+
 -define(env_max_compaction_waiting_time(),
         case application:get_env(leo_object_storage,
                                  max_compaction_waiting_time) of
@@ -421,6 +434,15 @@
                 EnvMaxCompactionBP;
             _ ->
                 ?DEF_MAX_COMPACTION_BP
+        end).
+
+-define(env_regular_batch_procs(),
+        case application:get_env(leo_object_storage,
+                                 regular_batch_procs) of
+            {ok, EnvRegCompactionBP} when is_integer(EnvRegCompactionBP) ->
+                EnvRegCompactionBP;
+            _ ->
+                ?DEF_REG_COMPACTION_BP
         end).
 
 -define(env_min_batch_procs(),
