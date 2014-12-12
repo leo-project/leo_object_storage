@@ -38,10 +38,8 @@
          suspend/1,
          resume/1,
          state/2,
-         incr_waiting_time/1,
-         decr_waiting_time/1,
-         incr_batch_procs/1,
-         decr_batch_procs/1
+         incr_interval/1, decr_interval/1,
+         incr_batch_of_msgs/1, decr_batch_of_msgs/1
         ]).
 
 %% gen_fsm callbacks
@@ -195,33 +193,33 @@ state(Id, Client) ->
 
 %% @doc Increase waiting time of data-compaction
 %%
--spec(incr_waiting_time(Id) ->
+-spec(incr_interval(Id) ->
              ok when Id::atom()).
-incr_waiting_time(Id) ->
+incr_interval(Id) ->
     gen_fsm:send_event(Id, #event_info{event = ?EVENT_INCR_WT}).
 
 
 %% @doc Decrease waiting time of data-compaction
 %%
--spec(decr_waiting_time(Id) ->
+-spec(decr_interval(Id) ->
              ok when Id::atom()).
-decr_waiting_time(Id) ->
+decr_interval(Id) ->
     gen_fsm:send_event(Id, #event_info{event = ?EVENT_DECR_WT}).
 
 
 %% @doc Increase number of batch procs
 %%
--spec(incr_batch_procs(Id) ->
+-spec(incr_batch_of_msgs(Id) ->
              ok when Id::atom()).
-incr_batch_procs(Id) ->
+incr_batch_of_msgs(Id) ->
     gen_fsm:send_event(Id, #event_info{event = ?EVENT_INCR_BP}).
 
 
 %% @doc Decrease number of batch procs
 %%
--spec(decr_batch_procs(Id) ->
+-spec(decr_batch_of_msgs(Id) ->
              ok when Id::atom()).
-decr_batch_procs(Id) ->
+decr_batch_of_msgs(Id) ->
     gen_fsm:send_event(Id, #event_info{event = ?EVENT_DECR_BP}).
 
 
@@ -360,7 +358,7 @@ idling(#event_info{event = ?EVENT_INCR_WT}, #state{ waiting_time = WaitingTime,
                                                     max_waiting_time  = MaxWaitingTime,
                                                     step_waiting_time = StepWaitingTime} = State) ->
     NextStatus = ?ST_IDLING,
-    WaitingTime_1 = incr_waiting_time_fun(WaitingTime, MaxWaitingTime, StepWaitingTime),
+    WaitingTime_1 = incr_interval_fun(WaitingTime, MaxWaitingTime, StepWaitingTime),
     {next_state, NextStatus, State#state{waiting_time = WaitingTime_1,
                                          status = NextStatus}};
 
@@ -368,7 +366,7 @@ idling(#event_info{event = ?EVENT_DECR_WT}, #state{waiting_time = WaitingTime,
                                                    min_waiting_time  = MinWaitingTime,
                                                    step_waiting_time = StepWaitingTime} = State) ->
     NextStatus = ?ST_IDLING,
-    WaitingTime_1 = decr_waiting_time_fun(WaitingTime, MinWaitingTime, StepWaitingTime),
+    WaitingTime_1 = decr_interval_fun(WaitingTime, MinWaitingTime, StepWaitingTime),
     {next_state, NextStatus, State#state{waiting_time = WaitingTime_1,
                                          status = NextStatus}};
 
@@ -376,7 +374,7 @@ idling(#event_info{event = ?EVENT_INCR_BP}, #state{batch_procs      = BatchProcs
                                                    max_batch_procs  = MaxBatchProcs,
                                                    step_batch_procs = StepBatchProcs} = State) ->
     NextStatus = ?ST_IDLING,
-    BatchProcs_1 = incr_batch_procs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
+    BatchProcs_1 = incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
     {next_state, NextStatus, State#state{batch_procs = BatchProcs_1,
                                          status = NextStatus}};
 
@@ -384,7 +382,7 @@ idling(#event_info{event = ?EVENT_DECR_BP}, #state{batch_procs      = BatchProcs
                                                    min_batch_procs  = MinBatchProcs,
                                                    step_batch_procs = StepBatchProcs} = State) ->
     NextStatus = ?ST_IDLING,
-    BatchProcs_1 = decr_batch_procs_fun(BatchProcs, MinBatchProcs, StepBatchProcs),
+    BatchProcs_1 = decr_batch_of_msgs_fun(BatchProcs, MinBatchProcs, StepBatchProcs),
     {next_state, NextStatus, State#state{batch_procs = BatchProcs_1,
                                          status = NextStatus}};
 idling(_, State) ->
@@ -502,7 +500,7 @@ running(#event_info{event = ?EVENT_INCR_WT}, #state{id = Id,
             false ->
                 ok = run(Id, IsDiagnosing, IsRecovering),
                 {?ST_RUNNING,
-                 incr_waiting_time_fun(WaitingTime, MaxWaitingTime, StepWaitingTime)}
+                 incr_interval_fun(WaitingTime, MaxWaitingTime, StepWaitingTime)}
         end,
     {next_state, NextStatus, State#state{waiting_time = WaitingTime_1,
                                          status = NextStatus}};
@@ -513,7 +511,7 @@ running(#event_info{event = ?EVENT_DECR_WT}, #state{id = Id,
                                                     waiting_time = WaitingTime,
                                                     min_waiting_time  = MinWaitingTime,
                                                     step_waiting_time = StepWaitingTime} = State) ->
-    WaitingTime_1 = decr_waiting_time_fun(
+    WaitingTime_1 = decr_interval_fun(
                       WaitingTime, MinWaitingTime, StepWaitingTime),
     ok = run(Id, IsDiagnosing, IsRecovering),
     NextStatus = ?ST_RUNNING,
@@ -526,7 +524,7 @@ running(#event_info{event = ?EVENT_INCR_BP}, #state{id = Id,
                                                     batch_procs      = BatchProcs,
                                                     max_batch_procs  = MaxBatchProcs,
                                                     step_batch_procs = StepBatchProcs} = State) ->
-    BatchProcs_1 = incr_batch_procs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
+    BatchProcs_1 = incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
     ok = run(Id, IsDiagnosing, IsRecovering),
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{batch_procs = BatchProcs_1,
@@ -548,7 +546,7 @@ running(#event_info{event = ?EVENT_DECR_BP}, #state{id = Id,
             false ->
                 ok = run(Id, IsDiagnosing, IsRecovering),
                 {?ST_RUNNING,
-                 decr_batch_procs_fun(BatchProcs, MinBatchProcs, StepBatchProcs)}
+                 decr_batch_of_msgs_fun(BatchProcs, MinBatchProcs, StepBatchProcs)}
         end,
     {next_state, NextStatus, State#state{batch_procs = BatchProcs_1,
                                          status = NextStatus}};
@@ -593,7 +591,7 @@ suspending(#event_info{event = ?EVENT_DECR_WT}, #state{id = Id,
                                                        waiting_time  = WaitingTime,
                                                        min_waiting_time  = MinWaitingTime,
                                                        step_waiting_time = StepWaitingTime} = State) ->
-    WaitingTime_1 = decr_waiting_time_fun(WaitingTime, MinWaitingTime, StepWaitingTime),
+    WaitingTime_1 = decr_interval_fun(WaitingTime, MinWaitingTime, StepWaitingTime),
 
     %% resume the data-compaction
     NextStatus = ?ST_RUNNING,
@@ -607,7 +605,7 @@ suspending(#event_info{event = ?EVENT_INCR_BP}, #state{id = Id,
                                                        batch_procs      = BatchProcs,
                                                        max_batch_procs  = MaxBatchProcs,
                                                        step_batch_procs = StepBatchProcs} = State) ->
-    BatchProcs_1 = incr_batch_procs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
+    BatchProcs_1 = incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
 
     %% resume the data-compaction
     NextStatus = ?ST_RUNNING,
@@ -1234,12 +1232,12 @@ gen_compaction_report(State) ->
 
 %% @doc Increase the waiting time
 %% @private
--spec(incr_waiting_time_fun(WaitingTime, MaxWaitingTime, StepWaitingTime) ->
+-spec(incr_interval_fun(WaitingTime, MaxWaitingTime, StepWaitingTime) ->
              NewWaitingTime when WaitingTime::non_neg_integer(),
                                  MaxWaitingTime::non_neg_integer(),
                                  StepWaitingTime::non_neg_integer(),
                                  NewWaitingTime::non_neg_integer()).
-incr_waiting_time_fun(WaitingTime, MaxWaitingTime, StepWaitingTime) ->
+incr_interval_fun(WaitingTime, MaxWaitingTime, StepWaitingTime) ->
     WaitingTime_1 = WaitingTime + StepWaitingTime,
     case (WaitingTime_1 > MaxWaitingTime) of
         true  -> MaxWaitingTime;
@@ -1249,12 +1247,12 @@ incr_waiting_time_fun(WaitingTime, MaxWaitingTime, StepWaitingTime) ->
 
 %% @doc Decrease the waiting time
 %% @private
--spec(decr_waiting_time_fun(WaitingTime, MinWaitingTime, StepWaitingTime) ->
+-spec(decr_interval_fun(WaitingTime, MinWaitingTime, StepWaitingTime) ->
              NewWaitingTime when WaitingTime::non_neg_integer(),
                                  MinWaitingTime::non_neg_integer(),
                                  StepWaitingTime::non_neg_integer(),
                                  NewWaitingTime::non_neg_integer()).
-decr_waiting_time_fun(WaitingTime, MinWaitingTime, StepWaitingTime) ->
+decr_interval_fun(WaitingTime, MinWaitingTime, StepWaitingTime) ->
     WaitingTime_1 = WaitingTime - StepWaitingTime,
     case (WaitingTime_1 < MinWaitingTime) of
         true  -> MinWaitingTime;
@@ -1264,12 +1262,12 @@ decr_waiting_time_fun(WaitingTime, MinWaitingTime, StepWaitingTime) ->
 
 %% @doc Increase the batch procs
 %% @private
--spec(incr_batch_procs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs) ->
+-spec(incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs) ->
              NewBatchProcs when BatchProcs::non_neg_integer(),
                                 MaxBatchProcs::non_neg_integer(),
                                 StepBatchProcs::non_neg_integer(),
                                 NewBatchProcs::non_neg_integer()).
-incr_batch_procs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs) ->
+incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs) ->
     BatchProcs_1 = BatchProcs + StepBatchProcs,
     case (BatchProcs_1 > MaxBatchProcs) of
         true  -> MaxBatchProcs;
@@ -1278,12 +1276,12 @@ incr_batch_procs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs) ->
 
 %% @doc Increase the batch procs
 %% @private
--spec(decr_batch_procs_fun(BatchProcs, MinBatchProcs, StepBatchProcs) ->
+-spec(decr_batch_of_msgs_fun(BatchProcs, MinBatchProcs, StepBatchProcs) ->
              NewBatchProcs when BatchProcs::non_neg_integer(),
                                 MinBatchProcs::non_neg_integer(),
                                 StepBatchProcs::non_neg_integer(),
                                 NewBatchProcs::non_neg_integer()).
-decr_batch_procs_fun(BatchProcs, MinBatchProcs, StepBatchProcs) ->
+decr_batch_of_msgs_fun(BatchProcs, MinBatchProcs, StepBatchProcs) ->
     BatchProcs_1 = BatchProcs - StepBatchProcs,
     case (BatchProcs_1 < MinBatchProcs) of
         true  -> MinBatchProcs;

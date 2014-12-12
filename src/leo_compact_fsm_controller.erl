@@ -42,10 +42,10 @@
          suspend/0, resume/0,
          state/0,
          finish/2, finish/3,
-         incr_waiting_time/0,
-         decr_waiting_time/0,
-         incr_batch_procs/0,
-         decr_batch_procs/0
+         incr_interval/0,
+         decr_interval/0,
+         incr_batch_of_msgs/0,
+         decr_batch_of_msgs/0
         ]).
 
 -export([init/1,
@@ -241,33 +241,33 @@ finish(Pid, FinishedId, Report) ->
 
 
 %% @doc Request 'increment waiting time' to the data-compaction's workers
--spec(incr_waiting_time() ->
+-spec(incr_interval() ->
              term()).
-incr_waiting_time() ->
+incr_interval() ->
     gen_fsm:sync_send_event(
       ?MODULE, #event_info{event = ?EVENT_INCR_WT}, ?DEF_TIMEOUT).
 
 
 %% @doc Request 'decrement waiting time' to the data-compaction's workers
--spec(decr_waiting_time() ->
+-spec(decr_interval() ->
              term()).
-decr_waiting_time() ->
+decr_interval() ->
     gen_fsm:sync_send_event(
       ?MODULE, #event_info{event = ?EVENT_DECR_WT}, ?DEF_TIMEOUT).
 
 
 %% @doc Request 'increment # of batch procs' to the data-compaction's workers
--spec(incr_batch_procs() ->
+-spec(incr_batch_of_msgs() ->
              term()).
-incr_batch_procs() ->
+incr_batch_of_msgs() ->
     gen_fsm:sync_send_event(
       ?MODULE, #event_info{event = ?EVENT_INCR_BP}, ?DEF_TIMEOUT).
 
 
 %% @doc Request 'decrement # of batch procs' to the data-compaction's workers
--spec(decr_batch_procs() ->
+-spec(decr_batch_of_msgs() ->
              term()).
-decr_batch_procs() ->
+decr_batch_of_msgs() ->
     gen_fsm:sync_send_event(
       ?MODULE, #event_info{event = ?EVENT_DECR_BP}, ?DEF_TIMEOUT).
 
@@ -711,17 +711,17 @@ loop(CallbackFun, TargetId) ->
             ok = finish(self(), ObjStorageId, Report),
             loop(CallbackFun, TargetId);
 
-        incr_waiting_time = Event ->
+        incr_interval = Event ->
             operate(Event, TargetId),
             loop(CallbackFun, TargetId);
-        decr_waiting_time = Event ->
+        decr_interval = Event ->
             operate(Event, TargetId),
             loop(CallbackFun, TargetId);
 
-        incr_batch_procs = Event ->
+        incr_batch_of_msgs = Event ->
             operate(Event, TargetId),
             loop(CallbackFun, TargetId);
-        decr_batch_procs = Event ->
+        decr_batch_of_msgs = Event ->
             operate(Event, TargetId),
             loop(CallbackFun, TargetId);
 
@@ -738,13 +738,13 @@ operate(?EVENT_SUSPEND, {_,CompactionWorkerId}) ->
 operate(?EVENT_RESUME, {_,CompactionWorkerId}) ->
     leo_compact_fsm_worker:resume(CompactionWorkerId);
 operate(?EVENT_INCR_WT, {_,CompactionWorkerId}) ->
-    leo_compact_fsm_worker:incr_waiting_time(CompactionWorkerId);
+    leo_compact_fsm_worker:incr_interval(CompactionWorkerId);
 operate(?EVENT_DECR_WT, {_,CompactionWorkerId}) ->
-    leo_compact_fsm_worker:decr_waiting_time(CompactionWorkerId);
+    leo_compact_fsm_worker:decr_interval(CompactionWorkerId);
 operate(?EVENT_INCR_BP, {_,CompactionWorkerId}) ->
-    leo_compact_fsm_worker:incr_batch_procs(CompactionWorkerId);
+    leo_compact_fsm_worker:incr_batch_of_msgs(CompactionWorkerId);
 operate(?EVENT_DECR_BP, {_,CompactionWorkerId}) ->
-    leo_compact_fsm_worker:decr_batch_procs(CompactionWorkerId);
+    leo_compact_fsm_worker:decr_batch_of_msgs(CompactionWorkerId);
 operate(_,_) ->
     ok.
 
