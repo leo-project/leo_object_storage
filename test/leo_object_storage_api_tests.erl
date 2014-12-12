@@ -87,7 +87,7 @@ recovery_test_() ->
              ok
      end,
      [
-      {"test recoverys",
+      {"test recovery",
        {timeout, 1000, fun recover/0}}
      ]}.
 
@@ -211,6 +211,7 @@ recover() ->
 
     %% Execute to diagnose data
     timer:sleep(3000),
+    ok = delete_metadata(101),
     ok = leo_compact_fsm_controller:recover_metadata(),
     ok = check_status(),
 
@@ -401,6 +402,18 @@ put_irregular_bin() ->
     _ = leo_object_storage_api:add_incorrect_data(Bin),
     ok.
 
+
+%% @private
+delete_metadata(0) ->
+    ok;
+delete_metadata(Index) ->
+    KeyBin = list_to_binary(lists:append(["TEST_", integer_to_list(Index)])),
+    case leo_backend_db_api:delete('leo_metadata_0', KeyBin) of
+        ok ->
+            delete_metadata(Index - 1);
+        _ ->
+            {error, invalid_key}
+    end.
 
 %% @private
 check_metadata(0) ->
