@@ -91,6 +91,8 @@
 -undef(EVENT_STATE).
 -undef(EVENT_INCR_WT).
 -undef(EVENT_DECR_WT).
+-undef(EVENT_INCR_BP).
+-undef(EVENT_DECR_BP).
 -define(EVENT_RUN,      'run').
 -define(EVENT_DIAGNOSE, 'diagnose').
 -define(EVENT_LOCK,     'lock').
