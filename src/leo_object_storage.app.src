@@ -31,6 +31,8 @@
   {env, [{profile,          false},
          {metadata_storage, 'leveldb'},
          {object_storage,   'haystack'},
+         {min_compaction_waiting_time, 10},
+         {max_batch_procs, 100000},
          {is_enable_diagnosis_log, true},
          {is_strict_check,  false}
         ]}
