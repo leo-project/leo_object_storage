@@ -354,6 +354,39 @@ idling(#event_info{event = ?EVENT_STATE,
     NextStatus = ?ST_IDLING,
     erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#state{status = NextStatus}};
+
+
+idling(#event_info{event = ?EVENT_INCR_WT}, #state{ waiting_time = WaitingTime,
+                                                    max_waiting_time  = MaxWaitingTime,
+                                                    step_waiting_time = StepWaitingTime} = State) ->
+    NextStatus = ?ST_IDLING,
+    WaitingTime_1 = incr_waiting_time_fun(WaitingTime, MaxWaitingTime, StepWaitingTime),
+    {next_state, NextStatus, State#state{waiting_time = WaitingTime_1,
+                                         status = NextStatus}};
+
+idling(#event_info{event = ?EVENT_DECR_WT}, #state{waiting_time = WaitingTime,
+                                                   min_waiting_time  = MinWaitingTime,
+                                                   step_waiting_time = StepWaitingTime} = State) ->
+    NextStatus = ?ST_IDLING,
+    WaitingTime_1 = decr_waiting_time_fun(WaitingTime, MinWaitingTime, StepWaitingTime),
+    {next_state, NextStatus, State#state{waiting_time = WaitingTime_1,
+                                         status = NextStatus}};
+
+idling(#event_info{event = ?EVENT_INCR_BP}, #state{batch_procs      = BatchProcs,
+                                                   max_batch_procs  = MaxBatchProcs,
+                                                   step_batch_procs = StepBatchProcs} = State) ->
+    NextStatus = ?ST_IDLING,
+    BatchProcs_1 = incr_batch_procs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
+    {next_state, NextStatus, State#state{batch_procs = BatchProcs_1,
+                                         status = NextStatus}};
+
+idling(#event_info{event = ?EVENT_DECR_BP}, #state{batch_procs      = BatchProcs,
+                                                   min_batch_procs  = MinBatchProcs,
+                                                   step_batch_procs = StepBatchProcs} = State) ->
+    NextStatus = ?ST_IDLING,
+    BatchProcs_1 = decr_batch_procs_fun(BatchProcs, MinBatchProcs, StepBatchProcs),
+    {next_state, NextStatus, State#state{batch_procs = BatchProcs_1,
+                                         status = NextStatus}};
 idling(_, State) ->
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
@@ -470,7 +503,6 @@ running(#event_info{event = ?EVENT_INCR_WT}, #state{id = Id,
                 ok = run(Id, IsDiagnosing, IsRecovering),
                 {?ST_RUNNING,
                  incr_waiting_time_fun(WaitingTime, MaxWaitingTime, StepWaitingTime)}
-
         end,
     {next_state, NextStatus, State#state{waiting_time = WaitingTime_1,
                                          status = NextStatus}};
@@ -561,16 +593,28 @@ suspending(#event_info{event = ?EVENT_DECR_WT}, #state{id = Id,
                                                        waiting_time  = WaitingTime,
                                                        min_waiting_time  = MinWaitingTime,
                                                        step_waiting_time = StepWaitingTime} = State) ->
-    WaitingTime_1 =
-        decr_waiting_time_fun(
-          WaitingTime, MinWaitingTime, StepWaitingTime),
+    WaitingTime_1 = decr_waiting_time_fun(WaitingTime, MinWaitingTime, StepWaitingTime),
 
     %% resume the data-compaction
     NextStatus = ?ST_RUNNING,
-    timer:apply_after(
-      timer:seconds(1), ?MODULE, run, [Id, IsDiagnosing, IsRecovering]),
+    timer:apply_after(timer:seconds(1), ?MODULE, run, [Id, IsDiagnosing, IsRecovering]),
     {next_state, NextStatus, State#state{waiting_time = WaitingTime_1,
                                          status = NextStatus}};
+
+suspending(#event_info{event = ?EVENT_INCR_BP}, #state{id = Id,
+                                                       is_diagnosing    = IsDiagnosing,
+                                                       is_recovering    = IsRecovering,
+                                                       batch_procs      = BatchProcs,
+                                                       max_batch_procs  = MaxBatchProcs,
+                                                       step_batch_procs = StepBatchProcs} = State) ->
+    BatchProcs_1 = incr_batch_procs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
+
+    %% resume the data-compaction
+    NextStatus = ?ST_RUNNING,
+    timer:apply_after(timer:seconds(1), ?MODULE, run, [Id, IsDiagnosing, IsRecovering]),
+    {next_state, NextStatus, State#state{batch_procs = BatchProcs_1,
+                                         status = NextStatus}};
+
 suspending(_, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
