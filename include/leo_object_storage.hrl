@@ -393,71 +393,73 @@
                 ?DEF_LIMIT_COMPACTION_PROCS
         end).
 
--define(env_min_compaction_waiting_time(),
+%% [Interval between batch processes]
+-define(env_compaction_interval_between_batch_procs_min(),
         case application:get_env(leo_object_storage,
-                                 min_compaction_waiting_time) of
+                                 compaction_interval_between_batch_procs_min) of
             {ok, EnvMinCompactionWT} when is_integer(EnvMinCompactionWT) ->
                 EnvMinCompactionWT;
             _ ->
                 ?DEF_MIN_COMPACTION_WT
         end).
 
--define(env_regular_compaction_waiting_time(),
+-define(env_compaction_interval_between_batch_procs_reg(),
         case application:get_env(leo_object_storage,
-                                 regular_compaction_waiting_time) of
+                                 compaction_interval_between_batch_procs_reg) of
             {ok, EnvRegCompactionWT} when is_integer(EnvRegCompactionWT) ->
                 EnvRegCompactionWT;
             _ ->
                 ?DEF_REG_COMPACTION_WT
         end).
 
--define(env_max_compaction_waiting_time(),
+-define(env_compaction_interval_between_batch_procs_max(),
         case application:get_env(leo_object_storage,
-                                 max_compaction_waiting_time) of
+                                 compaction_interval_between_batch_procs_max) of
             {ok, EnvMaxCompactionWT} when is_integer(EnvMaxCompactionWT) ->
                 EnvMaxCompactionWT;
             _ ->
                 ?DEF_MAX_COMPACTION_WT
         end).
 
--define(env_step_compaction_waiting_time(),
+-define(env_compaction_interval_between_batch_procs_step(),
         case application:get_env(leo_object_storage,
-                                 step_compaction_waiting_time) of
+                                 compaction_interval_between_batch_procs_step) of
             {ok, EnvStepCompactionWT} when is_integer(EnvStepCompactionWT) ->
                 EnvStepCompactionWT;
             _ ->
                 ?DEF_STEP_COMPACTION_WT
         end).
 
--define(env_max_batch_procs(),
+%% [Number of batch processes]
+-define(env_compaction_num_of_batch_procs_max(),
         case application:get_env(leo_object_storage,
-                                 max_batch_procs) of
+                                 compaction_num_of_batch_procs_max) of
             {ok, EnvMaxCompactionBP} when is_integer(EnvMaxCompactionBP) ->
                 EnvMaxCompactionBP;
             _ ->
                 ?DEF_MAX_COMPACTION_BP
         end).
 
--define(env_regular_batch_procs(),
+-define(env_compaction_num_of_batch_procs_reg(),
         case application:get_env(leo_object_storage,
-                                 regular_batch_procs) of
+                                 compaction_num_of_batch_procs_reg) of
             {ok, EnvRegCompactionBP} when is_integer(EnvRegCompactionBP) ->
                 EnvRegCompactionBP;
             _ ->
                 ?DEF_REG_COMPACTION_BP
         end).
 
--define(env_min_batch_procs(),
+-define(env_compaction_num_of_batch_procs_min(),
         case application:get_env(leo_object_storage,
-                                 min_batch_procs) of
+                                 compaction_num_of_batch_procs_min) of
             {ok, EnvMinCompactionBP} when is_integer(EnvMinCompactionBP) ->
                 EnvMinCompactionBP;
             _ ->
                 ?DEF_MIN_COMPACTION_BP
         end).
--define(env_step_batch_procs(),
+-define(env_compaction_num_of_batch_procs_step(),
         case application:get_env(leo_object_storage,
-                                 step_batch_procs) of
+                                 compaction_num_of_batch_procs_step) of
             {ok, EnvStepCompactionBP} when is_integer(EnvStepCompactionBP) ->
                 EnvStepCompactionBP;
             _ ->

@@ -92,17 +92,17 @@
           is_locked = false      :: boolean(),
           is_diagnosing = false  :: boolean(),
           is_recovering = false  :: boolean(),
-          %% waiting_time:
-          waiting_time = 0       :: non_neg_integer(),
-          max_waiting_time = 0   :: non_neg_integer(),
-          min_waiting_time = 0   :: non_neg_integer(),
-          step_waiting_time = 0  :: non_neg_integer(),
+          %% interval_between_batch_procs:
+          interval_between_batch_procs = 0       :: non_neg_integer(),
+          max_interval_between_batch_procs = 0   :: non_neg_integer(),
+          min_interval_between_batch_procs = 0   :: non_neg_integer(),
+          step_interval_between_batch_procs = 0  :: non_neg_integer(),
           %% batch-procs:
           count_procs = 0        :: non_neg_integer(),
-          batch_procs = 0        :: non_neg_integer(),
-          max_batch_procs = 0    :: non_neg_integer(),
-          min_batch_procs = 0    :: non_neg_integer(),
-          step_batch_procs = 0   :: non_neg_integer(),
+          num_of_batch_procs = 0        :: non_neg_integer(),
+          max_num_of_batch_procs = 0    :: non_neg_integer(),
+          min_num_of_batch_procs = 0    :: non_neg_integer(),
+          step_num_of_batch_procs = 0   :: non_neg_integer(),
           %% compaction-info:
           compaction_prms = #compaction_prms{} :: #compaction_prms{},
           start_datetime = 0 :: non_neg_integer(),
@@ -233,14 +233,14 @@ init([Id, ObjStorageId, MetaDBId, LoggerId]) ->
                             obj_storage_id     = ObjStorageId,
                             meta_db_id         = MetaDBId,
                             diagnosis_log_id   = LoggerId,
-                            waiting_time       = ?env_regular_compaction_waiting_time(),
-                            min_waiting_time   = ?env_min_compaction_waiting_time(),
-                            max_waiting_time   = ?env_max_compaction_waiting_time(),
-                            step_waiting_time  = ?env_step_compaction_waiting_time(),
-                            batch_procs        = ?env_regular_batch_procs(),
-                            max_batch_procs    = ?env_max_batch_procs(),
-                            min_batch_procs    = ?env_min_batch_procs(),
-                            step_batch_procs   = ?env_step_batch_procs(),
+                            interval_between_batch_procs       = ?env_compaction_interval_between_batch_procs_reg(),
+                            min_interval_between_batch_procs   = ?env_compaction_interval_between_batch_procs_min(),
+                            max_interval_between_batch_procs   = ?env_compaction_interval_between_batch_procs_max(),
+                            step_interval_between_batch_procs  = ?env_compaction_interval_between_batch_procs_step(),
+                            num_of_batch_procs        = ?env_compaction_num_of_batch_procs_reg(),
+                            max_num_of_batch_procs    = ?env_compaction_num_of_batch_procs_max(),
+                            min_num_of_batch_procs    = ?env_compaction_num_of_batch_procs_min(),
+                            step_num_of_batch_procs   = ?env_compaction_num_of_batch_procs_step(),
                             compaction_prms = #compaction_prms{
                                                  key_bin  = <<>>,
                                                  body_bin = <<>>,
@@ -312,12 +312,12 @@ idling(#event_info{event = ?EVENT_RUN,
                           error_pos     = 0,
                           set_errors    = sets:new(),
                           acc_errors    = [],
-                          min_waiting_time   = ?env_min_compaction_waiting_time(),
-                          max_waiting_time   = ?env_max_compaction_waiting_time(),
-                          step_waiting_time  = ?env_step_compaction_waiting_time(),
-                          min_batch_procs    = ?env_min_batch_procs(),
-                          max_batch_procs    = ?env_max_batch_procs(),
-                          step_batch_procs   = ?env_step_batch_procs(),
+                          min_interval_between_batch_procs   = ?env_compaction_interval_between_batch_procs_min(),
+                          max_interval_between_batch_procs   = ?env_compaction_interval_between_batch_procs_max(),
+                          step_interval_between_batch_procs  = ?env_compaction_interval_between_batch_procs_step(),
+                          min_num_of_batch_procs             = ?env_compaction_num_of_batch_procs_min(),
+                          max_num_of_batch_procs             = ?env_compaction_num_of_batch_procs_max(),
+                          step_num_of_batch_procs            = ?env_compaction_num_of_batch_procs_step(),
                           compaction_prms =
                               CompactionPrms#compaction_prms{
                                 num_of_active_objs  = 0,
@@ -354,36 +354,36 @@ idling(#event_info{event = ?EVENT_STATE,
     {next_state, NextStatus, State#state{status = NextStatus}};
 
 
-idling(#event_info{event = ?EVENT_INCR_WT}, #state{ waiting_time = WaitingTime,
-                                                    max_waiting_time  = MaxWaitingTime,
-                                                    step_waiting_time = StepWaitingTime} = State) ->
+idling(#event_info{event = ?EVENT_INCR_WT}, #state{interval_between_batch_procs = WaitingTime,
+                                                   max_interval_between_batch_procs  = MaxWaitingTime,
+                                                   step_interval_between_batch_procs = StepWaitingTime} = State) ->
     NextStatus = ?ST_IDLING,
     WaitingTime_1 = incr_interval_fun(WaitingTime, MaxWaitingTime, StepWaitingTime),
-    {next_state, NextStatus, State#state{waiting_time = WaitingTime_1,
+    {next_state, NextStatus, State#state{interval_between_batch_procs = WaitingTime_1,
                                          status = NextStatus}};
 
-idling(#event_info{event = ?EVENT_DECR_WT}, #state{waiting_time = WaitingTime,
-                                                   min_waiting_time  = MinWaitingTime,
-                                                   step_waiting_time = StepWaitingTime} = State) ->
+idling(#event_info{event = ?EVENT_DECR_WT}, #state{interval_between_batch_procs = WaitingTime,
+                                                   min_interval_between_batch_procs  = MinWaitingTime,
+                                                   step_interval_between_batch_procs = StepWaitingTime} = State) ->
     NextStatus = ?ST_IDLING,
     WaitingTime_1 = decr_interval_fun(WaitingTime, MinWaitingTime, StepWaitingTime),
-    {next_state, NextStatus, State#state{waiting_time = WaitingTime_1,
+    {next_state, NextStatus, State#state{interval_between_batch_procs = WaitingTime_1,
                                          status = NextStatus}};
 
-idling(#event_info{event = ?EVENT_INCR_BP}, #state{batch_procs      = BatchProcs,
-                                                   max_batch_procs  = MaxBatchProcs,
-                                                   step_batch_procs = StepBatchProcs} = State) ->
+idling(#event_info{event = ?EVENT_INCR_BP}, #state{num_of_batch_procs      = BatchProcs,
+                                                   max_num_of_batch_procs  = MaxBatchProcs,
+                                                   step_num_of_batch_procs = StepBatchProcs} = State) ->
     NextStatus = ?ST_IDLING,
     BatchProcs_1 = incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
-    {next_state, NextStatus, State#state{batch_procs = BatchProcs_1,
+    {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs_1,
                                          status = NextStatus}};
 
-idling(#event_info{event = ?EVENT_DECR_BP}, #state{batch_procs      = BatchProcs,
-                                                   min_batch_procs  = MinBatchProcs,
-                                                   step_batch_procs = StepBatchProcs} = State) ->
+idling(#event_info{event = ?EVENT_DECR_BP}, #state{num_of_batch_procs      = BatchProcs,
+                                                   min_num_of_batch_procs  = MinBatchProcs,
+                                                   step_num_of_batch_procs = StepBatchProcs} = State) ->
     NextStatus = ?ST_IDLING,
     BatchProcs_1 = decr_batch_of_msgs_fun(BatchProcs, MinBatchProcs, StepBatchProcs),
-    {next_state, NextStatus, State#state{batch_procs = BatchProcs_1,
+    {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs_1,
                                          status = NextStatus}};
 idling(_, State) ->
     NextStatus = ?ST_IDLING,
@@ -408,10 +408,10 @@ running(#event_info{event = ?EVENT_RUN,
         #state{id = Id,
                obj_storage_id   = ObjStorageId,
                compact_cntl_pid = CompactCntlPid,
-               waiting_time     = WaitingTime,
-               count_procs      = CountProcs,
-               batch_procs      = BatchProcs,
-               compaction_prms  =
+               interval_between_batch_procs  = WaitingTime,
+               count_procs = CountProcs,
+               num_of_batch_procs = BatchProcs,
+               compaction_prms =
                    #compaction_prms{
                       start_lock_offset = StartLockOffset}} = State) ->
     %% Temporally suspend the compaction
@@ -487,11 +487,11 @@ running(#event_info{event = ?EVENT_STATE,
 running(#event_info{event = ?EVENT_INCR_WT}, #state{id = Id,
                                                     is_diagnosing = IsDiagnosing,
                                                     is_recovering = IsRecovering,
-                                                    waiting_time = WaitingTime,
-                                                    max_waiting_time  = MaxWaitingTime,
-                                                    step_waiting_time = StepWaitingTime,
-                                                    batch_procs = BatchProcs,
-                                                    min_batch_procs = MinBatchProcs} = State) ->
+                                                    interval_between_batch_procs = WaitingTime,
+                                                    max_interval_between_batch_procs  = MaxWaitingTime,
+                                                    step_interval_between_batch_procs = StepWaitingTime,
+                                                    num_of_batch_procs = BatchProcs,
+                                                    min_num_of_batch_procs = MinBatchProcs} = State) ->
     {NextStatus, WaitingTime_1} =
         case (WaitingTime >= MaxWaitingTime andalso
               BatchProcs  =< MinBatchProcs) of
@@ -502,42 +502,42 @@ running(#event_info{event = ?EVENT_INCR_WT}, #state{id = Id,
                 {?ST_RUNNING,
                  incr_interval_fun(WaitingTime, MaxWaitingTime, StepWaitingTime)}
         end,
-    {next_state, NextStatus, State#state{waiting_time = WaitingTime_1,
+    {next_state, NextStatus, State#state{interval_between_batch_procs = WaitingTime_1,
                                          status = NextStatus}};
 
 running(#event_info{event = ?EVENT_DECR_WT}, #state{id = Id,
                                                     is_diagnosing = IsDiagnosing,
                                                     is_recovering = IsRecovering,
-                                                    waiting_time = WaitingTime,
-                                                    min_waiting_time  = MinWaitingTime,
-                                                    step_waiting_time = StepWaitingTime} = State) ->
+                                                    interval_between_batch_procs = WaitingTime,
+                                                    min_interval_between_batch_procs  = MinWaitingTime,
+                                                    step_interval_between_batch_procs = StepWaitingTime} = State) ->
     WaitingTime_1 = decr_interval_fun(
                       WaitingTime, MinWaitingTime, StepWaitingTime),
     ok = run(Id, IsDiagnosing, IsRecovering),
     NextStatus = ?ST_RUNNING,
-    {next_state, NextStatus, State#state{waiting_time = WaitingTime_1,
+    {next_state, NextStatus, State#state{interval_between_batch_procs = WaitingTime_1,
                                          status = NextStatus}};
 
 running(#event_info{event = ?EVENT_INCR_BP}, #state{id = Id,
-                                                    is_diagnosing    = IsDiagnosing,
-                                                    is_recovering    = IsRecovering,
-                                                    batch_procs      = BatchProcs,
-                                                    max_batch_procs  = MaxBatchProcs,
-                                                    step_batch_procs = StepBatchProcs} = State) ->
+                                                    is_diagnosing = IsDiagnosing,
+                                                    is_recovering = IsRecovering,
+                                                    num_of_batch_procs = BatchProcs,
+                                                    max_num_of_batch_procs  = MaxBatchProcs,
+                                                    step_num_of_batch_procs = StepBatchProcs} = State) ->
     BatchProcs_1 = incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
     ok = run(Id, IsDiagnosing, IsRecovering),
     NextStatus = ?ST_RUNNING,
-    {next_state, NextStatus, State#state{batch_procs = BatchProcs_1,
+    {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs_1,
                                          status = NextStatus}};
 
 running(#event_info{event = ?EVENT_DECR_BP}, #state{id = Id,
-                                                    is_diagnosing    = IsDiagnosing,
-                                                    is_recovering    = IsRecovering,
-                                                    batch_procs      = BatchProcs,
-                                                    min_batch_procs  = MinBatchProcs,
-                                                    step_batch_procs = StepBatchProcs,
-                                                    waiting_time     = WaitingTime,
-                                                    max_waiting_time = MaxWaitingTime} = State) ->
+                                                    is_diagnosing = IsDiagnosing,
+                                                    is_recovering = IsRecovering,
+                                                    num_of_batch_procs = BatchProcs,
+                                                    min_num_of_batch_procs  = MinBatchProcs,
+                                                    step_num_of_batch_procs = StepBatchProcs,
+                                                    interval_between_batch_procs = WaitingTime,
+                                                    max_interval_between_batch_procs = MaxWaitingTime} = State) ->
     {NextStatus, BatchProcs_1} =
         case (WaitingTime >= MaxWaitingTime andalso
               BatchProcs  =< MinBatchProcs) of
@@ -548,7 +548,7 @@ running(#event_info{event = ?EVENT_DECR_BP}, #state{id = Id,
                 {?ST_RUNNING,
                  decr_batch_of_msgs_fun(BatchProcs, MinBatchProcs, StepBatchProcs)}
         end,
-    {next_state, NextStatus, State#state{batch_procs = BatchProcs_1,
+    {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs_1,
                                          status = NextStatus}};
 
 running(_, #state{id = Id,
@@ -588,29 +588,29 @@ suspending(#event_info{event = ?EVENT_STATE,
 suspending(#event_info{event = ?EVENT_DECR_WT}, #state{id = Id,
                                                        is_diagnosing = IsDiagnosing,
                                                        is_recovering = IsRecovering,
-                                                       waiting_time  = WaitingTime,
-                                                       min_waiting_time  = MinWaitingTime,
-                                                       step_waiting_time = StepWaitingTime} = State) ->
+                                                       interval_between_batch_procs = WaitingTime,
+                                                       min_interval_between_batch_procs  = MinWaitingTime,
+                                                       step_interval_between_batch_procs = StepWaitingTime} = State) ->
     WaitingTime_1 = decr_interval_fun(WaitingTime, MinWaitingTime, StepWaitingTime),
 
     %% resume the data-compaction
     NextStatus = ?ST_RUNNING,
     timer:apply_after(timer:seconds(1), ?MODULE, run, [Id, IsDiagnosing, IsRecovering]),
-    {next_state, NextStatus, State#state{waiting_time = WaitingTime_1,
+    {next_state, NextStatus, State#state{interval_between_batch_procs = WaitingTime_1,
                                          status = NextStatus}};
 
 suspending(#event_info{event = ?EVENT_INCR_BP}, #state{id = Id,
-                                                       is_diagnosing    = IsDiagnosing,
-                                                       is_recovering    = IsRecovering,
-                                                       batch_procs      = BatchProcs,
-                                                       max_batch_procs  = MaxBatchProcs,
-                                                       step_batch_procs = StepBatchProcs} = State) ->
+                                                       is_diagnosing = IsDiagnosing,
+                                                       is_recovering = IsRecovering,
+                                                       num_of_batch_procs = BatchProcs,
+                                                       max_num_of_batch_procs  = MaxBatchProcs,
+                                                       step_num_of_batch_procs = StepBatchProcs} = State) ->
     BatchProcs_1 = incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
 
     %% resume the data-compaction
     NextStatus = ?ST_RUNNING,
     timer:apply_after(timer:seconds(1), ?MODULE, run, [Id, IsDiagnosing, IsRecovering]),
-    {next_state, NextStatus, State#state{batch_procs = BatchProcs_1,
+    {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs_1,
                                          status = NextStatus}};
 
 suspending(_, State) ->
