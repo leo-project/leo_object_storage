@@ -476,6 +476,18 @@
             end
         end).
 
+-define(get_object_storage_id(_TargetContainers),
+        begin
+            lists:flatten(
+              lists:map(
+                fun(_Id) ->
+                        case leo_object_storage_api:get_object_storage_pid_by_container_id(_Id) of
+                            not_found -> [];
+                            _Pid -> _Pid
+                        end
+                end,_TargetContainers))
+        end).
+
 %% custom-metadata's items for MDC-replication:
 -define(PROP_CMETA_CLUSTER_ID, 'cluster_id').
 -define(PROP_CMETA_NUM_OF_REPLICAS, 'num_of_replicas').

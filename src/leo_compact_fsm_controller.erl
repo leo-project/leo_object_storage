@@ -160,14 +160,7 @@ diagnose() ->
 -spec(diagnose(TargetContainers) ->
              term() when TargetContainers::[non_neg_integer()]).
 diagnose(TargetContainers) ->
-    TargetPids = lists:flatten(
-                   lists:map(
-                     fun(Id) ->
-                             case leo_object_storage_api:get_object_storage_pid_by_container_id(Id) of
-                                 not_found -> [];
-                                 Pid -> Pid
-                             end
-                     end, TargetContainers)),
+    TargetPids = ?get_object_storage_id(TargetContainers),
     gen_fsm:sync_send_event(
       ?MODULE, #event_info{event = ?EVENT_RUN,
                            target_pids = TargetPids,
@@ -194,14 +187,7 @@ recover_metadata() ->
 -spec(recover_metadata(TargetContainers) ->
              term() when TargetContainers::[non_neg_integer()]).
 recover_metadata(TargetContainers) ->
-    TargetPids = lists:flatten(
-                   lists:map(
-                     fun(Id) ->
-                             case leo_object_storage_api:get_object_storage_pid_by_container_id(Id) of
-                                 not_found -> [];
-                                 Pid -> Pid
-                             end
-                     end, TargetContainers)),
+    TargetPids = ?get_object_storage_id(TargetContainers),
     gen_fsm:sync_send_event(
       ?MODULE, #event_info{event = ?EVENT_RUN,
                            target_pids = TargetPids,
