@@ -35,8 +35,8 @@
 %% API
 -export([start_link/1]).
 -export([run/0, run/1, run/2, run/3,
-         diagnose/0,
-         recover_metadata/0,
+         diagnose/0, diagnose/1,
+         recover_metadata/0, recover_metadata/1,
          stop/1,
          lock/1,
          suspend/0, resume/0,
@@ -157,6 +157,25 @@ diagnose() ->
                            is_recovering = false,
                            callback      = undefined}, ?DEF_TIMEOUT).
 
+-spec(diagnose(TargetContainers) ->
+             term() when TargetContainers::[non_neg_integer()]).
+diagnose(TargetContainers) ->
+    TargetPids = lists:flatten(
+                   lists:map(
+                     fun(Id) ->
+                             case leo_object_storage_api:get_object_storage_pid_by_container_id(Id) of
+                                 not_found -> [];
+                                 Pid -> Pid
+                             end
+                     end, TargetContainers)),
+    gen_fsm:sync_send_event(
+      ?MODULE, #event_info{event = ?EVENT_RUN,
+                           target_pids = TargetPids,
+                           num_of_concurrency = 1,
+                           is_diagnosing = true,
+                           is_recovering = false,
+                           callback      = undefined}, ?DEF_TIMEOUT).
+
 
 %% @doc Request recover metadata to the data-compaction's workers
 %% @end
@@ -164,6 +183,25 @@ diagnose() ->
              term()).
 recover_metadata() ->
     TargetPids = leo_object_storage_api:get_object_storage_pid('all'),
+    gen_fsm:sync_send_event(
+      ?MODULE, #event_info{event = ?EVENT_RUN,
+                           target_pids = TargetPids,
+                           num_of_concurrency = 1,
+                           is_diagnosing = true,
+                           is_recovering = true,
+                           callback      = undefined}, ?DEF_TIMEOUT).
+
+-spec(recover_metadata(TargetContainers) ->
+             term() when TargetContainers::[non_neg_integer()]).
+recover_metadata(TargetContainers) ->
+    TargetPids = lists:flatten(
+                   lists:map(
+                     fun(Id) ->
+                             case leo_object_storage_api:get_object_storage_pid_by_container_id(Id) of
+                                 not_found -> [];
+                                 Pid -> Pid
+                             end
+                     end, TargetContainers)),
     gen_fsm:sync_send_event(
       ?MODULE, #event_info{event = ?EVENT_RUN,
                            target_pids = TargetPids,
@@ -473,6 +511,10 @@ running(#event_info{event  = ?EVENT_FINISH,
 
     NextState = ?ST_IDLING,
     PendingTargets = pending_targets(ReservedTargets),
+    
+    error_logger:info_msg("~p,~p,~p,~p~n",
+                          [{module, ?MODULE_STRING}, {function, "running/2"},
+                           {line, ?LINE}, {body, "FINISHED Compaction|Diagnosis|Recovery"}]),
     {next_state, NextState, State#state{status = NextState,
                                         reserved_targets = [],
                                         pending_targets  = PendingTargets,

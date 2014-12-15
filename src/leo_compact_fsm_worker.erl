@@ -454,6 +454,9 @@ running(#event_info{event = ?EVENT_RUN,
 
             %% An unxepected error has occured
             {'EXIT', Cause} ->
+                error_logger:info_msg("~p,~p,~p,~p~n",
+                                      [{module, ?MODULE_STRING}, {function, "running/2"},
+                                       {line, ?LINE}, {body, {Id, Cause}}]),
                 {ok, State_1} = after_execute({error, Cause},
                                               State#state{result = ?RET_FAIL}),
                 {?ST_IDLING, State_1};
@@ -464,6 +467,9 @@ running(#event_info{event = ?EVENT_RUN,
                 {?ST_IDLING, State_2};
             %% An epected error has occured
             {{error, Cause}, State_1} ->
+                error_logger:info_msg("~p,~p,~p,~p~n",
+                                      [{module, ?MODULE_STRING}, {function, "running/2"},
+                                       {line, ?LINE}, {body, {Id, Cause}}]),
                 {ok, State_2} = after_execute({error, Cause},
                                               State_1#state{result = ?RET_FAIL}),
                 {?ST_IDLING, State_2}
@@ -898,7 +904,7 @@ execute_1(ok, #state{meta_db_id       = MetaDBId,
                                                   [{module, ?MODULE_STRING},
                                                    {function, "execute_1/2"},
                                                    {line, ?LINE}, {body, Cause}]),
-                            void
+                            throw("unexpected_error happened at backend-db")
                     end;
                 false ->
                     void
@@ -1010,11 +1016,11 @@ after_execute(Ret, #state{obj_storage_info = StorageInfo,
 
 %% @doc Reduce objects from the object-container.
 %% @private
-after_execute_1({ok, #state{is_diagnosing = true,
-                            compaction_prms =
-                                #compaction_prms{
-                                   num_of_active_objs  = _NumActiveObjs,
-                                   size_of_active_objs = _SizeActiveObjs}}}) ->
+after_execute_1({_, #state{is_diagnosing = true,
+                           compaction_prms =
+                               #compaction_prms{
+                                  num_of_active_objs  = _NumActiveObjs,
+                                  size_of_active_objs = _SizeActiveObjs}}}) ->
     ok;
 
 after_execute_1({ok, #state{meta_db_id       = MetaDBId,

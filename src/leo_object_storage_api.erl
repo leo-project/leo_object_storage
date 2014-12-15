@@ -42,15 +42,14 @@
         ]).
 
 -export([get_object_storage_pid/1,
-         get_object_storage_pid_first/0
+         get_object_storage_pid_first/0,
+         get_object_storage_pid_by_container_id/1
         ]).
 
 -export([compact_data/0, compact_data/1,
          compact_data/2, compact_data/3,
-         diagnose_data/0,
-         diagnose_data/1,
-         recover_metadata/0,
-         recover_metadata/1
+         diagnose_data/0, diagnose_data/1, diagnose_data/2,
+         recover_metadata/0, recover_metadata/1, recover_metadata/2
         ]).
 
 -ifdef(TEST).
@@ -306,6 +305,19 @@ get_object_storage_pid_first() ->
     Id = leo_misc:get_value(obj_storage, First),
     Id.
 
+%% @doc Retrieve object-storage-pid by container-id
+-spec(get_object_storage_pid_by_container_id(ContainerId) ->
+             Id when Id::atom(),
+                     ContainerId::non_neg_integer()).
+get_object_storage_pid_by_container_id(ContainerId) ->
+    case ets:lookup(leo_object_storage_containers, ContainerId) of
+        [] ->
+            not_found;
+        [{_, Value}|_] ->
+            Id = leo_misc:get_value(obj_storage, Value),
+            Id
+    end.
+
 
 -ifdef(TEST).
 %% @doc Add incorrect datas on debug purpose
@@ -368,6 +380,17 @@ diagnose_data(Path) ->
             Error
     end.
 
+-spec(diagnose_data(Path, TargetContainers) ->
+             ok | {error, any()} when Path::string(),
+                                      TargetContainers::[non_neg_integer()]).
+diagnose_data(Path, TargetContainers) ->
+    case start_with_path(Path) of
+        ok ->
+            leo_compact_fsm_controller:diagnose(TargetContainers);
+        Error ->
+            Error
+    end.
+
 
 %% @doc Diagnode the data
 -spec(recover_metadata() ->
@@ -381,6 +404,17 @@ recover_metadata(Path) ->
     case start_with_path(Path) of
         ok ->
             leo_compact_fsm_controller:recover_metadata();
+        Error ->
+            Error
+    end.
+
+-spec(recover_metadata(Path, TargetContainers) ->
+             ok | {error, any()} when Path::string(),
+                                      TargetContainers::[non_neg_integer()]).
+recover_metadata(Path, TargetContainers) ->
+    case start_with_path(Path) of
+        ok ->
+            leo_compact_fsm_controller:recover_metadata(TargetContainers);
         Error ->
             Error
     end.
