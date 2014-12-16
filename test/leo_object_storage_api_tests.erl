@@ -91,10 +91,10 @@ recovery_test_() ->
        {timeout, 1000, fun recover/0}}
      ]}.
 
-compaction_test_() ->
+compaction_0_test_() ->
     {setup,
      fun ( ) ->
-             ?debugVal("### COMPACTION.START ###"),
+             ?debugVal("### COMPACTION.START #1 ###"),
              os:cmd("rm -rf " ++ ?AVS_DIR_FOR_COMPACTION),
              application:start(sasl),
              application:start(os_mon),
@@ -109,12 +109,38 @@ compaction_test_() ->
              timer:sleep(1000),
              application:stop(leo_object_storage),
              timer:sleep(1000),
-             ?debugVal("### COMPACTION.END ###"),
+             ?debugVal("### COMPACTION.END #2 ###"),
              ok
      end,
      [
       {"test compaction",
        {timeout, 1000, fun compact/0}}
+     ]}.
+
+compaction_1_test_() ->
+    {setup,
+     fun ( ) ->
+             ?debugVal("### COMPACTION.START #2 ###"),
+             os:cmd("rm -rf " ++ ?AVS_DIR_FOR_COMPACTION),
+             application:start(sasl),
+             application:start(os_mon),
+             application:start(crypto),
+             application:start(leo_object_storage),
+             ok
+     end,
+     fun (_) ->
+             application:stop(crypto),
+             application:stop(os_mon),
+             application:stop(sasl),
+             timer:sleep(1000),
+             application:stop(leo_object_storage),
+             timer:sleep(1000),
+             ?debugVal("### COMPACTION.END #2 ###"),
+             ok
+     end,
+     [
+      {"test compaction",
+       {timeout, 1000, fun compact_1/0}}
      ]}.
 
 diagnose() ->
@@ -240,9 +266,8 @@ compact() ->
     ok = put_irregular_bin(),
     ok = put_large_bin(101),
 
-    %% Execute to diagnose data
-    timer:sleep(3000),
     %% Execute compaction
+    timer:sleep(3000),
     FunHasChargeOfNode = fun(_Key_,_NumOfReplicas_) ->
                                  true
                          end,
@@ -287,6 +312,40 @@ compact() ->
     ?assertEqual(151, TotalNum),
     ?assertEqual(TotalNum, ActiveNum),
     ok.
+
+compact_1() ->
+    %% Launch object-storage
+    leo_object_storage_api:start([{1, ?AVS_DIR_FOR_COMPACTION}]),
+    ok = put_regular_bin(1, 50),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(36, 25),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin_with_cmeta(51, 50),
+    ok = put_irregular_bin(),
+    ok = put_irregular_bin(),
+    ok = put_irregular_bin(),
+
+    %% Execute compaction
+    timer:sleep(3000),
+    FunHasChargeOfNode = fun(_Key_,_NumOfReplicas_) ->
+                                 true
+                         end,
+    TargetPids = leo_object_storage_api:get_object_storage_pid(all),
+    ok = leo_compact_fsm_controller:run(TargetPids, 1, FunHasChargeOfNode),
+
+    %% Check comaction status
+    ok = check_status(),
+
+    %% Check # of active objects and total of objects
+    timer:sleep(1000),
+    Stats = leo_object_storage_api:stats(),
+    {ok, [#storage_stats{total_num  = TotalNum,
+                         active_num = ActiveNum
+                        }|_]} = Stats,
+    ?assertEqual(100, TotalNum),
+    ?assertEqual(TotalNum, ActiveNum),
+    ok.
+
 
 check_status() ->
     timer:sleep(100),
@@ -734,8 +793,6 @@ stats_test_() ->
              os:cmd("rm -rf " ++ Path1),
              os:cmd("rm -rf " ++ Path2),
              true end)]}.
-
-
 
 
 compaction_2_test_() ->
