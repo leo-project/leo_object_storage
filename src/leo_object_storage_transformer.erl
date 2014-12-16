@@ -241,29 +241,33 @@ header_bin_to_metadata(Bin) ->
            CNum:?BLEN_CHUNK_NUM,
            CIndex:?BLEN_CHUNK_INDEX,
            _:?BLEN_BUF >> = Bin,
-        Timestamp =
-            case catch calendar:datetime_to_gregorian_seconds(
-                         {{Year, Month, Day}, {Hour, Min, Second}}) of
-                {'EXIT',_Cause} ->
-                    0;
-                Val when Val < 63113904000;
-                         Val > 66301199999 ->
-                    0;
-                Val ->
-                    Val
-            end,
-        #?METADATA{addr_id   = AddrId,
-                   ksize     = KSize,
-                   msize     = MSize,
-                   dsize     = DSize,
-                   csize     = CSize,
-                   cnumber   = CNum,
-                   cindex    = CIndex,
-                   offset    = Offset,
-                   clock     = Clock,
-                   timestamp = Timestamp,
-                   checksum  = Checksum,
-                   del       = Del}
+        Timestamp = case catch calendar:datetime_to_gregorian_seconds(
+                                 {{Year, Month, Day}, {Hour, Min, Second}}) of
+                        {'EXIT',_Cause} ->
+                            0;
+                        Val when Val < 63113904000;
+                                 Val > 66301199999 ->
+                            0;
+                        Val ->
+                            Val
+                    end,
+        case (Timestamp /= 0) of
+            true ->
+                #?METADATA{addr_id   = AddrId,
+                           ksize     = KSize,
+                           msize     = MSize,
+                           dsize     = DSize,
+                           csize     = CSize,
+                           cnumber   = CNum,
+                           cindex    = CIndex,
+                           offset    = Offset,
+                           clock     = Clock,
+                           timestamp = Timestamp,
+                           checksum  = Checksum,
+                           del       = Del};
+            false ->
+                {error, invalid_format}
+        end
     catch
         _:_ ->
             {error, invalid_format}
