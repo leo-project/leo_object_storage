@@ -23,7 +23,7 @@
 {application, leo_object_storage,
  [
   {description, "Leo Object Storage"},
-  {vsn, "1.1.8"},
+  {vsn, "1.2.0"},
   {id, "leo_object_storage"},
   {registered,   []},
   {applications, [kernel, stdlib, crypto]},
@@ -31,6 +31,8 @@
   {env, [{profile,          false},
          {metadata_storage, 'leveldb'},
          {object_storage,   'haystack'},
+         {regular_compaction_waiting_time, 10},
+         {regular_batch_procs, 100000},
          {is_enable_diagnosis_log, true},
          {is_strict_check,  false}
         ]}

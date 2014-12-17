@@ -60,14 +60,14 @@ diagnosis_test_() ->
              ok
      end,
      [
-      {"test dianosis - irregular case",
+      {"test dianosis",
        {timeout, 1000, fun diagnose/0}}
      ]}.
 
-compaction_test_() ->
+recovery_test_() ->
     {setup,
      fun ( ) ->
-             ?debugVal("### COMPACTION.START ###"),
+             ?debugVal("### RECOVERY.START ###"),
              os:cmd("rm -rf " ++ ?AVS_DIR_FOR_COMPACTION),
              application:start(sasl),
              application:start(os_mon),
@@ -82,12 +82,65 @@ compaction_test_() ->
              timer:sleep(1000),
              application:stop(leo_object_storage),
              timer:sleep(1000),
-             ?debugVal("### COMPACTION.END ###"),
+             ?debugVal("### RECOVERY.END ###"),
+             timer:sleep(5000),
              ok
      end,
      [
-      {"test compaction - irregular case",
+      {"test recovery",
+       {timeout, 1000, fun recover/0}}
+     ]}.
+
+compaction_0_test_() ->
+    {setup,
+     fun ( ) ->
+             ?debugVal("### COMPACTION.START #1 ###"),
+             os:cmd("rm -rf " ++ ?AVS_DIR_FOR_COMPACTION),
+             application:start(sasl),
+             application:start(os_mon),
+             application:start(crypto),
+             application:start(leo_object_storage),
+             ok
+     end,
+     fun (_) ->
+             application:stop(crypto),
+             application:stop(os_mon),
+             application:stop(sasl),
+             timer:sleep(1000),
+             application:stop(leo_object_storage),
+             timer:sleep(1000),
+             ?debugVal("### COMPACTION.END #2 ###"),
+             ok
+     end,
+     [
+      {"test compaction",
        {timeout, 1000, fun compact/0}}
+     ]}.
+
+compaction_1_test_() ->
+    {setup,
+     fun ( ) ->
+             ?debugVal("### COMPACTION.START #2 ###"),
+             os:cmd("rm -rf " ++ ?AVS_DIR_FOR_COMPACTION),
+             application:start(sasl),
+             application:start(os_mon),
+             application:start(crypto),
+             application:start(leo_object_storage),
+             ok
+     end,
+     fun (_) ->
+             application:stop(crypto),
+             application:stop(os_mon),
+             application:stop(sasl),
+             timer:sleep(1000),
+             application:stop(leo_object_storage),
+             timer:sleep(1000),
+             ?debugVal("### COMPACTION.END #2 ###"),
+             ok
+     end,
+     [
+      {"test compaction",
+       {timeout, 1000, fun compact_1/0}}
      ]}.
 
 diagnose() ->
@@ -134,9 +187,9 @@ diagnose() ->
 
     %% Check # of active objects and total of objects
     timer:sleep(1000),
-    {ok, [{_,#storage_stats{total_num  = TotalNum,
-                            active_num = ActiveNum
-                           }}|_]} = leo_object_storage_api:stats(),
+    {ok, [#storage_stats{total_num  = TotalNum,
+                         active_num = ActiveNum
+                        }|_]} = leo_object_storage_api:stats(),
     ?debugVal({TotalNum, ActiveNum}),
     ?assertEqual(128, TotalNum),
     ?assertEqual(99,  ActiveNum),
@@ -144,6 +197,63 @@ diagnose() ->
     {ok, State} = leo_compact_fsm_controller:state(),
     ?debugVal(State#compaction_stats.acc_reports),
     ok.
+
+recover() ->
+    %% Launch object-storage
+    leo_object_storage_api:start([{1, ?AVS_DIR_FOR_COMPACTION}]),
+    ?debugVal(leo_compact_fsm_controller:state()),
+
+    ok = put_regular_bin(1, 50),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(36, 25),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin_with_cmeta(51, 50),
+    ok = put_irregular_bin(),
+    ok = put_large_bin(101),
+    ok = leo_object_storage_api:delete({1, <<"TEST_10">>},
+                                       #?OBJECT{method    = delete,
+                                                addr_id   = 1,
+                                                key       = <<"TEST_10">>,
+                                                ksize     = 7,
+                                                data      = <<>>,
+                                                dsize     = 0,
+                                                checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
+                                                timestamp = leo_date:now(),
+                                                clock     = leo_date:clock(),
+                                                del = 1
+                                               }),
+    ok = leo_object_storage_api:delete({1, <<"TEST_50">>},
+                                       #?OBJECT{method    = delete,
+                                                addr_id   = 1,
+                                                key       = <<"TEST_50">>,
+                                                ksize     = 7,
+                                                data      = <<>>,
+                                                dsize     = 0,
+                                                checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
+                                                timestamp = leo_date:now(),
+                                                clock     = leo_date:clock(),
+                                                del = 1
+                                               }),
+
+    %% Execute to diagnose data
+    timer:sleep(3000),
+    ok = delete_metadata(101),
+    ok = leo_compact_fsm_controller:recover_metadata(),
+    ok = check_status(),
+
+    %% Check # of active objects and total of objects
+    timer:sleep(3000),
+    {ok, [#storage_stats{total_num  = TotalNum,
+                         active_num = ActiveNum
+                        }|_]} = leo_object_storage_api:stats(),
+    ?debugVal({TotalNum, ActiveNum}),
+
+    {ok, State} = leo_compact_fsm_controller:state(),
+    ?debugVal(State#compaction_stats.acc_reports),
+
+    ok = check_metadata(101),
+    ok.
+
 
 compact() ->
     %% Launch object-storage
@@ -156,9 +266,8 @@ compact() ->
     ok = put_irregular_bin(),
     ok = put_large_bin(101),
 
-    %% Execute to diagnose data
-    timer:sleep(3000),
     %% Execute compaction
+    timer:sleep(3000),
     FunHasChargeOfNode = fun(_Key_,_NumOfReplicas_) ->
                                  true
                          end,
@@ -171,17 +280,72 @@ compact() ->
     ok = put_regular_bin_with_cmeta(225, 15),
     ok = put_regular_bin(240, 10),
 
+    %% Change waiting-time of the procs
+    ok = leo_compact_fsm_controller:incr_interval(),
+    ok = leo_compact_fsm_controller:decr_batch_of_msgs(),
+    timer:sleep(10),
+    ok = leo_compact_fsm_controller:incr_interval(),
+    ok = leo_compact_fsm_controller:decr_batch_of_msgs(),
+    timer:sleep(10),
+    ok = leo_compact_fsm_controller:incr_interval(),
+    ok = leo_compact_fsm_controller:decr_batch_of_msgs(),
+    timer:sleep(10),
+    ok = leo_compact_fsm_controller:incr_interval(),
+    ok = leo_compact_fsm_controller:decr_batch_of_msgs(),
+    timer:sleep(3000),
+
+    ok = leo_compact_fsm_controller:decr_interval(),
+    ok = leo_compact_fsm_controller:incr_batch_of_msgs(),
+    timer:sleep(10),
+    ok = leo_compact_fsm_controller:decr_interval(),
+    ok = leo_compact_fsm_controller:incr_batch_of_msgs(),
+
     %% Check comaction status
     ok = check_status(),
 
     %% Check # of active objects and total of objects
     timer:sleep(1000),
-    {ok, [{_,#storage_stats{total_num  = TotalNum,
-                            active_num = ActiveNum
-                           }}|_]} = leo_object_storage_api:stats(),
+    Stats = leo_object_storage_api:stats(),
+    {ok, [#storage_stats{total_num  = TotalNum,
+                         active_num = ActiveNum
+                        }|_]} = Stats,
     ?assertEqual(151, TotalNum),
     ?assertEqual(TotalNum, ActiveNum),
     ok.
+
+compact_1() ->
+    %% Launch object-storage
+    leo_object_storage_api:start([{1, ?AVS_DIR_FOR_COMPACTION}]),
+    ok = put_regular_bin(1, 50),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin(36, 25),
+    ok = put_irregular_bin(),
+    ok = put_regular_bin_with_cmeta(51, 50),
+    ok = put_irregular_bin(),
+    ok = put_irregular_bin(),
+    ok = put_irregular_bin(),
+
+    %% Execute compaction
+    timer:sleep(3000),
+    FunHasChargeOfNode = fun(_Key_,_NumOfReplicas_) ->
+                                 true
+                         end,
+    TargetPids = leo_object_storage_api:get_object_storage_pid(all),
+    ok = leo_compact_fsm_controller:run(TargetPids, 1, FunHasChargeOfNode),
+
+    %% Check comaction status
+    ok = check_status(),
+
+    %% Check # of active objects and total of objects
+    timer:sleep(1000),
+    Stats = leo_object_storage_api:stats(),
+    {ok, [#storage_stats{total_num  = TotalNum,
+                         active_num = ActiveNum
+                        }|_]} = Stats,
+    ?assertEqual(100, TotalNum),
+    ?assertEqual(TotalNum, ActiveNum),
+    ok.
+
 
 check_status() ->
     timer:sleep(100),
@@ -191,20 +355,21 @@ check_status() ->
             ok;
         {ok, #compaction_stats{locked_targets = []}} ->
             check_status();
-        {ok, #compaction_stats{locked_targets = [ID|_]}} ->
+        {ok, #compaction_stats{locked_targets = LockedTargets}} ->
+            [ID|_] = LockedTargets,
             ok = leo_compact_fsm_worker:state(ID, self()),
             receive
                 idling ->
                     void;
                 _Status ->
-                    ?debugVal(_Status),
                     Ret = put_regular_bin_1(300),
                     ?assertEqual({error, ?ERROR_LOCKED_CONTAINER}, Ret)
             end,
             check_status();
-        {ok, _} ->
+        {ok, _Other} ->
             check_status();
         Error ->
+            ?debugVal(Error),
             Error
     end.
 
@@ -296,6 +461,30 @@ put_irregular_bin() ->
     _ = leo_object_storage_api:add_incorrect_data(Bin),
     ok.
 
+
+%% @private
+delete_metadata(0) ->
+    ok;
+delete_metadata(Index) ->
+    KeyBin = list_to_binary(lists:append(["TEST_", integer_to_list(Index)])),
+    case leo_backend_db_api:delete('leo_metadata_0', KeyBin) of
+        ok ->
+            delete_metadata(Index - 1);
+        _ ->
+            {error, invalid_key}
+    end.
+
+%% @private
+check_metadata(0) ->
+    ok;
+check_metadata(Index) ->
+    KeyBin = list_to_binary(lists:append(["TEST_", integer_to_list(Index)])),
+    case leo_backend_db_api:get('leo_metadata_0', KeyBin) of
+        {ok, _Bin} ->
+            check_metadata(Index - 1);
+        _ ->
+            {error, invalid_key}
+    end.
 
 %%======================================================================
 %% Suite TEST
@@ -586,9 +775,9 @@ stats_test_() ->
              ?assertEqual(8, length(Res)),
              {SumTotal0, SumActive0} =
                  lists:foldl(
-                   fun({ok, #storage_stats{file_path  = _ObjPath,
-                                           total_num  = Total,
-                                           active_num = Active}},
+                   fun(#storage_stats{file_path  = _ObjPath,
+                                      total_num  = Total,
+                                      active_num = Active},
                        {SumTotal, SumActive}) ->
                            {SumTotal + Total, SumActive + Active}
                    end, {0, 0}, Res1),
@@ -604,8 +793,6 @@ stats_test_() ->
              os:cmd("rm -rf " ++ Path1),
              os:cmd("rm -rf " ++ Path2),
              true end)]}.
-
-
 
 
 compaction_2_test_() ->
@@ -649,9 +836,10 @@ compact_2() ->
     ok = put_test_data(4095, <<"air/on/g/string/7">>, <<"JSB7">>), %% 2nd time
     {ok, Res0} = leo_object_storage_api:stats(),
     {SumTotal0, SumActive0} =
-        lists:foldl(fun({ok, #storage_stats{file_path  = _ObjPath,
-                                            total_num  = Total,
-                                            active_num = Active}}, {SumTotal, SumActive}) ->
+        lists:foldl(fun(#storage_stats{file_path  = _ObjPath,
+                                       total_num  = Total,
+                                       active_num = Active},
+                        {SumTotal, SumActive}) ->
                             {SumTotal + Total, SumActive + Active}
                     end, {0, 0}, Res0),
     ?assertEqual(9, SumTotal0),
@@ -748,6 +936,7 @@ compact_2() ->
         = get_avs_stats_summary(Res2),
 
     io:format(user, "[debug] summary:~p~n", [{SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2}]),
+    ?debugVal({SumTotal2, SumActive2}),
     ?assertEqual(13, SumTotal2),
     ?assertEqual(13, SumActive2),
     ?assertEqual(true, SumTotalSize2 == SumActiveSize2),
@@ -755,10 +944,11 @@ compact_2() ->
     %% confirm whether first compaction have broken avs files or not
     ok = leo_compact_fsm_controller:run(TargetPids, 2, FunHasChargeOfNode),
     ok = check_status(),
-    timer:sleep(1000),
+    timer:sleep(5000),
     {ok, Res3} = leo_object_storage_api:stats(),
-    ?debugVal(Res3),
-    {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2} = get_avs_stats_summary(Res3),
+    Ret3_1 = get_avs_stats_summary(Res3),
+    ?debugVal(Ret3_1),
+    {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2} = Ret3_1,
 
     %% inspect for after compaction
     TestAddrId0 = 0,
@@ -799,11 +989,11 @@ compact_2() ->
 %%--------------------------------------------------------------------
 get_avs_stats_summary(ResStats) ->
     lists:foldl(
-      fun({ok, #storage_stats{file_path  = _ObjPath,
-                              total_sizes = TotalSize,
-                              active_sizes = ActiveSize,
-                              total_num  = Total,
-                              active_num = Active} = StorageStats},
+      fun(#storage_stats{file_path  = _ObjPath,
+                         total_sizes = TotalSize,
+                         active_sizes = ActiveSize,
+                         total_num  = Total,
+                         active_num = Active} = StorageStats,
           {SumTotal, SumActive, SumTotalSize, SumActiveSize}) ->
               io:format(user, "[debug] ~p~n",[StorageStats]),
               {SumTotal      + Total,

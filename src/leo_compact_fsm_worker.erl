@@ -34,11 +34,13 @@
 
 %% API
 -export([start_link/4, stop/1]).
--export([run/2, run/4,
+-export([run/3, run/5,
          suspend/1,
          resume/1,
-         finish/1,
-         state/2]).
+         state/2,
+         incr_interval/1, decr_interval/1,
+         incr_batch_of_msgs/1, decr_batch_of_msgs/1
+        ]).
 
 %% gen_fsm callbacks
 -export([init/1,
@@ -62,6 +64,7 @@
           controller_pid :: pid(),
           client_pid     :: pid(),
           is_diagnosing = false :: boolean(),
+          is_recovering = false :: boolean(),
           callback :: function()
          }).
 
@@ -83,12 +86,24 @@
           obj_storage_id :: atom(),
           meta_db_id     :: atom(),
           obj_storage_info = #backend_info{} :: #backend_info{},
-          compact_cntl_pid      :: pid(),
-          diagnosis_log_id      :: atom(),
-          status = ?ST_IDLING   :: compaction_state(),
-          is_locked = false     :: boolean(),
-          is_diagnosing = false :: boolean(),
-          waiting_time = 0      :: non_neg_integer(),
+          compact_cntl_pid       :: pid(),
+          diagnosis_log_id       :: atom(),
+          status = ?ST_IDLING    :: compaction_state(),
+          is_locked = false      :: boolean(),
+          is_diagnosing = false  :: boolean(),
+          is_recovering = false  :: boolean(),
+          %% interval_between_batch_procs:
+          interval_between_batch_procs = 0       :: non_neg_integer(),
+          max_interval_between_batch_procs = 0   :: non_neg_integer(),
+          min_interval_between_batch_procs = 0   :: non_neg_integer(),
+          step_interval_between_batch_procs = 0  :: non_neg_integer(),
+          %% batch-procs:
+          count_procs = 0        :: non_neg_integer(),
+          num_of_batch_procs = 0        :: non_neg_integer(),
+          max_num_of_batch_procs = 0    :: non_neg_integer(),
+          min_num_of_batch_procs = 0    :: non_neg_integer(),
+          step_num_of_batch_procs = 0   :: non_neg_integer(),
+          %% compaction-info:
           compaction_prms = #compaction_prms{} :: #compaction_prms{},
           start_datetime = 0 :: non_neg_integer(),
           error_pos = 0      :: non_neg_integer(),
@@ -125,23 +140,27 @@ stop(Id) ->
 
 %% @doc Run the process
 %%
--spec(run(Id, IsDiagnose) ->
+-spec(run(Id, IsDiagnosing, IsRecovering) ->
              ok | {error, any()} when Id::atom(),
-                                      IsDiagnose::boolean()).
-run(Id, IsDiagnose) ->
+                                      IsDiagnosing::boolean(),
+                                      IsRecovering::boolean()).
+run(Id, IsDiagnosing, IsRecovering) ->
     gen_fsm:send_event(Id, #event_info{event = ?EVENT_RUN,
-                                       is_diagnosing = IsDiagnose
+                                       is_diagnosing = IsDiagnosing,
+                                       is_recovering = IsRecovering
                                       }).
 
--spec(run(Id, ControllerPid, IsDiagnose, CallbackFun) ->
+-spec(run(Id, ControllerPid, IsDiagnosing, IsRecovering, CallbackFun) ->
              ok | {error, any()} when Id::atom(),
                                       ControllerPid::pid(),
-                                      IsDiagnose::boolean(),
+                                      IsDiagnosing::boolean(),
+                                      IsRecovering::boolean(),
                                       CallbackFun::function()).
-run(Id, ControllerPid, IsDiagnose, CallbackFun) ->
+run(Id, ControllerPid, IsDiagnosing, IsRecovering, CallbackFun) ->
     gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_RUN,
                                             controller_pid = ControllerPid,
-                                            is_diagnosing  = IsDiagnose,
+                                            is_diagnosing  = IsDiagnosing,
+                                            is_recovering  = IsRecovering,
                                             callback = CallbackFun}, ?DEF_TIMEOUT).
 
 
@@ -161,14 +180,6 @@ resume(Id) ->
     gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_RESUME}, ?DEF_TIMEOUT).
 
 
-%% @doc Remove an object from the object-storage - (logical-delete)
-%%
--spec(finish(Id) ->
-             ok | {error, any()} when Id::atom()).
-finish(Id) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_FINISH}).
-
-
 %% @doc Retrieve the storage stats specfied by Id
 %%      which contains number of objects and so on.
 %%
@@ -176,8 +187,40 @@ finish(Id) ->
              ok | {error, any()} when Id::atom(),
                                       Client::pid()).
 state(Id, Client) ->
-    gen_fsm:send_event(Id, #event_info{event = state,
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_STATE,
                                        client_pid = Client}).
+
+
+%% @doc Increase waiting time of data-compaction
+%%
+-spec(incr_interval(Id) ->
+             ok when Id::atom()).
+incr_interval(Id) ->
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_INCR_WT}).
+
+
+%% @doc Decrease waiting time of data-compaction
+%%
+-spec(decr_interval(Id) ->
+             ok when Id::atom()).
+decr_interval(Id) ->
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_DECR_WT}).
+
+
+%% @doc Increase number of batch procs
+%%
+-spec(incr_batch_of_msgs(Id) ->
+             ok when Id::atom()).
+incr_batch_of_msgs(Id) ->
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_INCR_BP}).
+
+
+%% @doc Decrease number of batch procs
+%%
+-spec(decr_batch_of_msgs(Id) ->
+             ok when Id::atom()).
+decr_batch_of_msgs(Id) ->
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_DECR_BP}).
 
 
 %%====================================================================
@@ -187,9 +230,17 @@ state(Id, Client) ->
 %%
 init([Id, ObjStorageId, MetaDBId, LoggerId]) ->
     {ok, ?ST_IDLING, #state{id = Id,
-                            obj_storage_id   = ObjStorageId,
-                            meta_db_id       = MetaDBId,
-                            diagnosis_log_id = LoggerId,
+                            obj_storage_id     = ObjStorageId,
+                            meta_db_id         = MetaDBId,
+                            diagnosis_log_id   = LoggerId,
+                            interval_between_batch_procs       = ?env_compaction_interval_between_batch_procs_reg(),
+                            min_interval_between_batch_procs   = ?env_compaction_interval_between_batch_procs_min(),
+                            max_interval_between_batch_procs   = ?env_compaction_interval_between_batch_procs_max(),
+                            step_interval_between_batch_procs  = ?env_compaction_interval_between_batch_procs_step(),
+                            num_of_batch_procs        = ?env_compaction_num_of_batch_procs_reg(),
+                            max_num_of_batch_procs    = ?env_compaction_num_of_batch_procs_max(),
+                            min_num_of_batch_procs    = ?env_compaction_num_of_batch_procs_min(),
+                            step_num_of_batch_procs   = ?env_compaction_num_of_batch_procs_step(),
                             compaction_prms = #compaction_prms{
                                                  key_bin  = <<>>,
                                                  body_bin = <<>>,
@@ -248,17 +299,25 @@ format_status(_Opt, [_PDict, State]) ->
                                                                 State::#state{}).
 idling(#event_info{event = ?EVENT_RUN,
                    controller_pid = ControllerPid,
-                   is_diagnosing  = IsDiagnose,
+                   is_diagnosing  = IsDiagnosing,
+                   is_recovering  = IsRecovering,
                    callback = CallbackFun}, From, #state{id = Id,
                                                          compaction_prms =
                                                              CompactionPrms} = State) ->
     NextStatus = ?ST_RUNNING,
     State_1 = State#state{compact_cntl_pid = ControllerPid,
                           status        = NextStatus,
-                          is_diagnosing = IsDiagnose,
+                          is_diagnosing = IsDiagnosing,
+                          is_recovering = IsRecovering,
                           error_pos     = 0,
                           set_errors    = sets:new(),
                           acc_errors    = [],
+                          min_interval_between_batch_procs   = ?env_compaction_interval_between_batch_procs_min(),
+                          max_interval_between_batch_procs   = ?env_compaction_interval_between_batch_procs_max(),
+                          step_interval_between_batch_procs  = ?env_compaction_interval_between_batch_procs_step(),
+                          min_num_of_batch_procs             = ?env_compaction_num_of_batch_procs_min(),
+                          max_num_of_batch_procs             = ?env_compaction_num_of_batch_procs_max(),
+                          step_num_of_batch_procs            = ?env_compaction_num_of_batch_procs_step(),
                           compaction_prms =
                               CompactionPrms#compaction_prms{
                                 num_of_active_objs  = 0,
@@ -268,13 +327,15 @@ idling(#event_info{event = ?EVENT_RUN,
                                },
                           start_datetime = leo_date:now()
                          },
-
     case prepare(State_1) of
         {ok, State_2} ->
             gen_fsm:reply(From, ok),
-            ok = run(Id, IsDiagnose),
+            ok = run(Id, IsDiagnosing, IsRecovering),
             {next_state, NextStatus, State_2};
-        {{error, Cause},_State} ->
+        {{error, Cause}, #state{obj_storage_info =
+                                    #backend_info{write_handler = WriteHandler,
+                                                  read_handler  = ReadHandler}}} ->
+            catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
             gen_fsm:reply(From, {error, Cause}),
             {next_state, ?ST_IDLING, State_1}
     end;
@@ -291,6 +352,39 @@ idling(#event_info{event = ?EVENT_STATE,
     NextStatus = ?ST_IDLING,
     erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#state{status = NextStatus}};
+
+
+idling(#event_info{event = ?EVENT_INCR_WT}, #state{interval_between_batch_procs = WaitingTime,
+                                                   max_interval_between_batch_procs  = MaxWaitingTime,
+                                                   step_interval_between_batch_procs = StepWaitingTime} = State) ->
+    NextStatus = ?ST_IDLING,
+    WaitingTime_1 = incr_interval_fun(WaitingTime, MaxWaitingTime, StepWaitingTime),
+    {next_state, NextStatus, State#state{interval_between_batch_procs = WaitingTime_1,
+                                         status = NextStatus}};
+
+idling(#event_info{event = ?EVENT_DECR_WT}, #state{interval_between_batch_procs = WaitingTime,
+                                                   min_interval_between_batch_procs  = MinWaitingTime,
+                                                   step_interval_between_batch_procs = StepWaitingTime} = State) ->
+    NextStatus = ?ST_IDLING,
+    WaitingTime_1 = decr_interval_fun(WaitingTime, MinWaitingTime, StepWaitingTime),
+    {next_state, NextStatus, State#state{interval_between_batch_procs = WaitingTime_1,
+                                         status = NextStatus}};
+
+idling(#event_info{event = ?EVENT_INCR_BP}, #state{num_of_batch_procs      = BatchProcs,
+                                                   max_num_of_batch_procs  = MaxBatchProcs,
+                                                   step_num_of_batch_procs = StepBatchProcs} = State) ->
+    NextStatus = ?ST_IDLING,
+    BatchProcs_1 = incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
+    {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs_1,
+                                         status = NextStatus}};
+
+idling(#event_info{event = ?EVENT_DECR_BP}, #state{num_of_batch_procs      = BatchProcs,
+                                                   min_num_of_batch_procs  = MinBatchProcs,
+                                                   step_num_of_batch_procs = StepBatchProcs} = State) ->
+    NextStatus = ?ST_IDLING,
+    BatchProcs_1 = decr_batch_of_msgs_fun(BatchProcs, MinBatchProcs, StepBatchProcs),
+    {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs_1,
+                                         status = NextStatus}};
 idling(_, State) ->
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
@@ -300,23 +394,48 @@ idling(_, State) ->
 -spec(running(EventInfo, State) ->
              {next_state, ?ST_RUNNING, State} when EventInfo::#event_info{},
                                                    State::#state{}).
+running(#event_info{event = ?EVENT_RUN},
+        #state{obj_storage_id = #backend_info{linked_path = []}} = State) ->
+    NextStatus = ?ST_IDLING,
+    {next_state, NextStatus, State#state{status = NextStatus}};
+running(#event_info{event = ?EVENT_RUN},
+        #state{obj_storage_id = #backend_info{file_path = []}} = State) ->
+    NextStatus = ?ST_IDLING,
+    {next_state, NextStatus, State#state{status = NextStatus}};
 running(#event_info{event = ?EVENT_RUN,
-                    is_diagnosing = IsDiagnose}, #state{id = Id,
-                                                        obj_storage_id   = ObjStorageId,
-                                                        compact_cntl_pid = CompactCntlPid,
-                                                        compaction_prms  =
-                                                            #compaction_prms{
-                                                               start_lock_offset = StartLockOffset
-                                                              }} = State) ->
-    NextStatus = ?ST_RUNNING,
-    State_3 =
-        case catch execute(State#state{is_diagnosing = IsDiagnose}) of
+                    is_diagnosing = IsDiagnosing,
+                    is_recovering = IsRecovering},
+        #state{id = Id,
+               obj_storage_id   = ObjStorageId,
+               compact_cntl_pid = CompactCntlPid,
+               interval_between_batch_procs  = WaitingTime,
+               count_procs = CountProcs,
+               num_of_batch_procs = BatchProcs,
+               compaction_prms =
+                   #compaction_prms{
+                      start_lock_offset = StartLockOffset}} = State) ->
+    %% Temporally suspend the compaction
+    %% in order to decrease i/o load
+    CountProcs_1 = case (CountProcs < 1) of
+                       true ->
+                           WaitingTime_1 = case (WaitingTime < 1) of
+                                               true  -> ?DEF_MAX_COMPACTION_WT;
+                                               false -> WaitingTime
+                                           end,
+                           timer:sleep(WaitingTime_1),
+                           BatchProcs;
+                       false ->
+                           CountProcs - 1
+                   end,
+
+    {NextStatus, State_3} =
+        case catch execute(State#state{is_diagnosing = IsDiagnosing,
+                                       is_recovering = IsRecovering}) of
             %% Lock the object-storage in order to
             %%     reject requests during the data-compaction
             {ok, {next, #state{is_locked = IsLocked,
                                compaction_prms =
-                                   #compaction_prms{
-                                      next_offset = NextOffset}
+                                   #compaction_prms{next_offset = NextOffset}
                               } = State_1}} when NextOffset > StartLockOffset ->
                 State_2 = case IsLocked of
                               true ->
@@ -326,65 +445,133 @@ running(#event_info{event = ?EVENT_RUN,
                                   erlang:send(CompactCntlPid, {lock, Id}),
                                   State_1#state{is_locked = true}
                           end,
-                ok = run(Id, IsDiagnose),
-                State_2;
+                ok = run(Id, IsDiagnosing, IsRecovering),
+                {?ST_RUNNING, State_2};
             %% Execute the data-compaction repeatedly
             {ok, {next, State_1}} ->
-                ok = run(Id, IsDiagnose),
-                State_1;
+                ok = run(Id, IsDiagnosing, IsRecovering),
+                {?ST_RUNNING, State_1};
+
             %% An unxepected error has occured
             {'EXIT', Cause} ->
-                ok = finish(Id),
-                {_,State_2} = after_execute({error, Cause}, State),
-                State_2;
+                error_logger:info_msg("~p,~p,~p,~p~n",
+                                      [{module, ?MODULE_STRING}, {function, "running/2"},
+                                       {line, ?LINE}, {body, {Id, Cause}}]),
+                {ok, State_1} = after_execute({error, Cause},
+                                              State#state{result = ?RET_FAIL}),
+                {?ST_IDLING, State_1};
             %% Reached end of the object-container
             {ok, {eof, State_1}} ->
-                ok = finish(Id),
-                {_,State_2} = after_execute(ok, State_1),
-                State_2;
+                {ok, State_2} = after_execute(ok,
+                                              State_1#state{result = ?RET_SUCCESS}),
+                {?ST_IDLING, State_2};
             %% An epected error has occured
             {{error, Cause}, State_1} ->
-                ok = finish(Id),
-                {_,State_2} = after_execute({error, Cause}, State_1),
-                State_2
+                error_logger:info_msg("~p,~p,~p,~p~n",
+                                      [{module, ?MODULE_STRING}, {function, "running/2"},
+                                       {line, ?LINE}, {body, {Id, Cause}}]),
+                {ok, State_2} = after_execute({error, Cause},
+                                              State_1#state{result = ?RET_FAIL}),
+                {?ST_IDLING, State_2}
         end,
-    {next_state, NextStatus, State_3#state{status = NextStatus}};
+    {next_state, NextStatus, State_3#state{status = NextStatus,
+                                           count_procs = CountProcs_1}};
 
 running(#event_info{event = ?EVENT_SUSPEND}, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}};
 
-running(#event_info{event = ?EVENT_FINISH}, #state{obj_storage_id   = ObjStorageId,
-                                                   compact_cntl_pid = CntlPid} = State) ->
-    %% Generate the compaction report
-    {ok, Report} = gen_compaction_report(State),
-
-    %% Notify a message to the compaction-manager
-    erlang:send(CntlPid, {finish, {ObjStorageId, Report}}),
-    NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#state{status = NextStatus,
-                                         error_pos = 0,
-                                         set_errors = sets:new(),
-                                         acc_errors = [],
-                                         obj_storage_info = #backend_info{},
-                                         compaction_prms = #compaction_prms{},
-                                         start_datetime = 0,
-                                         result = undefined
-                                        }};
 running(#event_info{event = ?EVENT_STATE,
-                    client_pid = Client}, State) ->
+                    client_pid = Client}, #state{id = Id,
+                                                 is_diagnosing = IsDiagnosing,
+                                                 is_recovering = IsRecovering} = State) ->
+    ok = run(Id, IsDiagnosing, IsRecovering),
     NextStatus = ?ST_RUNNING,
     erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#state{status = NextStatus}};
-running(_, State) ->
+
+running(#event_info{event = ?EVENT_INCR_WT}, #state{id = Id,
+                                                    is_diagnosing = IsDiagnosing,
+                                                    is_recovering = IsRecovering,
+                                                    interval_between_batch_procs = WaitingTime,
+                                                    max_interval_between_batch_procs  = MaxWaitingTime,
+                                                    step_interval_between_batch_procs = StepWaitingTime,
+                                                    num_of_batch_procs = BatchProcs,
+                                                    min_num_of_batch_procs = MinBatchProcs} = State) ->
+    {NextStatus, WaitingTime_1} =
+        case (WaitingTime >= MaxWaitingTime andalso
+              BatchProcs  =< MinBatchProcs) of
+            true ->
+                {?ST_SUSPENDING, MaxWaitingTime};
+            false ->
+                ok = run(Id, IsDiagnosing, IsRecovering),
+                {?ST_RUNNING,
+                 incr_interval_fun(WaitingTime, MaxWaitingTime, StepWaitingTime)}
+        end,
+    {next_state, NextStatus, State#state{interval_between_batch_procs = WaitingTime_1,
+                                         status = NextStatus}};
+
+running(#event_info{event = ?EVENT_DECR_WT}, #state{id = Id,
+                                                    is_diagnosing = IsDiagnosing,
+                                                    is_recovering = IsRecovering,
+                                                    interval_between_batch_procs = WaitingTime,
+                                                    min_interval_between_batch_procs  = MinWaitingTime,
+                                                    step_interval_between_batch_procs = StepWaitingTime} = State) ->
+    WaitingTime_1 = decr_interval_fun(
+                      WaitingTime, MinWaitingTime, StepWaitingTime),
+    ok = run(Id, IsDiagnosing, IsRecovering),
+    NextStatus = ?ST_RUNNING,
+    {next_state, NextStatus, State#state{interval_between_batch_procs = WaitingTime_1,
+                                         status = NextStatus}};
+
+running(#event_info{event = ?EVENT_INCR_BP}, #state{id = Id,
+                                                    is_diagnosing = IsDiagnosing,
+                                                    is_recovering = IsRecovering,
+                                                    num_of_batch_procs = BatchProcs,
+                                                    max_num_of_batch_procs  = MaxBatchProcs,
+                                                    step_num_of_batch_procs = StepBatchProcs} = State) ->
+    BatchProcs_1 = incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
+    ok = run(Id, IsDiagnosing, IsRecovering),
+    NextStatus = ?ST_RUNNING,
+    {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs_1,
+                                         status = NextStatus}};
+
+running(#event_info{event = ?EVENT_DECR_BP}, #state{id = Id,
+                                                    is_diagnosing = IsDiagnosing,
+                                                    is_recovering = IsRecovering,
+                                                    num_of_batch_procs = BatchProcs,
+                                                    min_num_of_batch_procs  = MinBatchProcs,
+                                                    step_num_of_batch_procs = StepBatchProcs,
+                                                    interval_between_batch_procs = WaitingTime,
+                                                    max_interval_between_batch_procs = MaxWaitingTime} = State) ->
+    {NextStatus, BatchProcs_1} =
+        case (WaitingTime >= MaxWaitingTime andalso
+              BatchProcs  =< MinBatchProcs) of
+            true ->
+                {?ST_SUSPENDING, MinBatchProcs};
+            false ->
+                ok = run(Id, IsDiagnosing, IsRecovering),
+                {?ST_RUNNING,
+                 decr_batch_of_msgs_fun(BatchProcs, MinBatchProcs, StepBatchProcs)}
+        end,
+    {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs_1,
+                                         status = NextStatus}};
+
+running(_, #state{id = Id,
+                  is_diagnosing = IsDiagnosing,
+                  is_recovering = IsRecovering} = State) ->
+    ok = run(Id, IsDiagnosing, IsRecovering),
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
 
 
 -spec(running( _, _, #state{}) ->
              {next_state, ?ST_SUSPENDING|?ST_RUNNING, #state{}}).
-running(_, From, State) ->
+running(_, From, #state{id = Id,
+                        is_diagnosing = IsDiagnosing,
+                        is_recovering = IsRecovering} = State) ->
     gen_fsm:reply(From, {error, badstate}),
+    ok = run(Id, IsDiagnosing, IsRecovering),
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
 
@@ -397,25 +584,59 @@ running(_, From, State) ->
 suspending(#event_info{event = ?EVENT_RUN}, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}};
+
 suspending(#event_info{event = ?EVENT_STATE,
                        client_pid = Client}, State) ->
     NextStatus = ?ST_SUSPENDING,
     erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#state{status = NextStatus}};
+
+suspending(#event_info{event = ?EVENT_DECR_WT}, #state{id = Id,
+                                                       is_diagnosing = IsDiagnosing,
+                                                       is_recovering = IsRecovering,
+                                                       interval_between_batch_procs = WaitingTime,
+                                                       min_interval_between_batch_procs  = MinWaitingTime,
+                                                       step_interval_between_batch_procs = StepWaitingTime} = State) ->
+    WaitingTime_1 = decr_interval_fun(WaitingTime, MinWaitingTime, StepWaitingTime),
+
+    %% resume the data-compaction
+    NextStatus = ?ST_RUNNING,
+    timer:apply_after(timer:seconds(1), ?MODULE, run, [Id, IsDiagnosing, IsRecovering]),
+    {next_state, NextStatus, State#state{interval_between_batch_procs = WaitingTime_1,
+                                         status = NextStatus}};
+
+suspending(#event_info{event = ?EVENT_INCR_BP}, #state{id = Id,
+                                                       is_diagnosing = IsDiagnosing,
+                                                       is_recovering = IsRecovering,
+                                                       num_of_batch_procs = BatchProcs,
+                                                       max_num_of_batch_procs  = MaxBatchProcs,
+                                                       step_num_of_batch_procs = StepBatchProcs} = State) ->
+    BatchProcs_1 = incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
+
+    %% resume the data-compaction
+    NextStatus = ?ST_RUNNING,
+    timer:apply_after(timer:seconds(1), ?MODULE, run, [Id, IsDiagnosing, IsRecovering]),
+    {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs_1,
+                                         status = NextStatus}};
+
 suspending(_, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
+
 
 -spec(suspending(EventInfo, From, State) ->
              {next_state, ?ST_SUSPENDING | ?ST_RUNNING, State} when EventInfo::#event_info{},
                                                                     From::{pid(),Tag::atom()},
                                                                     State::#state{}).
 suspending(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id,
-                                                            is_diagnosing = IsDiagnose} = State) ->
+                                                            is_diagnosing = IsDiagnosing,
+                                                            is_recovering = IsRecovering} = State) ->
+    %% resume the data-compaction
     gen_fsm:reply(From, ok),
-    ok = run(Id, IsDiagnose),
 
     NextStatus = ?ST_RUNNING,
+    timer:apply_after(
+      timer:seconds(1), ?MODULE, run, [Id, IsDiagnosing, IsRecovering]),
     {next_state, NextStatus, State#state{status = NextStatus}};
 
 suspending(_, From, State) ->
@@ -555,22 +776,14 @@ prepare_1(LinkedPath, FilePath, #state{meta_db_id = MetaDBId,
 execute(#state{meta_db_id       = MetaDBId,
                diagnosis_log_id = LoggerId,
                obj_storage_info = StorageInfo,
-               waiting_time     = WaitingTime,
-               is_diagnosing    = IsDiagnose,
+               is_diagnosing    = IsDiagnosing,
+               is_recovering    = IsRecovering,
                compaction_prms  = CompactionPrms} = State) ->
     %% Initialize set-error property
     State_1 = State#state{set_errors = sets:new()},
 
     Offset   = CompactionPrms#compaction_prms.next_offset,
     Metadata = CompactionPrms#compaction_prms.metadata,
-
-    %% Temporally suspend the compaction in order to decrease i/o load
-    case (WaitingTime == 0) of
-        true  ->
-            void;
-        false ->
-            timer:sleep(WaitingTime)
-    end,
 
     %% Execute compaction
     case (Offset == ?AVS_SUPER_BLOCK_LEN) of
@@ -592,11 +805,11 @@ execute(#state{meta_db_id       = MetaDBId,
                                       CallbackFun(Key, NumOfReplicas)
                               end,
 
-            case (is_deleted_rec(MetaDBId, StorageInfo, Metadata)
-                  orelse HasChargeOfNode == false) of
-                true when IsDiagnose == false ->
+            case (is_deleted_rec(MetaDBId, StorageInfo, Metadata, IsRecovering)
+                  orelse HasChargeOfNode == false)  of
+                true when IsDiagnosing == false ->
                     execute_1(State_1);
-                true when IsDiagnose == true ->
+                true when IsDiagnosing == true ->
                     ok = output_diagnosis_log(LoggerId, Metadata),
                     execute_1(State_1#state{
                                 compaction_prms = CompactionPrms#compaction_prms{
@@ -607,7 +820,7 @@ execute(#state{meta_db_id       = MetaDBId,
                 %%
                 %% For data-compaction processing
                 %%
-                false when IsDiagnose == false ->
+                false when IsDiagnosing == false ->
                     %% Insert into the temporary object-container.
                     {Ret_1, NewState} =
                         case leo_object_storage_haystack:put_obj_to_new_cntnr(
@@ -634,7 +847,7 @@ execute(#state{meta_db_id       = MetaDBId,
                 %%
                 %% For diagnosis processing
                 %%
-                false when IsDiagnose == true ->
+                false when IsDiagnosing == true ->
                     ok = output_diagnosis_log(LoggerId, Metadata),
                     {Ret_1, NewState} = execute_2(
                                           ok, CompactionPrms, Metadata,
@@ -663,8 +876,10 @@ execute_1(State) ->
              {ok, {next|eof, State}} |
              {{error, any()}, State} when Ret::ok|{error,any()},
                                           State::#state{}).
-execute_1(ok, #state{obj_storage_info = StorageInfo,
-                     compaction_prms  = CompactionPrms} = State) ->
+execute_1(ok, #state{meta_db_id       = MetaDBId,
+                     obj_storage_info = StorageInfo,
+                     compaction_prms  = CompactionPrms,
+                     is_recovering    = IsRecovering} = State) ->
     erlang:garbage_collect(self()),
     ReadHandler = StorageInfo#backend_info.read_handler,
     NextOffset  = CompactionPrms#compaction_prms.next_offset,
@@ -673,6 +888,28 @@ execute_1(ok, #state{obj_storage_info = StorageInfo,
            ReadHandler, NextOffset) of
         {ok, NewMetadata, [_HeaderValue, NewKeyValue,
                            NewBodyValue, NewNextOffset]} ->
+            %% If is-recovering is true, put a metadata to the backend-db
+            case IsRecovering of
+                true ->
+                    #?METADATA{key = Key,
+                               addr_id = AddrId} = NewMetadata,
+                    KeyOfMetadata = ?gen_backend_key(
+                                       StorageInfo#backend_info.avs_ver_prv, AddrId, Key),
+                    case leo_backend_db_api:put(
+                           MetaDBId, KeyOfMetadata, term_to_binary(NewMetadata)) of
+                        ok ->
+                            ok;
+                        {error, Cause} ->
+                            error_logger:info_msg("~p,~p,~p,~p~n",
+                                                  [{module, ?MODULE_STRING},
+                                                   {function, "execute_1/2"},
+                                                   {line, ?LINE}, {body, Cause}]),
+                            throw("unexpected_error happened at backend-db")
+                    end;
+                false ->
+                    void
+            end,
+            %% Goto next object
             {ok, State_1} = output_accumulated_errors(State, NextOffset),
             {ok, {next, State_1#state{
                           error_pos  = 0,
@@ -737,8 +974,27 @@ execute_2(Ret, CompactionPrms, Metadata, NumOfActiveObjs, ActiveSize, State) ->
 
 
 %% @private
+finish(#state{obj_storage_id   = ObjStorageId,
+              compact_cntl_pid = CntlPid} = State) ->
+    %% Generate the compaction report
+    {ok, Report} = gen_compaction_report(State),
+
+    %% Notify a message to the compaction-manager
+    erlang:send(CntlPid, {finish, {ObjStorageId, Report}}),
+
+    %% Unlock handling request
+    ok = leo_object_storage_server:unlock(ObjStorageId),
+    {ok, State#state{start_datetime = 0,
+                     error_pos  = 0,
+                     set_errors = sets:new(),
+                     acc_errors = [],
+                     obj_storage_info = #backend_info{},
+                     result = undefined}}.
+
+%% @private
 after_execute(Ret, #state{obj_storage_info = StorageInfo,
-                          is_diagnosing    = IsDiagnose,
+                          is_diagnosing    = IsDiagnosing,
+                          is_recovering    = _IsRecovering,
                           diagnosis_log_id = LoggerId} = State) ->
     %% Close file handlers
     ReadHandler  = StorageInfo#backend_info.read_handler,
@@ -746,7 +1002,7 @@ after_execute(Ret, #state{obj_storage_info = StorageInfo,
     catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
 
     %% rotate the diagnosis-log
-    case IsDiagnose of
+    case IsDiagnosing of
         true when LoggerId /= undefined ->
             leo_logger_client_base:force_rotation(LoggerId);
         _ ->
@@ -754,17 +1010,18 @@ after_execute(Ret, #state{obj_storage_info = StorageInfo,
     end,
 
     %% Finish compaction
-    after_execute_1({Ret, State}).
+    ok = after_execute_1({Ret, State}),
+    finish(State).
 
 
 %% @doc Reduce objects from the object-container.
 %% @private
-after_execute_1({ok, #state{is_diagnosing = true,
-                            compaction_prms =
-                                #compaction_prms{
-                                   num_of_active_objs  = _NumActiveObjs,
-                                   size_of_active_objs = _SizeActiveObjs}} = State}) ->
-    {ok, State#state{result = ?RET_SUCCESS}};
+after_execute_1({_, #state{is_diagnosing = true,
+                           compaction_prms =
+                               #compaction_prms{
+                                  num_of_active_objs  = _NumActiveObjs,
+                                  size_of_active_objs = _SizeActiveObjs}}}) ->
+    ok;
 
 after_execute_1({ok, #state{meta_db_id       = MetaDBId,
                             obj_storage_id   = ObjStorageId,
@@ -772,7 +1029,7 @@ after_execute_1({ok, #state{meta_db_id       = MetaDBId,
                             compaction_prms =
                                 #compaction_prms{
                                    num_of_active_objs  = NumActiveObjs,
-                                   size_of_active_objs = SizeActiveObjs}} = State}) ->
+                                   size_of_active_objs = SizeActiveObjs}}}) ->
     %% Unlink the symbol
     LinkedPath = StorageInfo#backend_info.linked_path,
     FilePath   = StorageInfo#backend_info.file_path,
@@ -784,22 +1041,20 @@ after_execute_1({ok, #state{meta_db_id       = MetaDBId,
             ok = leo_object_storage_server:switch_container(
                    ObjStorageId, FilePath, NumActiveObjs, SizeActiveObjs),
             ok = leo_backend_db_api:finish_compaction(MetaDBId, true),
-
-            {ok, State#state{result = ?RET_SUCCESS}};
-        {error, Cause} ->
+            ok;
+        {error,_Cause} ->
             leo_backend_db_api:finish_compaction(MetaDBId, false),
-            {{error, Cause}, State#state{result = ?RET_FAIL}}
+            ok
     end;
 
 %% @doc Rollback - delete the tmp-files
 %% @private
 after_execute_1({_Error, #state{meta_db_id       = MetaDBId,
-                                obj_storage_info = StorageInfo} = State}) ->
+                                obj_storage_info = StorageInfo}}) ->
     %% must reopen the original file when handling at another process:
     catch file:delete(StorageInfo#backend_info.file_path),
     leo_backend_db_api:finish_compaction(MetaDBId, false),
-
-    {ok, State#state{result = ?RET_FAIL}}.
+    ok.
 
 
 %% @doc Output the diagnosis log
@@ -841,15 +1096,18 @@ output_accumulated_errors(#state{obj_storage_id = ObjStorageId,
 
 %% @doc Is deleted a record ?
 %% @private
--spec(is_deleted_rec(MetaDBId, StorageInfo, Metadata) ->
+-spec(is_deleted_rec(MetaDBId, StorageInfo, Metadata, IsRecovering) ->
              boolean() when MetaDBId::atom(),
                             StorageInfo::#backend_info{},
-                            Metadata::#?METADATA{}).
-is_deleted_rec(_MetaDBId, _StorageInfo, #?METADATA{del = ?DEL_TRUE}) ->
+                            Metadata::#?METADATA{},
+                            IsRecovering::boolean()).
+is_deleted_rec(_MetaDBId,_StorageInfo, #?METADATA{del = ?DEL_TRUE},_IsRecovering) ->
     true;
+is_deleted_rec(_MetaDBId,_StorageInfo,_Metdata, true) ->
+    false;
 is_deleted_rec(MetaDBId, #backend_info{avs_ver_prv = AVSVsnBinPrv} = StorageInfo,
-               #?METADATA{key      = Key,
-                          addr_id  = AddrId} = MetaFromAvs) ->
+               #?METADATA{key = Key,
+                          addr_id = AddrId} = MetaFromAvs,_IsRecovering) ->
     KeyOfMetadata = ?gen_backend_key(AVSVsnBinPrv, AddrId, Key),
     case leo_backend_db_api:get(MetaDBId, KeyOfMetadata) of
         {ok, MetaBin} ->
@@ -857,7 +1115,7 @@ is_deleted_rec(MetaDBId, #backend_info{avs_ver_prv = AVSVsnBinPrv} = StorageInfo
                 #?METADATA{del = ?DEL_TRUE} ->
                     true;
                 Metadata ->
-                    is_deleted_rec(MetaDBId, StorageInfo, MetaFromAvs, Metadata)
+                    is_deleted_rec_1(MetaDBId, StorageInfo, MetaFromAvs, Metadata)
             end;
         not_found ->
             true;
@@ -866,16 +1124,16 @@ is_deleted_rec(MetaDBId, #backend_info{avs_ver_prv = AVSVsnBinPrv} = StorageInfo
     end.
 
 %% @private
--spec(is_deleted_rec(MetaDBId, StorageInfo, Metadata_1, Metadata_2) ->
+-spec(is_deleted_rec_1(MetaDBId, StorageInfo, Metadata_1, Metadata_2) ->
              boolean() when MetaDBId::atom(),
                             StorageInfo::#backend_info{},
                             Metadata_1::#?METADATA{},
                             Metadata_2::#?METADATA{}).
-is_deleted_rec(_MetaDBId,_StorageInfo,
-               #?METADATA{offset = Offset_1},
-               #?METADATA{offset = Offset_2}) when Offset_1 /= Offset_2 ->
+is_deleted_rec_1(_MetaDBId,_StorageInfo,
+                 #?METADATA{offset = Offset_1},
+                 #?METADATA{offset = Offset_2}) when Offset_1 /= Offset_2 ->
     true;
-is_deleted_rec(_MetaDBId,_StorageInfo,_Meta_1,_Meta_2) ->
+is_deleted_rec_1(_MetaDBId,_StorageInfo,_Meta_1,_Meta_2) ->
     false.
 
 
@@ -890,6 +1148,7 @@ gen_compaction_report(State) ->
                                             avs_ver_cur = AVSVerCur},
            start_datetime = StartDateTime,
            is_diagnosing  = IsDiagnosing,
+           is_recovering  = _IsRecovering,
            acc_errors     = AccErrors,
            result = Ret} = State,
 
@@ -963,6 +1222,10 @@ gen_compaction_report(State) ->
                     Report_1 = lists:zip(record_info(fields, compaction_report),
                                          tl(tuple_to_list(Report))),
                     catch leo_file:file_unconsult(LogFilePath, Report_1),
+                    error_logger:info_msg("~p,~p,~p,~p~n",
+                                          [{module, ?MODULE_STRING},
+                                           {function, "gen_compaction_report/1"},
+                                           {line, ?LINE}, {body, [Report_1]}]),
                     ok;
                 false ->
                     void
@@ -970,8 +1233,63 @@ gen_compaction_report(State) ->
         _ ->
             void
     end,
-    error_logger:info_msg("~p,~p,~p,~p~n",
-                          [{module, ?MODULE_STRING},
-                           {function, "gen_compaction_report/1"},
-                           {line, ?LINE}, {body, [Report]}]),
     {ok, Report}.
+
+
+%% @doc Increase the waiting time
+%% @private
+-spec(incr_interval_fun(WaitingTime, MaxWaitingTime, StepWaitingTime) ->
+             NewWaitingTime when WaitingTime::non_neg_integer(),
+                                 MaxWaitingTime::non_neg_integer(),
+                                 StepWaitingTime::non_neg_integer(),
+                                 NewWaitingTime::non_neg_integer()).
+incr_interval_fun(WaitingTime, MaxWaitingTime, StepWaitingTime) ->
+    WaitingTime_1 = WaitingTime + StepWaitingTime,
+    case (WaitingTime_1 > MaxWaitingTime) of
+        true  -> MaxWaitingTime;
+        false -> WaitingTime_1
+    end.
+
+
+%% @doc Decrease the waiting time
+%% @private
+-spec(decr_interval_fun(WaitingTime, MinWaitingTime, StepWaitingTime) ->
+             NewWaitingTime when WaitingTime::non_neg_integer(),
+                                 MinWaitingTime::non_neg_integer(),
+                                 StepWaitingTime::non_neg_integer(),
+                                 NewWaitingTime::non_neg_integer()).
+decr_interval_fun(WaitingTime, MinWaitingTime, StepWaitingTime) ->
+    WaitingTime_1 = WaitingTime - StepWaitingTime,
+    case (WaitingTime_1 < MinWaitingTime) of
+        true  -> MinWaitingTime;
+        false -> WaitingTime_1
+    end.
+
+
+%% @doc Increase the batch procs
+%% @private
+-spec(incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs) ->
+             NewBatchProcs when BatchProcs::non_neg_integer(),
+                                MaxBatchProcs::non_neg_integer(),
+                                StepBatchProcs::non_neg_integer(),
+                                NewBatchProcs::non_neg_integer()).
+incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs) ->
+    BatchProcs_1 = BatchProcs + StepBatchProcs,
+    case (BatchProcs_1 > MaxBatchProcs) of
+        true  -> MaxBatchProcs;
+        false -> BatchProcs_1
+    end.
+
+%% @doc Increase the batch procs
+%% @private
+-spec(decr_batch_of_msgs_fun(BatchProcs, MinBatchProcs, StepBatchProcs) ->
+             NewBatchProcs when BatchProcs::non_neg_integer(),
+                                MinBatchProcs::non_neg_integer(),
+                                StepBatchProcs::non_neg_integer(),
+                                NewBatchProcs::non_neg_integer()).
+decr_batch_of_msgs_fun(BatchProcs, MinBatchProcs, StepBatchProcs) ->
+    BatchProcs_1 = BatchProcs - StepBatchProcs,
+    case (BatchProcs_1 < MinBatchProcs) of
+        true  -> MinBatchProcs;
+        false -> BatchProcs_1
+    end.

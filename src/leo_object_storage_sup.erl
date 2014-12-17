@@ -110,8 +110,10 @@ start_child(ObjectStorageInfo) ->
 
     BackendDBSupPid =start_child_1(),
     ok = start_child_2(),
-    ok = start_child_3(ObjectStorageInfo, 0, MetadataDB, BackendDBSupPid, IsStrictCheck),
-    ok = start_child_4(),
+    {ok, ServerPairL} = start_child_3(ObjectStorageInfo, 0,
+                                     MetadataDB, BackendDBSupPid,
+                                     IsStrictCheck, []),
+    ok = start_child_4(ServerPairL),
     ok = start_child_5(),
     ok.
 
@@ -157,9 +159,10 @@ start_child_2() ->
 %% @doc Launch backend-db's processes
 %%      under the leo_object_storage_sup
 %% @private
-start_child_3([],_,_,_,_) ->
-    ok;
-start_child_3([{NumOfContainers, Path}|Rest], Index, MetadataDB, BackendDBSupPid, IsStrictCheck) ->
+start_child_3([],_,_,_,_,Acc) ->
+    {ok, Acc};
+start_child_3([{NumOfContainers, Path}|Rest], Index,
+              MetadataDB, BackendDBSupPid, IsStrictCheck, Acc) ->
     Path_1 = get_path(Path),
     Props  = [{num_of_containers, NumOfContainers},
               {path,              Path_1},
@@ -168,19 +171,20 @@ start_child_3([{NumOfContainers, Path}|Rest], Index, MetadataDB, BackendDBSupPid
              ],
     true = ets:insert(?ETS_INFO_TABLE,
                       {list_to_atom(?MODULE_STRING ++ integer_to_list(Index)), Props}),
-    ok = start_child_3_1(Index, NumOfContainers - 1, BackendDBSupPid, Props),
-    start_child_3(Rest, Index + 1, MetadataDB, BackendDBSupPid, IsStrictCheck).
+    {ok, Acc_1} = start_child_3_1(Index, NumOfContainers - 1, BackendDBSupPid, Props, Acc),
+    start_child_3(Rest, Index + 1, MetadataDB, BackendDBSupPid, IsStrictCheck, Acc_1).
 
 
 %% @doc Launch
 %% @private
-start_child_3_1(_,-1,_,_) ->
-    ok;
-start_child_3_1(DeviceIndex, ContainerIndex, BackendDBSupPid, Props) ->
+start_child_3_1(_,-1,_,_,Acc) ->
+    {ok, Acc};
+start_child_3_1(DeviceIndex, ContainerIndex, BackendDBSupPid, Props, Acc) ->
     Id = (DeviceIndex * ?DEVICE_ID_INTERVALS) + ContainerIndex,
     case add_container(BackendDBSupPid, Id, Props) of
-        ok ->
-            start_child_3_1(DeviceIndex, ContainerIndex - 1, BackendDBSupPid, Props);
+        {ok, ServerPair} ->
+            start_child_3_1(DeviceIndex, ContainerIndex - 1,
+                            BackendDBSupPid, Props, [ServerPair|Acc]);
         {error, Cause} ->
             exit(Cause)
     end.
@@ -189,9 +193,9 @@ start_child_3_1(DeviceIndex, ContainerIndex, BackendDBSupPid, Props) ->
 %% @doc Launch a Compaction manager
 %%      under the leo_object_storage_sup
 %% @private
-start_child_4() ->
+start_child_4(ServerPairL) ->
     ChildSpec = {leo_compact_fsm_controller,
-                 {leo_compact_fsm_controller, start_link, []},
+                 {leo_compact_fsm_controller, start_link, [ServerPairL]},
                  permanent, 2000, worker, [leo_compact_fsm_controller]},
     case supervisor:start_child(?MODULE, ChildSpec) of
         {ok, _Pid} ->
@@ -276,9 +280,11 @@ get_path(Path0) ->
 %% @doc Add an object storage container into
 %%
 -spec(add_container(BackendDBSupPid, Id, Props) ->
-             ok | {error, any()} when BackendDBSupPid::pid(),
-                                      Id::integer(),
-                                      Props::[{atom(), any()}]).
+             {ok,  ServerPair} |
+             {error, any()} when BackendDBSupPid::pid(),
+                                 Id::integer(),
+                                 Props::[{atom(), any()}],
+                                 ServerPair::{atom(), atom()}).
 add_container(BackendDBSupPid, Id, Props) ->
     ObjStorageId    = gen_id(obj_storage,     Id),
     MetaDBId        = gen_id(metadata,        Id),
@@ -293,19 +299,24 @@ add_container(BackendDBSupPid, Id, Props) ->
            lists:append([Path, ?DEF_METADATA_STORAGE_SUB_DIR, integer_to_list(Id)])),
 
     %% %% Launch compact_fsm_worker
-    case add_container_1(leo_compact_fsm_worker,
-                         CompactWorkerId, ObjStorageId, MetaDBId, LoggerId) of
+    Ret = case add_container_1(leo_compact_fsm_worker,
+                               CompactWorkerId, ObjStorageId, MetaDBId, LoggerId) of
+              ok ->
+                  %% Launch object-storage
+                  add_container_1(leo_object_storage_server, Id, ObjStorageId,
+                                  MetaDBId, CompactWorkerId, LoggerId, Props);
+              {error,{already_started,_Pid}} ->
+                  add_container_1(leo_object_storage_server, Id, ObjStorageId,
+                                  MetaDBId, CompactWorkerId, LoggerId, Props);
+              {error, Cause} ->
+                  {error, Cause}
+          end,
+    case Ret of
         ok ->
-            %% Launch object-storage
-            add_container_1(leo_object_storage_server, Id, ObjStorageId,
-                            MetaDBId, CompactWorkerId, LoggerId, Props);
-        {error,{already_started,_Pid}} ->
-            add_container_1(leo_object_storage_server, Id, ObjStorageId,
-                            MetaDBId, CompactWorkerId, LoggerId, Props);
-        {error, Cause} ->
-            {error, Cause}
+            {ok, {CompactWorkerId, ObjStorageId}};
+        Other ->
+            Other
     end.
-
 
 %% @private
 add_container_1(leo_compact_fsm_worker = Mod,

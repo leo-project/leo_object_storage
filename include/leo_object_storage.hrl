@@ -44,6 +44,33 @@
 -define(STATE_ACTIVE,             'active').
 -type(storage_status() :: ?STATE_RUNNING_COMPACTION | ?STATE_ACTIVE).
 
+-define(DEF_LIMIT_COMPACTION_PROCS, 4).
+
+-ifdef(TEST).
+-define(DEF_MIN_COMPACTION_WT,  0).    %% 0msec
+-define(DEF_REG_COMPACTION_WT,  100).  %% 100msec
+-define(DEF_MAX_COMPACTION_WT,  300).  %% 300msec
+-define(DEF_STEP_COMPACTION_WT, 100).  %% 100msec
+-else.
+-define(DEF_MIN_COMPACTION_WT,  100).  %% 100msec
+-define(DEF_REG_COMPACTION_WT,  300).  %% 300msec
+-define(DEF_MAX_COMPACTION_WT,  1000). %% 1000msec
+-define(DEF_STEP_COMPACTION_WT, 100).  %% 100msec
+-endif.
+
+-ifdef(TEST).
+-define(DEF_MIN_COMPACTION_BP,   10). %% 10
+-define(DEF_REG_COMPACTION_BP,   50). %% 50
+-define(DEF_MAX_COMPACTION_BP,  150). %% 150
+-define(DEF_STEP_COMPACTION_BP,  50). %% 100
+-else.
+-define(DEF_MIN_COMPACTION_BP,    1000). %%   1,000
+-define(DEF_REG_COMPACTION_BP,   10000). %%  10,000
+-define(DEF_MAX_COMPACTION_BP,  100000). %% 100,000
+-define(DEF_STEP_COMPACTION_BP,   1000). %%   1,000
+-endif.
+
+
 -undef(ST_IDLING).
 -undef(ST_RUNNING).
 -undef(ST_SUSPENDING).
@@ -62,6 +89,10 @@
 -undef(EVENT_RESUME).
 -undef(EVENT_FINISH).
 -undef(EVENT_STATE).
+-undef(EVENT_INCR_WT).
+-undef(EVENT_DECR_WT).
+-undef(EVENT_INCR_BP).
+-undef(EVENT_DECR_BP).
 -define(EVENT_RUN,      'run').
 -define(EVENT_DIAGNOSE, 'diagnose').
 -define(EVENT_LOCK,     'lock').
@@ -69,13 +100,22 @@
 -define(EVENT_RESUME,   'resume').
 -define(EVENT_FINISH,   'finish').
 -define(EVENT_STATE,    'state').
+-define(EVENT_INCR_WT,  'incr_interval').
+-define(EVENT_DECR_WT,  'decr_interval').
+-define(EVENT_INCR_BP,  'incr_batch_of_msgs').
+-define(EVENT_DECR_BP,  'decr_batch_of_msgs').
 -type(compaction_event() ::?EVENT_RUN      |
                            ?EVENT_DIAGNOSE |
                            ?EVENT_LOCK     |
                            ?EVENT_SUSPEND  |
                            ?EVENT_RESUME   |
                            ?EVENT_FINISH   |
-                           ?EVENT_STATE).
+                           ?EVENT_STATE    |
+                           ?EVENT_INCR_WT  |
+                           ?EVENT_DECR_WT  |
+                           ?EVENT_INCR_BP  |
+                           ?EVENT_DECR_BP
+                           ).
 
 %% @doc Compaction related definitions
 -define(RET_SUCCESS, 'success').
@@ -344,6 +384,109 @@
                 false
         end).
 
+-define(env_limit_num_of_compaction_procs(),
+        case application:get_env(leo_object_storage,
+                                 limit_num_of_compaction_procs) of
+            {ok, EnvLimitCompactionProcs} when is_integer(EnvLimitCompactionProcs) ->
+                EnvLimitCompactionProcs;
+            _ ->
+                ?DEF_LIMIT_COMPACTION_PROCS
+        end).
+
+%% [Interval between batch processes]
+-define(env_compaction_interval_between_batch_procs_min(),
+        case application:get_env(leo_object_storage,
+                                 compaction_interval_between_batch_procs_min) of
+            {ok, EnvMinCompactionWT} when is_integer(EnvMinCompactionWT) ->
+                EnvMinCompactionWT;
+            _ ->
+                ?DEF_MIN_COMPACTION_WT
+        end).
+
+-define(env_compaction_interval_between_batch_procs_reg(),
+        case application:get_env(leo_object_storage,
+                                 compaction_interval_between_batch_procs_reg) of
+            {ok, EnvRegCompactionWT} when is_integer(EnvRegCompactionWT) ->
+                EnvRegCompactionWT;
+            _ ->
+                ?DEF_REG_COMPACTION_WT
+        end).
+
+-define(env_compaction_interval_between_batch_procs_max(),
+        case application:get_env(leo_object_storage,
+                                 compaction_interval_between_batch_procs_max) of
+            {ok, EnvMaxCompactionWT} when is_integer(EnvMaxCompactionWT) ->
+                EnvMaxCompactionWT;
+            _ ->
+                ?DEF_MAX_COMPACTION_WT
+        end).
+
+-define(env_compaction_interval_between_batch_procs_step(),
+        case application:get_env(leo_object_storage,
+                                 compaction_interval_between_batch_procs_step) of
+            {ok, EnvStepCompactionWT} when is_integer(EnvStepCompactionWT) ->
+                EnvStepCompactionWT;
+            _ ->
+                ?DEF_STEP_COMPACTION_WT
+        end).
+
+%% [Number of batch processes]
+-define(env_compaction_num_of_batch_procs_max(),
+        case application:get_env(leo_object_storage,
+                                 compaction_num_of_batch_procs_max) of
+            {ok, EnvMaxCompactionBP} when is_integer(EnvMaxCompactionBP) ->
+                EnvMaxCompactionBP;
+            _ ->
+                ?DEF_MAX_COMPACTION_BP
+        end).
+
+-define(env_compaction_num_of_batch_procs_reg(),
+        case application:get_env(leo_object_storage,
+                                 compaction_num_of_batch_procs_reg) of
+            {ok, EnvRegCompactionBP} when is_integer(EnvRegCompactionBP) ->
+                EnvRegCompactionBP;
+            _ ->
+                ?DEF_REG_COMPACTION_BP
+        end).
+
+-define(env_compaction_num_of_batch_procs_min(),
+        case application:get_env(leo_object_storage,
+                                 compaction_num_of_batch_procs_min) of
+            {ok, EnvMinCompactionBP} when is_integer(EnvMinCompactionBP) ->
+                EnvMinCompactionBP;
+            _ ->
+                ?DEF_MIN_COMPACTION_BP
+        end).
+-define(env_compaction_num_of_batch_procs_step(),
+        case application:get_env(leo_object_storage,
+                                 compaction_num_of_batch_procs_step) of
+            {ok, EnvStepCompactionBP} when is_integer(EnvStepCompactionBP) ->
+                EnvStepCompactionBP;
+            _ ->
+                ?DEF_STEP_COMPACTION_BP
+        end).
+
+
+-define(num_of_compaction_concurrency(_PrmNumOfConcurrency),
+        begin
+            _EnvNumOfConcurrency = ?env_limit_num_of_compaction_procs(),
+            case (_PrmNumOfConcurrency > _EnvNumOfConcurrency) of
+                true  -> _EnvNumOfConcurrency;
+                false -> _PrmNumOfConcurrency
+            end
+        end).
+
+-define(get_object_storage_id(_TargetContainers),
+        begin
+            lists:flatten(
+              lists:map(
+                fun(_Id) ->
+                        case leo_object_storage_api:get_object_storage_pid_by_container_id(_Id) of
+                            not_found -> [];
+                            _Pid -> _Pid
+                        end
+                end,_TargetContainers))
+        end).
 
 %% custom-metadata's items for MDC-replication:
 -define(PROP_CMETA_CLUSTER_ID, 'cluster_id').
@@ -382,17 +525,22 @@
             _Path_1 = binary_to_list(_Key),
 
             {_Path_2, _CIndex} =
-                case string:str(_Path_1, "\n") of
-                    0 ->
-                        {_Path_1, 0};
-                    _Index ->
-                        case catch list_to_integer(string:sub_string(_Path_1, _Index + 1)) of
-                            {'EXIT',_} ->
-                                {_Path_1, 0};
-                            _Num->
-                                {string:sub_string(_Path_1, 1, _Index -1), _Num}
-                        end
+                begin
+                    _Tokens = string:tokens(_Path_1, "\n"),
+                    case length(_Tokens) of
+                        1 ->
+                            {_Path_1, 0};
+                        _ ->
+                            [_ParentPath,_CNum|_] = _Tokens,
+                            case catch list_to_integer(_CNum) of
+                                {'EXIT',_} ->
+                                    {_ParentPath, 0};
+                                _Num->
+                                    {_ParentPath, _Num}
+                            end
+                    end
                 end,
+
             leo_logger_client_base:append(
               {LoggerId, #message_log{format  = "~w\t~w\t~s\t~w\t~w\t~w\t~s\t~w~n",
                                       message = [_Offset,

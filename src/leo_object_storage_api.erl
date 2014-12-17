@@ -42,13 +42,15 @@
         ]).
 
 -export([get_object_storage_pid/1,
-         get_object_storage_pid_first/0
+         get_object_storage_pid_first/0,
+         get_object_storage_pid_by_container_id/1
         ]).
 
 -export([compact_data/0, compact_data/1,
          compact_data/2, compact_data/3,
-         diagnose_data/0,
-         diagnose_data/1
+         compact_data_via_console/2,
+         diagnose_data/0, diagnose_data/1, diagnose_data/2,
+         recover_metadata/0, recover_metadata/1, recover_metadata/2
         ]).
 
 -ifdef(TEST).
@@ -259,13 +261,15 @@ store(Metadata, Bin) ->
 %% @doc Retrieve the storage stats
 %%
 -spec(stats() ->
-             {ok, list()} | not_found).
+             {ok, [#storage_stats{}]} | not_found).
 stats() ->
     case get_object_storage_pid(all) of
         [] ->
             not_found;
         List ->
-            {ok, [?SERVER_MODULE:get_stats(Id) || Id <- List]}
+            {ok, [Stat ||
+                     {ok, Stat} <-
+                          [?SERVER_MODULE:get_stats(Id) || Id <- List]]}
     end.
 
 
@@ -302,6 +306,19 @@ get_object_storage_pid_first() ->
     Id = leo_misc:get_value(obj_storage, First),
     Id.
 
+%% @doc Retrieve object-storage-pid by container-id
+-spec(get_object_storage_pid_by_container_id(ContainerId) ->
+             Id when Id::atom(),
+                     ContainerId::non_neg_integer()).
+get_object_storage_pid_by_container_id(ContainerId) ->
+    case ets:lookup(leo_object_storage_containers, ContainerId) of
+        [] ->
+            not_found;
+        [{_, Value}|_] ->
+            Id = leo_misc:get_value(obj_storage, Value),
+            Id
+    end.
+
 
 -ifdef(TEST).
 %% @doc Add incorrect datas on debug purpose
@@ -323,23 +340,46 @@ add_incorrect_data(Bin) ->
 compact_data() ->
     leo_compact_fsm_controller:run().
 
--spec(compact_data(MaxConn) ->
-             term() when MaxConn::integer()).
-compact_data(MaxConn) ->
-    leo_compact_fsm_controller:run(MaxConn).
+-spec(compact_data(NumOfConcurrency) ->
+             term() when NumOfConcurrency::integer()).
+compact_data(NumOfConcurrency) ->
+    NumOfConcurrency_1 =
+        ?num_of_compaction_concurrency(NumOfConcurrency),
+    leo_compact_fsm_controller:run(NumOfConcurrency_1).
 
--spec(compact_data(MaxConn, CallbackFun) ->
-             term() when MaxConn::integer(),
+-spec(compact_data(NumOfConcurrency, CallbackFun) ->
+             term() when NumOfConcurrency::integer(),
                          CallbackFun::function()).
-compact_data(MaxConn, CallbackFun) ->
-    leo_compact_fsm_controller:run(MaxConn, CallbackFun).
+compact_data(NumOfConcurrency, CallbackFun) ->
+    NumOfConcurrency_1 =
+        ?num_of_compaction_concurrency(NumOfConcurrency),
+    leo_compact_fsm_controller:run(NumOfConcurrency_1, CallbackFun).
 
--spec(compact_data(TargetPids, MaxConn, CallbackFun) ->
+-spec(compact_data(TargetPids, NumOfConcurrency, CallbackFun) ->
              term() when TargetPids::[atom()],
-                         MaxConn::integer(),
+                         NumOfConcurrency::integer(),
                          CallbackFun::function()).
-compact_data(TargetPids, MaxConn, CallbackFun) ->
-    leo_compact_fsm_controller:run(TargetPids, MaxConn, CallbackFun).
+compact_data(TargetPids, NumOfConcurrency, CallbackFun) ->
+    NumOfConcurrency_1 =
+        ?num_of_compaction_concurrency(NumOfConcurrency),
+    leo_compact_fsm_controller:run(TargetPids, NumOfConcurrency_1, CallbackFun).
+
+
+%% @doc Execute data-comaction via console
+%%
+-spec(compact_data_via_console(AVSPath, TargetContainers) ->
+             term() when AVSPath::string(),
+                         TargetContainers::[non_neg_integer()]).
+compact_data_via_console([], TargetContainers) ->
+    leo_compact_fsm_controller:recover_metadata(TargetContainers);
+compact_data_via_console(AVSPath, TargetContainers) ->
+    case start_with_path(AVSPath) of
+        ok ->
+            TargetPids = ?get_object_storage_id(TargetContainers),
+            compact_data(TargetPids, 1, undefined);
+        Error ->
+            Error
+    end.
 
 
 %% @doc Diagnode the data
@@ -348,15 +388,59 @@ compact_data(TargetPids, MaxConn, CallbackFun) ->
 diagnose_data() ->
     leo_compact_fsm_controller:diagnose().
 
--spec(diagnose_data(Path) ->
-             ok | {error, any()} when Path::string()).
-diagnose_data(Path) ->
-    case start_with_path(Path) of
+-spec(diagnose_data(AVSPath) ->
+             ok | {error, any()} when AVSPath::string()).
+diagnose_data(AVSPath) ->
+    case start_with_path(AVSPath) of
         ok ->
             leo_compact_fsm_controller:diagnose();
         Error ->
             Error
     end.
+
+-spec(diagnose_data(AVSPath, TargetContainers) ->
+             ok | {error, any()} when AVSPath::string(),
+                                      TargetContainers::[non_neg_integer()]).
+diagnose_data([], TargetContainers) ->
+    leo_compact_fsm_controller:diagnose(TargetContainers);
+diagnose_data(AVSPath, TargetContainers) ->
+    case start_with_path(AVSPath) of
+        ok ->
+            leo_compact_fsm_controller:diagnose(TargetContainers);
+        Error ->
+            Error
+    end.
+
+
+%% @doc Diagnode the data
+-spec(recover_metadata() ->
+             term()).
+recover_metadata() ->
+    leo_compact_fsm_controller:recover_metadata().
+
+-spec(recover_metadata(AVSPath) ->
+             ok | {error, any()} when AVSPath::string()).
+recover_metadata(AVSPath) ->
+    case start_with_path(AVSPath) of
+        ok ->
+            leo_compact_fsm_controller:recover_metadata();
+        Error ->
+            Error
+    end.
+
+-spec(recover_metadata(AVSPath, TargetContainers) ->
+             ok | {error, any()} when AVSPath::string(),
+                                      TargetContainers::[non_neg_integer()]).
+recover_metadata([], TargetContainers) ->
+    leo_compact_fsm_controller:recover_metadata(TargetContainers);
+recover_metadata(AVSPath, TargetContainers) ->
+    case start_with_path(AVSPath) of
+        ok ->
+            leo_compact_fsm_controller:recover_metadata(TargetContainers);
+        Error ->
+            Error
+    end.
+
 
 %%--------------------------------------------------------------------
 %% INNTERNAL FUNCTIONS
