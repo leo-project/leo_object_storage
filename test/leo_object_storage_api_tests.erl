@@ -902,7 +902,6 @@ compact_2() ->
     io:format(user, "*** target-pids:~p~n", [TargetPids]),
 
     ok = leo_compact_fsm_controller:run(TargetPids, 2, FunHasChargeOfNode),
-    timer:sleep(100),
 
     {ok, CompactionStats} = leo_compact_fsm_controller:state(),
     ?assertEqual(?ST_RUNNING, CompactionStats#compaction_stats.status),
@@ -931,6 +930,7 @@ compact_2() ->
 
     %% Waiting for finished data-compaction
     ok = check_status(),
+    timer:sleep(5000),
     {ok, Res2} = leo_object_storage_api:stats(),
     {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2}
         = get_avs_stats_summary(Res2),
@@ -940,6 +940,7 @@ compact_2() ->
     ?assertEqual(13, SumTotal2),
     ?assertEqual(13, SumActive2),
     ?assertEqual(true, SumTotalSize2 == SumActiveSize2),
+    timer:sleep(10000),
 
     %% confirm whether first compaction have broken avs files or not
     ok = leo_compact_fsm_controller:run(TargetPids, 2, FunHasChargeOfNode),
