@@ -890,7 +890,7 @@ compact_2() ->
     {ok, Res1} = leo_object_storage_api:stats(),
     {SumTotal1, SumActive1, SumTotalSize1, SumActiveSize1}
         = get_avs_stats_summary(Res1),
-    ?assertEqual(18, SumTotal1),
+    ?assertEqual(17, SumTotal1),
     ?assertEqual(13, SumActive1),
     ?assertEqual(true, SumTotalSize1 > SumActiveSize1),
     timer:sleep(250),

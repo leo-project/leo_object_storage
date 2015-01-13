@@ -140,8 +140,10 @@ stop(Id) ->
 -spec(put(Id, Object) ->
              ok | {error, any()} when Id::atom(),
                                       Object::#?OBJECT{}).
-put(Id, Object) ->
-    gen_server:call(Id, {put, Object}, ?DEF_TIMEOUT).
+put(Id, #?OBJECT{del = ?DEL_FALSE} = Object) ->
+    gen_server:call(Id, {put, Object}, ?DEF_TIMEOUT);
+put(Id, #?OBJECT{del = ?DEL_TRUE} = Object) ->
+    gen_server:call(Id, {delete, Object}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve an object from the object-storage
@@ -449,29 +451,38 @@ handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
     Key = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                            Object#?OBJECT.addr_id,
                            Object#?OBJECT.key),
-    {DiffRec, OldSize} =
+    {Reply, DiffRec, OldSize, State_1} =
         case leo_object_storage_haystack:head(
                MetaDBId, Key) of
             not_found ->
-                {0, 0};
+                {ok, 0, 0, State};
             {ok, MetaBin} ->
                 Meta = binary_to_term(MetaBin),
-                {-1, leo_object_storage_haystack:calc_obj_size(Meta)};
+                #?METADATA{del = DelFlag} = Meta,
+                case DelFlag of
+                    ?DEL_FALSE ->
+                        case leo_object_storage_haystack:delete(
+                               MetaDBId, StorageInfo, Object) of
+                            ok ->
+                                {ok, 1, leo_object_storage_haystack:calc_obj_size(Meta), State};
+                            {error, Cause} ->
+                                NewState = after_proc({error, Cause}, State),
+                                {{error, Cause}, 0, 0, NewState}
+                        end;
+                    ?DEL_TRUE ->
+                        {ok, 0, 0, State}
+                end;
             _ ->
-                {0, 0}
+                {ok, 0, 0, State}
         end,
 
-    NewSize = leo_object_storage_haystack:calc_obj_size(Object),
-    Reply   = leo_object_storage_haystack:delete(MetaDBId, StorageInfo, Object),
-
-    NewState = after_proc(Reply, State),
     NewStorageStats =
         StorageStats#storage_stats{
-          total_sizes  = StorageStats#storage_stats.total_sizes  + NewSize,
-          active_sizes = StorageStats#storage_stats.active_sizes - (NewSize - OldSize),
-          total_num    = StorageStats#storage_stats.total_num    + 1,
-          active_num   = StorageStats#storage_stats.active_num   + DiffRec},
-    {reply, Reply, NewState#state{storage_stats = NewStorageStats}};
+          total_sizes  = StorageStats#storage_stats.total_sizes,
+          active_sizes = StorageStats#storage_stats.active_sizes - OldSize,
+          total_num    = StorageStats#storage_stats.total_num,
+          active_num   = StorageStats#storage_stats.active_num - DiffRec},
+    {reply, Reply, State_1#state{storage_stats = NewStorageStats}};
 
 %% Head an object
 handle_call({head, {AddrId, Key}},
