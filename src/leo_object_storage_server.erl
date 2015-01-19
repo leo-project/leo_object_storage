@@ -43,7 +43,7 @@
          head_with_calc_md5/3,
          close/1,
          get_backend_info/2,
-         lock/1, block_del_operation/1, unlock/1,
+         lock/1, block_del/1, unlock/1,
          switch_container/4,
          append_compaction_history/2,
          get_compaction_worker/1
@@ -71,8 +71,8 @@
           storage_stats  = #storage_stats{} :: #storage_stats{},
           state_filepath :: string(),
           is_strict_check = false :: boolean(),
-          is_locked    = false    :: boolean(),
-          is_block_del = false    :: boolean()
+          is_locked = false       :: boolean(),
+          is_del_blocked = false  :: boolean()
          }).
 
 -define(DEF_TIMEOUT, 30000).
@@ -268,12 +268,12 @@ lock(Id) ->
 
 %% @doc Lock handling objects for delete
 %%
--spec(block_del_operation(Id) ->
+-spec(block_del(Id) ->
              ok when Id::atom()).
-block_del_operation(undefined) ->
+block_del(undefined) ->
     ok;
-block_del_operation(Id) ->
-    gen_server:call(Id, block_del_operation, ?DEF_TIMEOUT).
+block_del(Id) ->
+    gen_server:call(Id, block_del, ?DEF_TIMEOUT).
 
 
 %% @doc Unlock handling objects for put/delete/store
@@ -456,7 +456,7 @@ handle_call({get, {AddrId, Key}, StartPos, EndPos},
 %% Remove an object
 handle_call({delete, _}, _From, #state{is_locked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
-handle_call({delete, _}, _From, #state{is_block_del = true} = State) ->
+handle_call({delete, _}, _From, #state{is_del_blocked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
 handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
                                             object_storage = StorageInfo,
@@ -521,7 +521,7 @@ handle_call({store, _,_}, _From, #state{is_locked = true} = State) ->
 handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
                                                   object_storage = StorageInfo,
                                                   storage_stats  = StorageStats,
-                                                  is_block_del   = IsBlockDel} = State) ->
+                                                  is_del_blocked = IsBlockDel} = State) ->
     Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
     {Reply_1, StorageStats_1} =
         case Metadata_1#?METADATA.del of
@@ -602,13 +602,13 @@ handle_call(lock, _From, State) ->
     {reply, ok, State#state{is_locked = true}};
 
 %% Lock the object-container
-handle_call(block_del_operation, _From, State) ->
-    {reply, ok, State#state{is_block_del = true}};
+handle_call(block_del, _From, State) ->
+    {reply, ok, State#state{is_del_blocked = true}};
 
 %% Unlock the object-container
 handle_call(unlock, _From, State) ->
-    {reply, ok, State#state{is_locked    = false,
-                            is_block_del = false}};
+    {reply, ok, State#state{is_locked = false,
+                            is_del_blocked = false}};
 
 %% Open the object-container
 handle_call({switch_container, FilePath,

@@ -424,7 +424,7 @@ running(#event_info{id = Id,
     LockedTargets_1 = [Id|LockedTargets],
     ObjStorageId = leo_misc:get_value(Id, ServerPairs),
     ok = leo_object_storage_server:lock(ObjStorageId),
-    ok = leo_object_storage_server:block_del_operation(ObjStorageId),
+    ok = leo_object_storage_server:block_del(ObjStorageId),
 
     NextState = ?ST_RUNNING,
     {next_state, NextState,
@@ -723,7 +723,7 @@ loop(CallbackFun, TargetId) ->
             case leo_compact_fsm_worker:run(
                    Id_1, self(), IsDiagnose, IsRecovering, CallbackFun) of
                 ok ->
-                    ok = leo_object_storage_server:block_del_operation(Id),
+                    ok = leo_object_storage_server:block_del(Id),
                     loop(CallbackFun, {Id, Id_1});
                 {error,_Cause} ->
                     ok = finish(self(), Id)
