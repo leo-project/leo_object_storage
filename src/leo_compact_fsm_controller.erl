@@ -424,6 +424,7 @@ running(#event_info{id = Id,
     LockedTargets_1 = [Id|LockedTargets],
     ObjStorageId = leo_misc:get_value(Id, ServerPairs),
     ok = leo_object_storage_server:lock(ObjStorageId),
+    ok = leo_object_storage_server:block_del(ObjStorageId),
 
     NextState = ?ST_RUNNING,
     {next_state, NextState,
@@ -497,7 +498,7 @@ running(#event_info{event  = ?EVENT_FINISH,
 
     NextState = ?ST_IDLING,
     PendingTargets = pending_targets(ReservedTargets),
-    
+
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "running/2"},
                            {line, ?LINE}, {body, "FINISHED Compaction|Diagnosis|Recovery"}]),
@@ -622,7 +623,7 @@ handle_sync_event(state, _From, StateName, #state{status = Status,
                                                   pending_targets      = PendingTargets,
                                                   ongoing_targets      = OngoingTargets,
                                                   locked_targets       = LockedTargets,
-                                                  start_datetime       = LastestExecDate,
+                                                  start_datetime       = LatestExecDate,
                                                   reports              = AccReports} = State) ->
     {reply, {ok, #compaction_stats{status = Status,
                                    total_num_of_targets    = TotalNumOfTargets,
@@ -633,7 +634,7 @@ handle_sync_event(state, _From, StateName, #state{status = Status,
                                    pending_targets         = PendingTargets,
                                    ongoing_targets         = OngoingTargets,
                                    locked_targets          = LockedTargets,
-                                   latest_exec_datetime    = LastestExecDate,
+                                   latest_exec_datetime    = LatestExecDate,
                                    acc_reports             = AccReports
                                   }}, StateName, State};
 
@@ -722,6 +723,7 @@ loop(CallbackFun, TargetId) ->
             case leo_compact_fsm_worker:run(
                    Id_1, self(), IsDiagnose, IsRecovering, CallbackFun) of
                 ok ->
+                    ok = leo_object_storage_server:block_del(Id),
                     loop(CallbackFun, {Id, Id_1});
                 {error,_Cause} ->
                     ok = finish(self(), Id)

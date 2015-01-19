@@ -43,7 +43,7 @@
          head_with_calc_md5/3,
          close/1,
          get_backend_info/2,
-         lock/1, unlock/1,
+         lock/1, block_del/1, unlock/1,
          switch_container/4,
          append_compaction_history/2,
          get_compaction_worker/1
@@ -71,7 +71,8 @@
           storage_stats  = #storage_stats{} :: #storage_stats{},
           state_filepath :: string(),
           is_strict_check = false :: boolean(),
-          is_locked = false       :: boolean()
+          is_locked = false       :: boolean(),
+          is_del_blocked = false  :: boolean()
          }).
 
 -define(DEF_TIMEOUT, 30000).
@@ -265,6 +266,16 @@ lock(Id) ->
     gen_server:call(Id, lock, ?DEF_TIMEOUT).
 
 
+%% @doc Lock handling objects for delete
+%%
+-spec(block_del(Id) ->
+             ok when Id::atom()).
+block_del(undefined) ->
+    ok;
+block_del(Id) ->
+    gen_server:call(Id, block_del, ?DEF_TIMEOUT).
+
+
 %% @doc Unlock handling objects for put/delete/store
 %%
 -spec(unlock(Id) ->
@@ -445,6 +456,8 @@ handle_call({get, {AddrId, Key}, StartPos, EndPos},
 %% Remove an object
 handle_call({delete, _}, _From, #state{is_locked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
+handle_call({delete, _}, _From, #state{is_del_blocked = true} = State) ->
+    {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
 handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
                                             object_storage = StorageInfo,
                                             storage_stats  = StorageStats} = State) ->
@@ -507,31 +520,39 @@ handle_call({store, _,_}, _From, #state{is_locked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
 handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
                                                   object_storage = StorageInfo,
-                                                  storage_stats  = StorageStats} = State) ->
+                                                  storage_stats  = StorageStats,
+                                                  is_del_blocked = IsBlockDel} = State) ->
     Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
-    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
-                                  Metadata_1#?METADATA.addr_id,
-                                  Metadata_1#?METADATA.key),
-    {DiffRec, OldSize} =
-        case leo_object_storage_haystack:head(MetaDBId, BackendKey) of
-            not_found ->
-                {1, 0};
-            {ok, MetaBin} ->
-                Metadata_2 = binary_to_term(MetaBin),
-                {0, leo_object_storage_haystack:calc_obj_size(Metadata_2)};
-            _ ->
-                {1, 0}
-        end,
+    {Reply_1, StorageStats_1} =
+        case Metadata_1#?METADATA.del of
+            ?DEL_TRUE when IsBlockDel == true ->
+                {{error, ?ERROR_LOCKED_CONTAINER}, State};
+            ?DEL_FALSE ->
+                BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
+                                              Metadata_1#?METADATA.addr_id,
+                                              Metadata_1#?METADATA.key),
+                {DiffRec, OldSize} =
+                    case leo_object_storage_haystack:head(MetaDBId, BackendKey) of
+                        not_found ->
+                            {1, 0};
+                        {ok, MetaBin} ->
+                            Metadata_2 = binary_to_term(MetaBin),
+                            {0, leo_object_storage_haystack:calc_obj_size(Metadata_2)};
+                        _ ->
+                            {1, 0}
+                    end,
 
-    NewSize = leo_object_storage_haystack:calc_obj_size(Metadata_1),
-    Reply   = leo_object_storage_haystack:store(MetaDBId, StorageInfo, Metadata_1, Bin),
-    NewStorageStats =
-        StorageStats#storage_stats{
-          total_sizes  = StorageStats#storage_stats.total_sizes  + NewSize,
-          active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - OldSize),
-          total_num    = StorageStats#storage_stats.total_num    + 1,
-          active_num   = StorageStats#storage_stats.active_num   + DiffRec},
-    {reply, Reply, State#state{storage_stats = NewStorageStats}};
+                NewSize = leo_object_storage_haystack:calc_obj_size(Metadata_1),
+                Reply   = leo_object_storage_haystack:store(MetaDBId, StorageInfo, Metadata_1, Bin),
+                NewStorageStats =
+                    StorageStats#storage_stats{
+                      total_sizes  = StorageStats#storage_stats.total_sizes  + NewSize,
+                      active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - OldSize),
+                      total_num    = StorageStats#storage_stats.total_num    + 1,
+                      active_num   = StorageStats#storage_stats.active_num   + DiffRec},
+                {Reply, NewStorageStats}
+        end,
+    {reply, Reply_1, State#state{storage_stats = StorageStats_1}};
 
 %% Retrieve the current status
 handle_call(get_stats, _From, #state{storage_stats = StorageStats} = State) ->
@@ -580,9 +601,14 @@ handle_call({get_backend_info, ?SERVER_OBJ_STORAGE}, _From,
 handle_call(lock, _From, State) ->
     {reply, ok, State#state{is_locked = true}};
 
+%% Lock the object-container
+handle_call(block_del, _From, State) ->
+    {reply, ok, State#state{is_del_blocked = true}};
+
 %% Unlock the object-container
 handle_call(unlock, _From, State) ->
-    {reply, ok, State#state{is_locked = false}};
+    {reply, ok, State#state{is_locked = false,
+                            is_del_blocked = false}};
 
 %% Open the object-container
 handle_call({switch_container, FilePath,
@@ -701,8 +727,7 @@ open_container(#state{object_storage =
                     avs_ver_cur   = AVSVsnBin,
                     write_handler = NewWriteHandler,
                     read_handler  = NewReadHandler},
-              is_locked = false
-             };
+              is_locked = false};
         {error, _} ->
             State
     end.
