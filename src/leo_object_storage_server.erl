@@ -523,34 +523,48 @@ handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
                                                   storage_stats  = StorageStats,
                                                   is_del_blocked = IsBlockDel} = State) ->
     Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
+    DelFlag = Metadata_1#?METADATA.del,
+
     {Reply_1, StorageStats_1} =
-        case Metadata_1#?METADATA.del of
+        case DelFlag of
             ?DEL_TRUE when IsBlockDel == true ->
                 {{error, ?ERROR_LOCKED_CONTAINER}, State};
             _ ->
                 BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                               Metadata_1#?METADATA.addr_id,
                                               Metadata_1#?METADATA.key),
-                {DiffRec, OldSize} =
+                {Ret, DiffRec, OldSize, IncrNum} =
                     case leo_object_storage_haystack:head(MetaDBId, BackendKey) of
-                        not_found ->
-                            {1, 0};
-                        {ok, MetaBin} ->
+                        not_found when DelFlag == ?DEL_TRUE->
+                            {ok, 0, 0, 0};
+                        not_found when DelFlag == ?DEL_FALSE->
+                            {ok, 1, 0, 1};
+                        {ok, MetaBin} when DelFlag == ?DEL_FALSE->
                             Metadata_2 = binary_to_term(MetaBin),
-                            {0, leo_object_storage_haystack:calc_obj_size(Metadata_2)};
-                        _ ->
-                            {1, 0}
+                            {ok, 0, leo_object_storage_haystack:calc_obj_size(Metadata_2), 1};
+                        _Error ->
+                            {_Error, 0, 0, 0}
                     end,
 
-                NewSize = leo_object_storage_haystack:calc_obj_size(Metadata_1),
-                Reply   = leo_object_storage_haystack:store(MetaDBId, StorageInfo, Metadata_1, Bin),
-                NewStorageStats =
-                    StorageStats#storage_stats{
-                      total_sizes  = StorageStats#storage_stats.total_sizes  + NewSize,
-                      active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - OldSize),
-                      total_num    = StorageStats#storage_stats.total_num    + 1,
-                      active_num   = StorageStats#storage_stats.active_num   + DiffRec},
-                {Reply, NewStorageStats}
+                case Ret of
+                    ok ->
+                        NewSize = case IncrNum == 1 of
+                                      true ->
+                                          leo_object_storage_haystack:calc_obj_size(Metadata_1);
+                                      false ->
+                                          0
+                                  end,
+                        Reply = leo_object_storage_haystack:store(MetaDBId, StorageInfo, Metadata_1, Bin),
+                        NewStorageStats =
+                            StorageStats#storage_stats{
+                              total_sizes  = StorageStats#storage_stats.total_sizes  + NewSize,
+                              active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - OldSize),
+                              total_num    = StorageStats#storage_stats.total_num    + IncrNum,
+                              active_num   = StorageStats#storage_stats.active_num   + DiffRec},
+                        {Reply, NewStorageStats};
+                    Error ->
+                        {Error, StorageStats}
+                end
         end,
     {reply, Reply_1, State#state{storage_stats = StorageStats_1}};
 
