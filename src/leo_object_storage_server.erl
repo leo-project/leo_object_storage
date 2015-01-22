@@ -527,7 +527,7 @@ handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
         case Metadata_1#?METADATA.del of
             ?DEL_TRUE when IsBlockDel == true ->
                 {{error, ?ERROR_LOCKED_CONTAINER}, State};
-            ?DEL_FALSE ->
+            _ ->
                 BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                               Metadata_1#?METADATA.addr_id,
                                               Metadata_1#?METADATA.key),
