@@ -462,16 +462,17 @@ handle_call({fetch, {AddrId, Key}, Fun, MaxKeys},
 %% Store an object
 handle_call({store, _,_}, _From, #state{is_locked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
-handle_call({store, _,_}, _From, #state{is_del_blocked = true} = State) ->
-    {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
-handle_call({store, Metadata, Bin}, _From, #state{object_storage = StorageInfo} = State) ->
+handle_call({store, Metadata, Bin}, _From, #state{object_storage = StorageInfo,
+                                                  is_del_blocked = IsDelBlocked} = State) ->
     Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
     Key = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                            Metadata_1#?METADATA.addr_id,
                            Metadata_1#?METADATA.key),
-    Object = leo_object_storage_haystack:set_object_info_from_metadata(Bin, Metadata),
+    Object = leo_object_storage_transformer:metadata_to_object(Bin, Metadata),
     {Reply, State_1} =
         case Metadata_1#?METADATA.del of
+            ?DEL_TRUE when IsDelBlocked == true ->
+                {{error, ?ERROR_LOCKED_CONTAINER}, State};
             ?DEL_TRUE ->
                 delete_1(Key, Object, State);
             ?DEL_FALSE ->
