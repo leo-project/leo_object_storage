@@ -36,7 +36,7 @@
 
 -export([open/1, open/2, close/2,
          put/3, get/3, get/6, delete/3, head/2,
-         fetch/4, store/4]).
+         fetch/4]).
 
 -export([head_with_calc_md5/4]).
 
@@ -268,33 +268,6 @@ fetch(MetaDBId, Key, Fun, undefined) ->
     leo_backend_db_api:fetch(MetaDBId, Key, Fun);
 fetch(MetaDBId, Key, Fun, MaxKeys) ->
     leo_backend_db_api:fetch(MetaDBId, Key, Fun, MaxKeys).
-
-
-%% @doc Store metadata and binary
-%%
--spec(store(MetaDBId, StorageInfo, Metadata, Bin) ->
-             ok | {error, any()} when MetaDBId::atom(),
-                                      StorageInfo::#backend_info{},
-                                      Metadata::#?METADATA{},
-                                      Bin::binary()).
-store(MetaDBId, StorageInfo, Metadata, Bin) ->
-    Object_1 = leo_object_storage_transformer:metadata_to_object(Metadata),
-    Object_2 = Object_1#?OBJECT{data = Bin},
-    Object_3 = case (Metadata#?METADATA.cnumber > 0) of
-                   true ->
-                       Object_2#?OBJECT{checksum = Metadata#?METADATA.checksum};
-                   false ->
-                       Checksum = leo_hex:raw_binary_to_integer(
-                                    crypto:hash(md5, Bin)),
-                       Object_2#?OBJECT{checksum = Checksum}
-               end,
-
-    case put_fun_1(MetaDBId, StorageInfo, Object_3) of
-        {ok, _Checksum} ->
-            ok;
-        {error, Cause} ->
-            {error, Cause}
-    end.
 
 
 %%--------------------------------------------------------------------

@@ -407,36 +407,13 @@ handle_call(stop, _From, State) ->
 %% Insert an object
 handle_call({put, _}, _From, #state{is_locked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
-handle_call({put, Object}, _From, #state{meta_db_id     = MetaDBId,
-                                         object_storage = StorageInfo,
-                                         storage_stats  = StorageStats} = State) ->
+handle_call({put, Object}, _From, #state{object_storage = StorageInfo} = State) ->
     Key = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                            Object#?OBJECT.addr_id,
                            Object#?OBJECT.key),
-    {DiffRec, OldSize} =
-        case leo_object_storage_haystack:head(MetaDBId, Key) of
-            not_found ->
-                {1, 0};
-            {ok, MetaBin} ->
-                Metadata_1 = binary_to_term(MetaBin),
-                Metadata_2 = leo_object_storage_transformer:transform_metadata(Metadata_1),
-                {0, leo_object_storage_haystack:calc_obj_size(Metadata_2)};
-            _ ->
-                {1, 0}
-        end,
-
-    NewSize  = leo_object_storage_haystack:calc_obj_size(Object),
-    Reply    = leo_object_storage_haystack:put(MetaDBId, StorageInfo, Object),
-    NewState = after_proc(Reply, State),
-    _ = erlang:garbage_collect(self()),
-
-    NewStorageStats =
-        StorageStats#storage_stats{
-          total_sizes  = StorageStats#storage_stats.total_sizes  + NewSize,
-          active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - OldSize),
-          total_num    = StorageStats#storage_stats.total_num    + 1,
-          active_num   = StorageStats#storage_stats.active_num   + DiffRec},
-    {reply, Reply, NewState#state{storage_stats = NewStorageStats}};
+    {Reply, State_1} = put_1(Key, Object, State),
+    erlang:garbage_collect(self()),
+    {reply, Reply, State_1};
 
 %% Retrieve an object
 handle_call({get, {AddrId, Key}, StartPos, EndPos},
@@ -448,54 +425,21 @@ handle_call({get, {AddrId, Key}, StartPos, EndPos},
     Reply = leo_object_storage_haystack:get(
               MetaDBId, StorageInfo, BackendKey, StartPos, EndPos, IsStrictCheck),
 
-    NewState = after_proc(Reply, State),
+    State_1 = after_proc(Reply, State),
     erlang:garbage_collect(self()),
-
-    {reply, Reply, NewState};
+    {reply, Reply, State_1};
 
 %% Remove an object
 handle_call({delete, _}, _From, #state{is_locked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
 handle_call({delete, _}, _From, #state{is_del_blocked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
-handle_call({delete, Object}, _From, #state{meta_db_id     = MetaDBId,
-                                            object_storage = StorageInfo,
-                                            storage_stats  = StorageStats} = State) ->
+handle_call({delete, Object}, _From, #state{object_storage = StorageInfo} = State) ->
     Key = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                            Object#?OBJECT.addr_id,
                            Object#?OBJECT.key),
-    {Reply, DiffRec, OldSize, State_1} =
-        case leo_object_storage_haystack:head(
-               MetaDBId, Key) of
-            not_found ->
-                {ok, 0, 0, State};
-            {ok, MetaBin} ->
-                Meta = binary_to_term(MetaBin),
-                #?METADATA{del = DelFlag} = Meta,
-                case DelFlag of
-                    ?DEL_FALSE ->
-                        case leo_object_storage_haystack:delete(
-                               MetaDBId, StorageInfo, Object) of
-                            ok ->
-                                {ok, 1, leo_object_storage_haystack:calc_obj_size(Meta), State};
-                            {error, Cause} ->
-                                NewState = after_proc({error, Cause}, State),
-                                {{error, Cause}, 0, 0, NewState}
-                        end;
-                    ?DEL_TRUE ->
-                        {ok, 0, 0, State}
-                end;
-            _ ->
-                {ok, 0, 0, State}
-        end,
-
-    NewStorageStats =
-        StorageStats#storage_stats{
-          total_sizes  = StorageStats#storage_stats.total_sizes,
-          active_sizes = StorageStats#storage_stats.active_sizes - OldSize,
-          total_num    = StorageStats#storage_stats.total_num,
-          active_num   = StorageStats#storage_stats.active_num - DiffRec},
-    {reply, Reply, State_1#state{storage_stats = NewStorageStats}};
+    {Reply, State_1} = delete_1(Key, Object, State),
+    {reply, Reply, State_1};
 
 %% Head an object
 handle_call({head, {AddrId, Key}},
@@ -518,41 +462,32 @@ handle_call({fetch, {AddrId, Key}, Fun, MaxKeys},
 %% Store an object
 handle_call({store, _,_}, _From, #state{is_locked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
-handle_call({store, Metadata, Bin}, _From, #state{meta_db_id     = MetaDBId,
-                                                  object_storage = StorageInfo,
-                                                  storage_stats  = StorageStats,
-                                                  is_del_blocked = IsBlockDel} = State) ->
+handle_call({store, Metadata, Bin}, _From, #state{object_storage = StorageInfo,
+                                                  is_del_blocked = IsDelBlocked} = State) ->
     Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
-    {Reply_1, StorageStats_1} =
+    Key = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
+                           Metadata_1#?METADATA.addr_id,
+                           Metadata_1#?METADATA.key),
+    Object = leo_object_storage_transformer:metadata_to_object(Bin, Metadata),
+    {Reply, State_1} =
         case Metadata_1#?METADATA.del of
-            ?DEL_TRUE when IsBlockDel == true ->
+            ?DEL_TRUE when IsDelBlocked == true ->
                 {{error, ?ERROR_LOCKED_CONTAINER}, State};
+            ?DEL_TRUE ->
+                delete_1(Key, Object, State);
             ?DEL_FALSE ->
-                BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
-                                              Metadata_1#?METADATA.addr_id,
-                                              Metadata_1#?METADATA.key),
-                {DiffRec, OldSize} =
-                    case leo_object_storage_haystack:head(MetaDBId, BackendKey) of
-                        not_found ->
-                            {1, 0};
-                        {ok, MetaBin} ->
-                            Metadata_2 = binary_to_term(MetaBin),
-                            {0, leo_object_storage_haystack:calc_obj_size(Metadata_2)};
-                        _ ->
-                            {1, 0}
-                    end,
-
-                NewSize = leo_object_storage_haystack:calc_obj_size(Metadata_1),
-                Reply   = leo_object_storage_haystack:store(MetaDBId, StorageInfo, Metadata_1, Bin),
-                NewStorageStats =
-                    StorageStats#storage_stats{
-                      total_sizes  = StorageStats#storage_stats.total_sizes  + NewSize,
-                      active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - OldSize),
-                      total_num    = StorageStats#storage_stats.total_num    + 1,
-                      active_num   = StorageStats#storage_stats.active_num   + DiffRec},
-                {Reply, NewStorageStats}
+                put_1(Key, Object, State)
         end,
-    {reply, Reply_1, State#state{storage_stats = StorageStats_1}};
+    Reply_1 = case Reply of
+                  ok ->
+                      ok;
+                  {ok, _} ->
+                      ok;
+                  Other ->
+                      Other
+              end,
+    erlang:garbage_collect(self()),
+    {reply, Reply_1, State_1};
 
 %% Retrieve the current status
 handle_call(get_stats, _From, #state{storage_stats = StorageStats} = State) ->
@@ -741,6 +676,82 @@ after_proc(Ret, State) ->
             open_container(State);
         _Other ->
             State
+    end.
+
+
+%% @doc Put an object
+%% @private
+put_1(Key, Object, #state{meta_db_id     = MetaDBId,
+                          object_storage = StorageInfo,
+                          storage_stats  = StorageStats} = State) ->
+    {Ret, DiffRec, OldSize} =
+        case leo_object_storage_haystack:head(MetaDBId, Key) of
+            not_found ->
+                {ok, 1, 0};
+            {ok, MetaBin} ->
+                Metadata_1 = binary_to_term(MetaBin),
+                Metadata_2 = leo_object_storage_transformer:transform_metadata(Metadata_1),
+                {ok, 0, leo_object_storage_haystack:calc_obj_size(Metadata_2)};
+            _Error ->
+                {_Error, 0, 0}
+        end,
+    case Ret of
+        ok ->
+            NewSize = leo_object_storage_haystack:calc_obj_size(Object),
+            Reply   = leo_object_storage_haystack:put(MetaDBId, StorageInfo, Object),
+            State_1 = after_proc(Reply, State),
+            {Reply, State_1#state{
+                      storage_stats = StorageStats#storage_stats{
+                                        total_sizes  = StorageStats#storage_stats.total_sizes  + NewSize,
+                                        active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - OldSize),
+                                        total_num    = StorageStats#storage_stats.total_num    + 1,
+                                        active_num   = StorageStats#storage_stats.active_num   + DiffRec}}};
+        Error ->
+            {Error, State}
+    end.
+
+
+%% @doc Remove an object
+%% @private
+delete_1(Key, Object, #state{meta_db_id     = MetaDBId,
+                             object_storage = StorageInfo,
+                             storage_stats  = StorageStats} = State) ->
+    {Reply, DiffRec, OldSize, State_1} =
+        case leo_object_storage_haystack:head(
+               MetaDBId, Key) of
+            not_found ->
+                {ok, 0, 0, State};
+            {ok, MetaBin} ->
+                Meta = binary_to_term(MetaBin),
+                #?METADATA{del = DelFlag} = Meta,
+                case DelFlag of
+                    ?DEL_FALSE ->
+                        case leo_object_storage_haystack:delete(
+                               MetaDBId, StorageInfo, Object) of
+                            ok ->
+                                {ok, 1, leo_object_storage_haystack:calc_obj_size(Meta), State};
+                            {error, Cause} ->
+                                NewState = after_proc({error, Cause}, State),
+                                {{error, Cause}, 0, 0, NewState}
+                        end;
+                    ?DEL_TRUE ->
+                        {ok, 0, 0, State}
+                end;
+            _Error ->
+                {_Error, 0, 0, State}
+        end,
+
+    case Reply of
+        ok ->
+            NewStorageStats =
+                StorageStats#storage_stats{
+                  total_sizes  = StorageStats#storage_stats.total_sizes,
+                  active_sizes = StorageStats#storage_stats.active_sizes - OldSize,
+                  total_num    = StorageStats#storage_stats.total_num,
+                  active_num   = StorageStats#storage_stats.active_num - DiffRec},
+            {Reply, State_1#state{storage_stats = NewStorageStats}};
+        _ ->
+            {Reply, State_1}
     end.
 
 

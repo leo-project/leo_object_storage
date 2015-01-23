@@ -29,6 +29,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([metadata_to_object/1,
+         metadata_to_object/2,
          object_to_metadata/1,
          transform_metadata/1,
          header_bin_to_metadata/1,
@@ -109,6 +110,25 @@ metadata_to_object(#?METADATA{} = Metadata) ->
              del = Del};
 metadata_to_object(_M) ->
     {error, invaid_record}.
+
+
+%% @doc a metadata to an object info
+%%
+-spec(metadata_to_object(Bin, Metadata) ->
+             Object when Bin::binary(),
+                         Metadata::#?METADATA{},
+                         Object::#?OBJECT{}).
+metadata_to_object(Bin, Metadata) ->
+    Object_1 = leo_object_storage_transformer:metadata_to_object(Metadata),
+    Object_2 = Object_1#?OBJECT{data = Bin},
+    case (Metadata#?METADATA.cnumber > 0) of
+        true ->
+            Object_2#?OBJECT{checksum = Metadata#?METADATA.checksum};
+        false ->
+            Checksum = leo_hex:raw_binary_to_integer(
+                         crypto:hash(md5, Bin)),
+            Object_2#?OBJECT{checksum = Checksum}
+    end.
 
 
 %% @doc Transfer object to metadata
