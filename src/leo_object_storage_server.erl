@@ -711,7 +711,7 @@ put_1(Key, Object, #state{meta_db_id     = MetaDBId,
     end.
 
 
-%% @doc Put an object
+%% @doc Remove an object
 %% @private
 delete_1(Key, Object, #state{meta_db_id     = MetaDBId,
                              object_storage = StorageInfo,
