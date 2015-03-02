@@ -242,6 +242,14 @@
   {default, "256000"}
  ]}.
 
+%% @doc Enable or disable SMP
+{mapping,
+ "erlang.smp",
+ "vm_args.-smp",
+ [
+  {default, "enable"}
+ ]}.
+
 %% @doc Raise the default erlang process limit
 {mapping, "process_limit", "vm_args.+P",
  [
