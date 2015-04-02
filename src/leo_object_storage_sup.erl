@@ -2,7 +2,7 @@
 %%
 %% Leo Object Storage
 %%
-%% Copyright (c) 2012-2014 Rakuten, Inc.
+%% Copyright (c) 2012-2015 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -108,7 +108,7 @@ start_child(ObjectStorageInfo) ->
     MetadataDB = ?env_metadata_db(),
     IsStrictCheck = ?env_strict_check(),
 
-    BackendDBSupPid =start_child_1(),
+    BackendDBSupPid = start_child_1(),
     ok = start_child_2(),
     {ok, ServerPairL} = start_child_3(ObjectStorageInfo, 0,
                                      MetadataDB, BackendDBSupPid,
