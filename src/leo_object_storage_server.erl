@@ -72,7 +72,8 @@
           state_filepath :: string(),
           is_strict_check = false :: boolean(),
           is_locked = false       :: boolean(),
-          is_del_blocked = false  :: boolean()
+          is_del_blocked = false  :: boolean(),
+          threshold_of_error_sec = ?DEF_THRESHOLD_ERROR_SEC :: non_neg_integer()
          }).
 
 -define(DEF_TIMEOUT, 30000).
@@ -407,11 +408,16 @@ handle_call(stop, _From, State) ->
 %% Insert an object
 handle_call({put, _}, _From, #state{is_locked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
-handle_call({put, Object}, _From, #state{object_storage = StorageInfo} = State) ->
-    Key = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
-                           Object#?OBJECT.addr_id,
-                           Object#?OBJECT.key),
-    {Reply, State_1} = put_1(Key, Object, State),
+handle_call({put, #?OBJECT{addr_id = AddrId,
+                           key = Key} = Object}, _From,
+            #state{object_storage = StorageInfo,
+                   threshold_of_error_sec = ThresholdOfErrorSec} = State) ->
+    Fun = fun() ->
+                  Key_1 = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
+                                           AddrId, Key),
+                  put_1(Key_1, Object, State)
+          end,
+    {Reply, State_1} = execute(put, Key, Fun, ThresholdOfErrorSec),
     erlang:garbage_collect(self()),
     {reply, Reply, State_1};
 
@@ -419,26 +425,35 @@ handle_call({put, Object}, _From, #state{object_storage = StorageInfo} = State) 
 handle_call({get, {AddrId, Key}, StartPos, EndPos},
             _From, #state{meta_db_id      = MetaDBId,
                           object_storage  = StorageInfo,
-                          is_strict_check = IsStrictCheck} = State) ->
-    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
-                                  AddrId, Key),
-    Reply = leo_object_storage_haystack:get(
-              MetaDBId, StorageInfo, BackendKey, StartPos, EndPos, IsStrictCheck),
-
-    State_1 = after_proc(Reply, State),
+                          is_strict_check = IsStrictCheck,
+                          threshold_of_error_sec = ThresholdOfErrorSec} = State) ->
+    Fun = fun() ->
+                  BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
+                                                AddrId, Key),
+                  Reply = leo_object_storage_haystack:get(
+                            MetaDBId, StorageInfo, BackendKey, StartPos, EndPos, IsStrictCheck),
+                  State_1 = after_proc(Reply, State),
+                  {Reply, State_1}
+          end,
+    {Reply_1, State_2} = execute(get, Key, Fun, ThresholdOfErrorSec),
     erlang:garbage_collect(self()),
-    {reply, Reply, State_1};
+    {reply, Reply_1, State_2};
 
 %% Remove an object
 handle_call({delete, _}, _From, #state{is_locked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
 handle_call({delete, _}, _From, #state{is_del_blocked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
-handle_call({delete, Object}, _From, #state{object_storage = StorageInfo} = State) ->
-    Key = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
-                           Object#?OBJECT.addr_id,
-                           Object#?OBJECT.key),
-    {Reply, State_1} = delete_1(Key, Object, State),
+handle_call({delete, #?OBJECT{addr_id = AddrId,
+                              key = Key} = Object}, _From,
+            #state{object_storage = StorageInfo,
+                   threshold_of_error_sec = ThresholdOfErrorSec} = State) ->
+    Fun = fun() ->
+                  Key_1 = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
+                                           AddrId, Key),
+                  delete_1(Key_1, Object, State)
+          end,
+    {Reply, State_1} = execute(delete, Key, Fun, ThresholdOfErrorSec),
     {reply, Reply, State_1};
 
 %% Head an object
@@ -666,6 +681,29 @@ open_container(#state{object_storage =
         {error, _} ->
             State
     end.
+
+
+%% @doc Execute the function - put/get/delete
+%% @private
+-spec(execute(Method, Key, Fun, ThresholdOfErrorSec) ->
+             {any(), #state{}} when Method::put|get|delete,
+                                    Key::binary(),
+                                    Fun::fun(),
+                                    ThresholdOfErrorSec::non_neg_integer()).
+execute(Method, Key, Fun, ThresholdOfErrorSec) ->
+    %% Execute the function
+    _ = erlang:statistics(wall_clock),
+    {Ret, State} = Fun(),
+    {_,Time} = erlang:statistics(wall_clock),
+
+    %% Judge the processing time
+    case (Time > ThresholdOfErrorSec) of
+        true ->
+            leo_object_storage_event_notifier:notify(Method, Key, Time);
+        false ->
+            void
+    end,
+    {Ret, State}.
 
 
 %% @doc After object-operations

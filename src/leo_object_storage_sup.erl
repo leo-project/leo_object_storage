@@ -115,6 +115,7 @@ start_child(ObjectStorageInfo) ->
                                      IsStrictCheck, []),
     ok = start_child_4(ServerPairL),
     ok = start_child_5(),
+    ok = start_child_6(),
     ok.
 
 
@@ -238,6 +239,13 @@ start_child_5() ->
                     end
             end
     end.
+
+start_child_6() ->
+    ChildSpec = {leo_object_storage_event_notifier,
+                 {leo_object_storage_event_notifier, start_link, []},
+                 permanent, 2000, worker, [leo_object_storage_event_notifier]},
+    {ok, _} = supervisor:start_child(leo_object_storage_sup, ChildSpec),
+    ok.
 
 
 %% ---------------------------------------------------------------------

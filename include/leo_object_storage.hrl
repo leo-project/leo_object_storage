@@ -45,6 +45,7 @@
 -type(storage_status() :: ?STATE_RUNNING_COMPACTION | ?STATE_ACTIVE).
 
 -define(DEF_LIMIT_COMPACTION_PROCS, 4).
+-define(DEF_THRESHOLD_ERROR_SEC, 1000).
 
 -ifdef(TEST).
 -define(DEF_MIN_COMPACTION_WT,  0).    %% 0msec
