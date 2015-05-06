@@ -539,11 +539,12 @@ suspending(#event_info{event = ?EVENT_INCREASE}, #state{id = Id,
                                                         is_diagnosing = IsDiagnosing,
                                                         is_recovering = IsRecovering,
                                                         num_of_batch_procs = BatchProcs,
+                                                        max_num_of_batch_procs  = MaxBatchProcs,
                                                         step_num_of_batch_procs = StepBatchProcs,
                                                         interval = Interval,
                                                         step_interval = StepInterval} = State) ->
-    BatchProcs_1 = BatchProcs + StepBatchProcs,
-    Interval_1 = Interval + StepInterval,
+    BatchProcs_1 = incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
+    Interval_1 = decr_interval_fun(Interval, StepInterval),
 
     NextStatus = ?ST_RUNNING,
     timer:apply_after(timer:seconds(1), ?MODULE, run, [Id, IsDiagnosing, IsRecovering]),
@@ -1174,8 +1175,10 @@ gen_compaction_report(State) ->
 incr_interval_fun(Interval, MaxInterval, StepInterval) ->
     Interval_1 = Interval + StepInterval,
     case (Interval_1 > MaxInterval) of
-        true  -> MaxInterval;
-        false -> Interval_1
+        true ->
+            MaxInterval;
+        false ->
+            Interval_1
     end.
 
 
@@ -1205,8 +1208,10 @@ decr_interval_fun(Interval, StepInterval) ->
 incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs) ->
     BatchProcs_1 = BatchProcs + StepBatchProcs,
     case (BatchProcs_1 > MaxBatchProcs) of
-        true  -> MaxBatchProcs;
-        false -> BatchProcs_1
+        true ->
+            MaxBatchProcs;
+        false ->
+            BatchProcs_1
     end.
 
 %% @doc Increase the batch procs
