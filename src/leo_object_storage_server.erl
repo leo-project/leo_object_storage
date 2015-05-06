@@ -73,7 +73,7 @@
           is_strict_check = false :: boolean(),
           is_locked = false       :: boolean(),
           is_del_blocked = false  :: boolean(),
-          threshold_of_error_sec = ?DEF_THRESHOLD_ERROR_SEC :: non_neg_integer()
+          threshold_slow_processing = ?DEF_THRESHOLD_SLOW_PROC :: non_neg_integer()
          }).
 
 -define(DEF_TIMEOUT, 30000).
@@ -382,7 +382,8 @@ init([Id, SeqNo, MetaDBId, CompactionWorkerId, DiagnosisLogId, RootPath, IsStric
                                 storage_stats        = StorageStats,
                                 state_filepath       = StateFilePath,
                                 is_strict_check      = IsStrictCheck,
-                                is_locked = false
+                                is_locked = false,
+                                threshold_slow_processing = ?env_threshold_slow_processing()
                                }};
                 {error, Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
@@ -411,13 +412,13 @@ handle_call({put, _}, _From, #state{is_locked = true} = State) ->
 handle_call({put, #?OBJECT{addr_id = AddrId,
                            key = Key} = Object}, _From,
             #state{object_storage = StorageInfo,
-                   threshold_of_error_sec = ThresholdOfErrorSec} = State) ->
+                   threshold_slow_processing = ThresholdSlowProcessing} = State) ->
     Fun = fun() ->
                   Key_1 = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                            AddrId, Key),
                   put_1(Key_1, Object, State)
           end,
-    {Reply, State_1} = execute(put, Key, Fun, ThresholdOfErrorSec),
+    {Reply, State_1} = execute(put, Key, Fun, ThresholdSlowProcessing),
     erlang:garbage_collect(self()),
     {reply, Reply, State_1};
 
@@ -426,7 +427,7 @@ handle_call({get, {AddrId, Key}, StartPos, EndPos},
             _From, #state{meta_db_id      = MetaDBId,
                           object_storage  = StorageInfo,
                           is_strict_check = IsStrictCheck,
-                          threshold_of_error_sec = ThresholdOfErrorSec} = State) ->
+                          threshold_slow_processing = ThresholdSlowProcessing} = State) ->
     Fun = fun() ->
                   BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                                 AddrId, Key),
@@ -435,7 +436,7 @@ handle_call({get, {AddrId, Key}, StartPos, EndPos},
                   State_1 = after_proc(Reply, State),
                   {Reply, State_1}
           end,
-    {Reply_1, State_2} = execute(get, Key, Fun, ThresholdOfErrorSec),
+    {Reply_1, State_2} = execute(get, Key, Fun, ThresholdSlowProcessing),
     erlang:garbage_collect(self()),
     {reply, Reply_1, State_2};
 
@@ -447,13 +448,13 @@ handle_call({delete, _}, _From, #state{is_del_blocked = true} = State) ->
 handle_call({delete, #?OBJECT{addr_id = AddrId,
                               key = Key} = Object}, _From,
             #state{object_storage = StorageInfo,
-                   threshold_of_error_sec = ThresholdOfErrorSec} = State) ->
+                   threshold_slow_processing = ThresholdSlowProcessing} = State) ->
     Fun = fun() ->
                   Key_1 = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                            AddrId, Key),
                   delete_1(Key_1, Object, State)
           end,
-    {Reply, State_1} = execute(delete, Key, Fun, ThresholdOfErrorSec),
+    {Reply, State_1} = execute(delete, Key, Fun, ThresholdSlowProcessing),
     {reply, Reply, State_1};
 
 %% Head an object
@@ -685,19 +686,19 @@ open_container(#state{object_storage =
 
 %% @doc Execute the function - put/get/delete
 %% @private
--spec(execute(Method, Key, Fun, ThresholdOfErrorSec) ->
+-spec(execute(Method, Key, Fun, ThresholdSlowProcessing) ->
              {any(), #state{}} when Method::put|get|delete,
                                     Key::binary(),
                                     Fun::fun(),
-                                    ThresholdOfErrorSec::non_neg_integer()).
-execute(Method, Key, Fun, ThresholdOfErrorSec) ->
+                                    ThresholdSlowProcessing::non_neg_integer()).
+execute(Method, Key, Fun, ThresholdSlowProcessing) ->
     %% Execute the function
     _ = erlang:statistics(wall_clock),
     {Ret, State} = Fun(),
     {_,Time} = erlang:statistics(wall_clock),
 
     %% Judge the processing time
-    case (Time > ThresholdOfErrorSec) of
+    case (Time > ThresholdSlowProcessing) of
         true ->
             leo_object_storage_event_notifier:notify(Method, Key, Time);
         false ->

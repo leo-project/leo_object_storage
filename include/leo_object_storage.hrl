@@ -45,7 +45,7 @@
 -type(storage_status() :: ?STATE_RUNNING_COMPACTION | ?STATE_ACTIVE).
 
 -define(DEF_LIMIT_COMPACTION_PROCS, 4).
--define(DEF_THRESHOLD_ERROR_SEC, 1000).
+-define(DEF_THRESHOLD_SLOW_PROC, 1000).
 
 -ifdef(TEST).
 -define(DEF_MIN_COMPACTION_WT,  0).    %% 0msec
@@ -392,6 +392,15 @@
                 EnvLimitCompactionProcs;
             _ ->
                 ?DEF_LIMIT_COMPACTION_PROCS
+        end).
+
+-define(env_threshold_slow_processing(),
+        case application:get_env(leo_object_storage,
+                                 threshold_slow_processing) of
+            {ok, EnvThresholdSlowProc} when is_integer(EnvThresholdSlowProc) ->
+                EnvThresholdSlowProc;
+            _ ->
+                ?DEF_THRESHOLD_SLOW_PROC
         end).
 
 %% [Interval between batch processes]
