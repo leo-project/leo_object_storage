@@ -38,8 +38,8 @@
          suspend/1,
          resume/1,
          state/2,
-         incr_interval/1, decr_interval/1,
-         incr_batch_of_msgs/1, decr_batch_of_msgs/1
+         increase/1,
+         decrease/1
         ]).
 
 %% gen_fsm callbacks
@@ -93,15 +93,13 @@
           is_diagnosing = false  :: boolean(),
           is_recovering = false  :: boolean(),
           %% interval_between_batch_procs:
-          interval_between_batch_procs = 0       :: non_neg_integer(),
-          max_interval_between_batch_procs = 0   :: non_neg_integer(),
-          min_interval_between_batch_procs = 0   :: non_neg_integer(),
-          step_interval_between_batch_procs = 0  :: non_neg_integer(),
+          interval = 0       :: non_neg_integer(),
+          max_interval = 0   :: non_neg_integer(),
+          step_interval = 0  :: non_neg_integer(),
           %% batch-procs:
           count_procs = 0        :: non_neg_integer(),
           num_of_batch_procs = 0        :: non_neg_integer(),
           max_num_of_batch_procs = 0    :: non_neg_integer(),
-          min_num_of_batch_procs = 0    :: non_neg_integer(),
           step_num_of_batch_procs = 0   :: non_neg_integer(),
           %% compaction-info:
           compaction_prms = #compaction_prms{} :: #compaction_prms{},
@@ -191,36 +189,21 @@ state(Id, Client) ->
                                        client_pid = Client}).
 
 
-%% @doc Increase waiting time of data-compaction
+%% @doc Increase performance of the data-compaction processing
 %%
--spec(incr_interval(Id) ->
+-spec(increase(Id) ->
              ok when Id::atom()).
-incr_interval(Id) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_INCR_WT}).
+increase(Id) ->
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_INCREASE}).
 
 
-%% @doc Decrease waiting time of data-compaction
+%% @doc Decrease performance of the data-compaction processing
 %%
--spec(decr_interval(Id) ->
-             ok when Id::atom()).
-decr_interval(Id) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_DECR_WT}).
-
-
-%% @doc Increase number of batch procs
 %%
--spec(incr_batch_of_msgs(Id) ->
+-spec(decrease(Id) ->
              ok when Id::atom()).
-incr_batch_of_msgs(Id) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_INCR_BP}).
-
-
-%% @doc Decrease number of batch procs
-%%
--spec(decr_batch_of_msgs(Id) ->
-             ok when Id::atom()).
-decr_batch_of_msgs(Id) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_DECR_BP}).
+decrease(Id) ->
+    gen_fsm:send_event(Id, #event_info{event = ?EVENT_DECREASE}).
 
 
 %%====================================================================
@@ -233,13 +216,11 @@ init([Id, ObjStorageId, MetaDBId, LoggerId]) ->
                             obj_storage_id     = ObjStorageId,
                             meta_db_id         = MetaDBId,
                             diagnosis_log_id   = LoggerId,
-                            interval_between_batch_procs       = ?env_compaction_interval_between_batch_procs_reg(),
-                            min_interval_between_batch_procs   = ?env_compaction_interval_between_batch_procs_min(),
-                            max_interval_between_batch_procs   = ?env_compaction_interval_between_batch_procs_max(),
-                            step_interval_between_batch_procs  = ?env_compaction_interval_between_batch_procs_step(),
+                            interval       = ?env_compaction_interval_reg(),
+                            max_interval   = ?env_compaction_interval_max(),
+                            step_interval  = ?env_compaction_interval_step(),
                             num_of_batch_procs        = ?env_compaction_num_of_batch_procs_reg(),
                             max_num_of_batch_procs    = ?env_compaction_num_of_batch_procs_max(),
-                            min_num_of_batch_procs    = ?env_compaction_num_of_batch_procs_min(),
                             step_num_of_batch_procs   = ?env_compaction_num_of_batch_procs_step(),
                             compaction_prms = #compaction_prms{
                                                  key_bin  = <<>>,
@@ -302,8 +283,7 @@ idling(#event_info{event = ?EVENT_RUN,
                    is_diagnosing  = IsDiagnosing,
                    is_recovering  = IsRecovering,
                    callback = CallbackFun}, From, #state{id = Id,
-                                                         compaction_prms =
-                                                             CompactionPrms} = State) ->
+                                                         compaction_prms = CompactionPrms} = State) ->
     NextStatus = ?ST_RUNNING,
     State_1 = State#state{compact_cntl_pid = ControllerPid,
                           status        = NextStatus,
@@ -312,12 +292,10 @@ idling(#event_info{event = ?EVENT_RUN,
                           error_pos     = 0,
                           set_errors    = sets:new(),
                           acc_errors    = [],
-                          min_interval_between_batch_procs   = ?env_compaction_interval_between_batch_procs_min(),
-                          max_interval_between_batch_procs   = ?env_compaction_interval_between_batch_procs_max(),
-                          step_interval_between_batch_procs  = ?env_compaction_interval_between_batch_procs_step(),
-                          min_num_of_batch_procs             = ?env_compaction_num_of_batch_procs_min(),
-                          max_num_of_batch_procs             = ?env_compaction_num_of_batch_procs_max(),
-                          step_num_of_batch_procs            = ?env_compaction_num_of_batch_procs_step(),
+                          max_interval  = ?env_compaction_interval_max(),
+                          step_interval = ?env_compaction_interval_step(),
+                          max_num_of_batch_procs  = ?env_compaction_num_of_batch_procs_max(),
+                          step_num_of_batch_procs = ?env_compaction_num_of_batch_procs_step(),
                           compaction_prms =
                               CompactionPrms#compaction_prms{
                                 num_of_active_objs  = 0,
@@ -353,37 +331,24 @@ idling(#event_info{event = ?EVENT_STATE,
     erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#state{status = NextStatus}};
 
-
-idling(#event_info{event = ?EVENT_INCR_WT}, #state{interval_between_batch_procs = WaitingTime,
-                                                   max_interval_between_batch_procs  = MaxWaitingTime,
-                                                   step_interval_between_batch_procs = StepWaitingTime} = State) ->
+idling(#event_info{event = ?EVENT_INCREASE}, State) ->
+    BatchProcs = ?env_compaction_num_of_batch_procs_reg(),
+    Interval = ?env_compaction_interval_reg(),
     NextStatus = ?ST_IDLING,
-    WaitingTime_1 = incr_interval_fun(WaitingTime, MaxWaitingTime, StepWaitingTime),
-    {next_state, NextStatus, State#state{interval_between_batch_procs = WaitingTime_1,
+    {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs,
+                                         interval = Interval,
                                          status = NextStatus}};
 
-idling(#event_info{event = ?EVENT_DECR_WT}, #state{interval_between_batch_procs = WaitingTime,
-                                                   min_interval_between_batch_procs  = MinWaitingTime,
-                                                   step_interval_between_batch_procs = StepWaitingTime} = State) ->
+idling(#event_info{event = ?EVENT_DECREASE}, #state{num_of_batch_procs = BatchProcs,
+                                                    step_num_of_batch_procs = StepBatchProcs,
+                                                    interval = Interval,
+                                                    max_interval  = MaxInterval,
+                                                    step_interval = StepInterval} = State) ->
+    BatchProcs_1 = decr_batch_of_msgs_fun(BatchProcs, StepBatchProcs),
+    Interval_1 = incr_interval_fun(Interval, MaxInterval, StepInterval),
     NextStatus = ?ST_IDLING,
-    WaitingTime_1 = decr_interval_fun(WaitingTime, MinWaitingTime, StepWaitingTime),
-    {next_state, NextStatus, State#state{interval_between_batch_procs = WaitingTime_1,
-                                         status = NextStatus}};
-
-idling(#event_info{event = ?EVENT_INCR_BP}, #state{num_of_batch_procs      = BatchProcs,
-                                                   max_num_of_batch_procs  = MaxBatchProcs,
-                                                   step_num_of_batch_procs = StepBatchProcs} = State) ->
-    NextStatus = ?ST_IDLING,
-    BatchProcs_1 = incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
     {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs_1,
-                                         status = NextStatus}};
-
-idling(#event_info{event = ?EVENT_DECR_BP}, #state{num_of_batch_procs      = BatchProcs,
-                                                   min_num_of_batch_procs  = MinBatchProcs,
-                                                   step_num_of_batch_procs = StepBatchProcs} = State) ->
-    NextStatus = ?ST_IDLING,
-    BatchProcs_1 = decr_batch_of_msgs_fun(BatchProcs, MinBatchProcs, StepBatchProcs),
-    {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs_1,
+                                         interval = Interval_1,
                                          status = NextStatus}};
 idling(_, State) ->
     NextStatus = ?ST_IDLING,
@@ -408,7 +373,7 @@ running(#event_info{event = ?EVENT_RUN,
         #state{id = Id,
                obj_storage_id   = ObjStorageId,
                compact_cntl_pid = CompactCntlPid,
-               interval_between_batch_procs  = WaitingTime,
+               interval  = Interval,
                count_procs = CountProcs,
                num_of_batch_procs = BatchProcs,
                compaction_prms =
@@ -418,11 +383,11 @@ running(#event_info{event = ?EVENT_RUN,
     %% in order to decrease i/o load
     CountProcs_1 = case (CountProcs < 1) of
                        true ->
-                           WaitingTime_1 = case (WaitingTime < 1) of
-                                               true  -> ?DEF_MAX_COMPACTION_WT;
-                                               false -> WaitingTime
-                                           end,
-                           timer:sleep(WaitingTime_1),
+                           Interval_1 = case (Interval < 1) of
+                                            true  -> ?DEF_MAX_COMPACTION_WT;
+                                            false -> Interval
+                                        end,
+                           timer:sleep(Interval_1),
                            BatchProcs;
                        false ->
                            CountProcs - 1
@@ -490,71 +455,50 @@ running(#event_info{event = ?EVENT_STATE,
     erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#state{status = NextStatus}};
 
-running(#event_info{event = ?EVENT_INCR_WT}, #state{id = Id,
-                                                    is_diagnosing = IsDiagnosing,
-                                                    is_recovering = IsRecovering,
-                                                    interval_between_batch_procs = WaitingTime,
-                                                    max_interval_between_batch_procs  = MaxWaitingTime,
-                                                    step_interval_between_batch_procs = StepWaitingTime,
-                                                    num_of_batch_procs = BatchProcs,
-                                                    min_num_of_batch_procs = MinBatchProcs} = State) ->
-    {NextStatus, WaitingTime_1} =
-        case (WaitingTime >= MaxWaitingTime andalso
-              BatchProcs  =< MinBatchProcs) of
-            true ->
-                {?ST_SUSPENDING, MaxWaitingTime};
-            false ->
-                ok = run(Id, IsDiagnosing, IsRecovering),
-                {?ST_RUNNING,
-                 incr_interval_fun(WaitingTime, MaxWaitingTime, StepWaitingTime)}
-        end,
-    {next_state, NextStatus, State#state{interval_between_batch_procs = WaitingTime_1,
-                                         status = NextStatus}};
-
-running(#event_info{event = ?EVENT_DECR_WT}, #state{id = Id,
-                                                    is_diagnosing = IsDiagnosing,
-                                                    is_recovering = IsRecovering,
-                                                    interval_between_batch_procs = WaitingTime,
-                                                    min_interval_between_batch_procs  = MinWaitingTime,
-                                                    step_interval_between_batch_procs = StepWaitingTime} = State) ->
-    WaitingTime_1 = decr_interval_fun(
-                      WaitingTime, MinWaitingTime, StepWaitingTime),
-    ok = run(Id, IsDiagnosing, IsRecovering),
-    NextStatus = ?ST_RUNNING,
-    {next_state, NextStatus, State#state{interval_between_batch_procs = WaitingTime_1,
-                                         status = NextStatus}};
-
-running(#event_info{event = ?EVENT_INCR_BP}, #state{id = Id,
-                                                    is_diagnosing = IsDiagnosing,
-                                                    is_recovering = IsRecovering,
-                                                    num_of_batch_procs = BatchProcs,
-                                                    max_num_of_batch_procs  = MaxBatchProcs,
-                                                    step_num_of_batch_procs = StepBatchProcs} = State) ->
+running(#event_info{event = ?EVENT_INCREASE}, #state{id = Id,
+                                                     is_diagnosing = IsDiagnosing,
+                                                     is_recovering = IsRecovering,
+                                                     num_of_batch_procs = BatchProcs,
+                                                     max_num_of_batch_procs = MaxBatchProcs,
+                                                     step_num_of_batch_procs = StepBatchProcs,
+                                                     interval = Interval,
+                                                     step_interval = StepInterval} = State) ->
     BatchProcs_1 = incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
+    Interval_1 = decr_interval_fun(Interval, StepInterval),
+
     ok = run(Id, IsDiagnosing, IsRecovering),
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs_1,
+                                         interval = Interval_1,
                                          status = NextStatus}};
 
-running(#event_info{event = ?EVENT_DECR_BP}, #state{id = Id,
-                                                    is_diagnosing = IsDiagnosing,
-                                                    is_recovering = IsRecovering,
-                                                    num_of_batch_procs = BatchProcs,
-                                                    min_num_of_batch_procs  = MinBatchProcs,
-                                                    step_num_of_batch_procs = StepBatchProcs,
-                                                    interval_between_batch_procs = WaitingTime,
-                                                    max_interval_between_batch_procs = MaxWaitingTime} = State) ->
+running(#event_info{event = ?EVENT_DECREASE}, #state{id = Id,
+                                                     is_diagnosing = IsDiagnosing,
+                                                     is_recovering = IsRecovering,
+                                                     num_of_batch_procs = BatchProcs,
+                                                     step_num_of_batch_procs = StepBatchProcs,
+                                                     interval = Interval,
+                                                     step_interval = StepInterval,
+                                                     max_interval  = MaxInterval} = State) ->
+    Interval_1 = Interval + StepInterval,
+    Interval_2 = case (Interval_1 >= MaxInterval) of
+                     true ->
+                         MaxInterval;
+                     false ->
+                         Interval_1
+                 end,
+
     {NextStatus, BatchProcs_1} =
-        case (WaitingTime >= MaxWaitingTime andalso
-              BatchProcs  =< MinBatchProcs) of
+        case (BatchProcs =< 0) of
             true ->
-                {?ST_SUSPENDING, MinBatchProcs};
+                {?ST_SUSPENDING, 0};
             false ->
                 ok = run(Id, IsDiagnosing, IsRecovering),
                 {?ST_RUNNING,
-                 decr_batch_of_msgs_fun(BatchProcs, MinBatchProcs, StepBatchProcs)}
+                 decr_batch_of_msgs_fun(BatchProcs, StepBatchProcs)}
         end,
     {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs_1,
+                                         interval = Interval_2,
                                          status = NextStatus}};
 
 running(_, #state{id = Id,
@@ -591,34 +535,21 @@ suspending(#event_info{event = ?EVENT_STATE,
     erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#state{status = NextStatus}};
 
-suspending(#event_info{event = ?EVENT_DECR_WT}, #state{id = Id,
-                                                       is_diagnosing = IsDiagnosing,
-                                                       is_recovering = IsRecovering,
-                                                       interval_between_batch_procs = WaitingTime,
-                                                       min_interval_between_batch_procs  = MinWaitingTime,
-                                                       step_interval_between_batch_procs = StepWaitingTime} = State) ->
-    WaitingTime_1 = decr_interval_fun(WaitingTime, MinWaitingTime, StepWaitingTime),
+suspending(#event_info{event = ?EVENT_INCREASE}, #state{id = Id,
+                                                        is_diagnosing = IsDiagnosing,
+                                                        is_recovering = IsRecovering,
+                                                        num_of_batch_procs = BatchProcs,
+                                                        step_num_of_batch_procs = StepBatchProcs,
+                                                        interval = Interval,
+                                                        step_interval = StepInterval} = State) ->
+    BatchProcs_1 = BatchProcs + StepBatchProcs,
+    Interval_1 = Interval + StepInterval,
 
-    %% resume the data-compaction
-    NextStatus = ?ST_RUNNING,
-    timer:apply_after(timer:seconds(1), ?MODULE, run, [Id, IsDiagnosing, IsRecovering]),
-    {next_state, NextStatus, State#state{interval_between_batch_procs = WaitingTime_1,
-                                         status = NextStatus}};
-
-suspending(#event_info{event = ?EVENT_INCR_BP}, #state{id = Id,
-                                                       is_diagnosing = IsDiagnosing,
-                                                       is_recovering = IsRecovering,
-                                                       num_of_batch_procs = BatchProcs,
-                                                       max_num_of_batch_procs  = MaxBatchProcs,
-                                                       step_num_of_batch_procs = StepBatchProcs} = State) ->
-    BatchProcs_1 = incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
-
-    %% resume the data-compaction
     NextStatus = ?ST_RUNNING,
     timer:apply_after(timer:seconds(1), ?MODULE, run, [Id, IsDiagnosing, IsRecovering]),
     {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs_1,
+                                         interval = Interval_1,
                                          status = NextStatus}};
-
 suspending(_, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#state{status = NextStatus}}.
@@ -1235,31 +1166,32 @@ gen_compaction_report(State) ->
 
 %% @doc Increase the waiting time
 %% @private
--spec(incr_interval_fun(WaitingTime, MaxWaitingTime, StepWaitingTime) ->
-             NewWaitingTime when WaitingTime::non_neg_integer(),
-                                 MaxWaitingTime::non_neg_integer(),
-                                 StepWaitingTime::non_neg_integer(),
-                                 NewWaitingTime::non_neg_integer()).
-incr_interval_fun(WaitingTime, MaxWaitingTime, StepWaitingTime) ->
-    WaitingTime_1 = WaitingTime + StepWaitingTime,
-    case (WaitingTime_1 > MaxWaitingTime) of
-        true  -> MaxWaitingTime;
-        false -> WaitingTime_1
+-spec(incr_interval_fun(Interval, MaxInterval, StepInterval) ->
+             NewInterval when Interval::non_neg_integer(),
+                              MaxInterval::non_neg_integer(),
+                              StepInterval::non_neg_integer(),
+                              NewInterval::non_neg_integer()).
+incr_interval_fun(Interval, MaxInterval, StepInterval) ->
+    Interval_1 = Interval + StepInterval,
+    case (Interval_1 > MaxInterval) of
+        true  -> MaxInterval;
+        false -> Interval_1
     end.
 
 
 %% @doc Decrease the waiting time
 %% @private
--spec(decr_interval_fun(WaitingTime, MinWaitingTime, StepWaitingTime) ->
-             NewWaitingTime when WaitingTime::non_neg_integer(),
-                                 MinWaitingTime::non_neg_integer(),
-                                 StepWaitingTime::non_neg_integer(),
-                                 NewWaitingTime::non_neg_integer()).
-decr_interval_fun(WaitingTime, MinWaitingTime, StepWaitingTime) ->
-    WaitingTime_1 = WaitingTime - StepWaitingTime,
-    case (WaitingTime_1 < MinWaitingTime) of
-        true  -> MinWaitingTime;
-        false -> WaitingTime_1
+-spec(decr_interval_fun(Interval, StepInterval) ->
+             NewInterval when Interval::non_neg_integer(),
+                              StepInterval::non_neg_integer(),
+                              NewInterval::non_neg_integer()).
+decr_interval_fun(Interval, StepInterval) ->
+    Interval_1 = Interval - StepInterval,
+    case (Interval_1 < 0) of
+        true ->
+            0;
+        false ->
+            Interval_1
     end.
 
 
@@ -1279,14 +1211,15 @@ incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs) ->
 
 %% @doc Increase the batch procs
 %% @private
--spec(decr_batch_of_msgs_fun(BatchProcs, MinBatchProcs, StepBatchProcs) ->
+-spec(decr_batch_of_msgs_fun(BatchProcs, StepBatchProcs) ->
              NewBatchProcs when BatchProcs::non_neg_integer(),
-                                MinBatchProcs::non_neg_integer(),
                                 StepBatchProcs::non_neg_integer(),
                                 NewBatchProcs::non_neg_integer()).
-decr_batch_of_msgs_fun(BatchProcs, MinBatchProcs, StepBatchProcs) ->
+decr_batch_of_msgs_fun(BatchProcs, StepBatchProcs) ->
     BatchProcs_1 = BatchProcs - StepBatchProcs,
-    case (BatchProcs_1 < MinBatchProcs) of
-        true  -> MinBatchProcs;
-        false -> BatchProcs_1
+    case (BatchProcs_1 < 0) of
+        true ->
+            0;
+        false ->
+            BatchProcs_1
     end.

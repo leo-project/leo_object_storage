@@ -90,10 +90,8 @@
 -undef(EVENT_RESUME).
 -undef(EVENT_FINISH).
 -undef(EVENT_STATE).
--undef(EVENT_INCR_WT).
--undef(EVENT_DECR_WT).
--undef(EVENT_INCR_BP).
--undef(EVENT_DECR_BP).
+-undef(EVENT_INCREASE).
+-undef(EVENT_DECREASE).
 -define(EVENT_RUN,      'run').
 -define(EVENT_DIAGNOSE, 'diagnose').
 -define(EVENT_LOCK,     'lock').
@@ -101,10 +99,8 @@
 -define(EVENT_RESUME,   'resume').
 -define(EVENT_FINISH,   'finish').
 -define(EVENT_STATE,    'state').
--define(EVENT_INCR_WT,  'incr_interval').
--define(EVENT_DECR_WT,  'decr_interval').
--define(EVENT_INCR_BP,  'incr_batch_of_msgs').
--define(EVENT_DECR_BP,  'decr_batch_of_msgs').
+-define(EVENT_INCREASE,  'increase').
+-define(EVENT_DECREASE,  'decrease').
 -type(compaction_event() ::?EVENT_RUN      |
                            ?EVENT_DIAGNOSE |
                            ?EVENT_LOCK     |
@@ -112,10 +108,8 @@
                            ?EVENT_RESUME   |
                            ?EVENT_FINISH   |
                            ?EVENT_STATE    |
-                           ?EVENT_INCR_WT  |
-                           ?EVENT_DECR_WT  |
-                           ?EVENT_INCR_BP  |
-                           ?EVENT_DECR_BP
+                           ?EVENT_INCREASE |
+                           ?EVENT_DECREASE
                            ).
 
 %% @doc Compaction related definitions
@@ -404,7 +398,7 @@
         end).
 
 %% [Interval between batch processes]
--define(env_compaction_interval_between_batch_procs_min(),
+-define(env_compaction_interval_min(),
         case application:get_env(leo_object_storage,
                                  compaction_waiting_time_min) of
             {ok, EnvMinCompactionWT} when is_integer(EnvMinCompactionWT) ->
@@ -413,7 +407,7 @@
                 ?DEF_MIN_COMPACTION_WT
         end).
 
--define(env_compaction_interval_between_batch_procs_reg(),
+-define(env_compaction_interval_reg(),
         case application:get_env(leo_object_storage,
                                  compaction_waiting_time_regular) of
             {ok, EnvRegCompactionWT} when is_integer(EnvRegCompactionWT) ->
@@ -422,7 +416,7 @@
                 ?DEF_REG_COMPACTION_WT
         end).
 
--define(env_compaction_interval_between_batch_procs_max(),
+-define(env_compaction_interval_max(),
         case application:get_env(leo_object_storage,
                                  compaction_waiting_time_max) of
             {ok, EnvMaxCompactionWT} when is_integer(EnvMaxCompactionWT) ->
@@ -431,7 +425,7 @@
                 ?DEF_MAX_COMPACTION_WT
         end).
 
--define(env_compaction_interval_between_batch_procs_step(),
+-define(env_compaction_interval_step(),
         case application:get_env(leo_object_storage,
                                  compaction_waiting_time_step) of
             {ok, EnvStepCompactionWT} when is_integer(EnvStepCompactionWT) ->

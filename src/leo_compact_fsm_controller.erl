@@ -42,10 +42,8 @@
          suspend/0, resume/0,
          state/0,
          finish/2, finish/3,
-         incr_interval/0,
-         decr_interval/0,
-         incr_batch_of_msgs/0,
-         decr_batch_of_msgs/0
+         increase/0,
+         decrease/0
         ]).
 
 -export([init/1,
@@ -264,36 +262,20 @@ finish(Pid, FinishedId, Report) ->
                           }).
 
 
-%% @doc Request 'increment waiting time' to the data-compaction's workers
--spec(incr_interval() ->
+%% @doc Request 'incrase performance of the compaction processing' to the data-compaction's workers
+-spec(increase() ->
              term()).
-incr_interval() ->
+increase() ->
     gen_fsm:sync_send_event(
-      ?MODULE, #event_info{event = ?EVENT_INCR_WT}, ?DEF_TIMEOUT).
+      ?MODULE, #event_info{event = ?EVENT_INCREASE}, ?DEF_TIMEOUT).
 
 
-%% @doc Request 'decrement waiting time' to the data-compaction's workers
--spec(decr_interval() ->
+%% @doc Request 'decrease performance of the compaction processing' to the data-compaction's workers
+-spec(decrease() ->
              term()).
-decr_interval() ->
+decrease() ->
     gen_fsm:sync_send_event(
-      ?MODULE, #event_info{event = ?EVENT_DECR_WT}, ?DEF_TIMEOUT).
-
-
-%% @doc Request 'increment # of batch procs' to the data-compaction's workers
--spec(incr_batch_of_msgs() ->
-             term()).
-incr_batch_of_msgs() ->
-    gen_fsm:sync_send_event(
-      ?MODULE, #event_info{event = ?EVENT_INCR_BP}, ?DEF_TIMEOUT).
-
-
-%% @doc Request 'decrement # of batch procs' to the data-compaction's workers
--spec(decr_batch_of_msgs() ->
-             term()).
-decr_batch_of_msgs() ->
-    gen_fsm:sync_send_event(
-      ?MODULE, #event_info{event = ?EVENT_DECR_BP}, ?DEF_TIMEOUT).
+      ?MODULE, #event_info{event = ?EVENT_DECREASE}, ?DEF_TIMEOUT).
 
 
 %%====================================================================
@@ -383,26 +365,14 @@ running(#event_info{event = ?EVENT_SUSPEND}, From, #state{child_pids = ChildPids
     NextState = ?ST_SUSPENDING,
     {next_state, NextState, State#state{status = NextState}};
 
-running(#event_info{event = ?EVENT_INCR_WT}, From, #state{child_pids = ChildPids} = State) ->
-    [erlang:send(Pid, ?EVENT_INCR_WT) || {Pid, _} <- orddict:to_list(ChildPids)],
+running(#event_info{event = ?EVENT_INCREASE}, From, #state{child_pids = ChildPids} = State) ->
+    [erlang:send(Pid, ?EVENT_INCREASE) || {Pid, _} <- orddict:to_list(ChildPids)],
     gen_fsm:reply(From, ok),
     NextState = ?ST_RUNNING,
     {next_state, NextState, State#state{status = NextState}};
 
-running(#event_info{event = ?EVENT_DECR_WT}, From, #state{child_pids = ChildPids} = State) ->
-    [erlang:send(Pid, ?EVENT_DECR_WT) || {Pid, _} <- orddict:to_list(ChildPids)],
-    gen_fsm:reply(From, ok),
-    NextState = ?ST_RUNNING,
-    {next_state, NextState, State#state{status = NextState}};
-
-running(#event_info{event = ?EVENT_INCR_BP}, From, #state{child_pids = ChildPids} = State) ->
-    [erlang:send(Pid, ?EVENT_INCR_BP) || {Pid, _} <- orddict:to_list(ChildPids)],
-    gen_fsm:reply(From, ok),
-    NextState = ?ST_RUNNING,
-    {next_state, NextState, State#state{status = NextState}};
-
-running(#event_info{event = ?EVENT_DECR_BP}, From, #state{child_pids = ChildPids} = State) ->
-    [erlang:send(Pid, ?EVENT_DECR_BP) || {Pid, _} <- orddict:to_list(ChildPids)],
+running(#event_info{event = ?EVENT_DECREASE}, From, #state{child_pids = ChildPids} = State) ->
+    [erlang:send(Pid, ?EVENT_DECREASE) || {Pid, _} <- orddict:to_list(ChildPids)],
     gen_fsm:reply(From, ok),
     NextState = ?ST_RUNNING,
     {next_state, NextState, State#state{status = NextState}};
@@ -741,17 +711,10 @@ loop(CallbackFun, TargetId) ->
             ok = finish(self(), ObjStorageId, Report),
             loop(CallbackFun, TargetId);
 
-        incr_interval = Event ->
+        increase = Event ->
             operate(Event, TargetId),
             loop(CallbackFun, TargetId);
-        decr_interval = Event ->
-            operate(Event, TargetId),
-            loop(CallbackFun, TargetId);
-
-        incr_batch_of_msgs = Event ->
-            operate(Event, TargetId),
-            loop(CallbackFun, TargetId);
-        decr_batch_of_msgs = Event ->
+        decrease = Event ->
             operate(Event, TargetId),
             loop(CallbackFun, TargetId);
 
@@ -767,14 +730,10 @@ operate(?EVENT_SUSPEND, {_,CompactionWorkerId}) ->
     leo_compact_fsm_worker:suspend(CompactionWorkerId);
 operate(?EVENT_RESUME, {_,CompactionWorkerId}) ->
     leo_compact_fsm_worker:resume(CompactionWorkerId);
-operate(?EVENT_INCR_WT, {_,CompactionWorkerId}) ->
-    leo_compact_fsm_worker:incr_interval(CompactionWorkerId);
-operate(?EVENT_DECR_WT, {_,CompactionWorkerId}) ->
-    leo_compact_fsm_worker:decr_interval(CompactionWorkerId);
-operate(?EVENT_INCR_BP, {_,CompactionWorkerId}) ->
-    leo_compact_fsm_worker:incr_batch_of_msgs(CompactionWorkerId);
-operate(?EVENT_DECR_BP, {_,CompactionWorkerId}) ->
-    leo_compact_fsm_worker:decr_batch_of_msgs(CompactionWorkerId);
+operate(?EVENT_INCREASE, {_,CompactionWorkerId}) ->
+    leo_compact_fsm_worker:increase(CompactionWorkerId);
+operate(?EVENT_DECREASE, {_,CompactionWorkerId}) ->
+    leo_compact_fsm_worker:decrease(CompactionWorkerId);
 operate(_,_) ->
     ok.
 
