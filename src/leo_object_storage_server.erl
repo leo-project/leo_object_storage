@@ -336,7 +336,6 @@ init([Id, SeqNo, MetaDBId, CompactionWorkerId, DiagnosisLogId, RootPath, IsStric
     ObjectStoragePath = lists:append([ObjectStorageDir, integer_to_list(SeqNo), ?AVS_FILE_EXT]),
     StateFilePath     = lists:append([RootPath, ?DEF_STATE_SUB_DIR, atom_to_list(Id)]),
     LogFilePath       = lists:append([RootPath, ?DEF_LOG_SUB_DIR]),
-
     StorageStats =
         case file:consult(StateFilePath) of
             {ok, Props} ->
@@ -842,8 +841,8 @@ close_storage(Id, MetaDBId, StateFilePath,
            {active_num,      StorageStats#storage_stats.active_num},
            {compaction_hist, StorageStats#storage_stats.compaction_hist}
           ]),
-    ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
-    ok = leo_backend_db_server:close(MetaDBId),
+    catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
+    catch leo_backend_db_server:close(MetaDBId),
     ok;
 close_storage(_,_,_,_,_,_) ->
     ok.

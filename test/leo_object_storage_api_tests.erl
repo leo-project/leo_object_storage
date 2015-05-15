@@ -756,23 +756,25 @@ stats_test_() ->
              {ok, Res} = leo_object_storage_api:stats(),
              ?assertEqual(8, length(Res)),
 
-             catch leo_object_storage_sup:stop(),
              application:stop(leo_backend_db),
              application:stop(bitcask),
              application:stop(leo_object_storage),
-             io:format(user, "*** [test]stopped ~n", []),
+             io:format(user, "*** [test]stopped ~n~n", []),
 
              %% relaunch and validate stored datas
              ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
-             io:format(user, "*** [test]restarted ~n", []),
+             io:format(user, "~n*** [test]restarted ~n", []),
              {ok, Res1} = leo_object_storage_api:stats(),
-             ?assertEqual(8, length(Res)),
+             ?debugVal(Res1),
+             ?assertEqual(8, length(Res1)),
+
              {SumTotal0, SumActive0} =
                  lists:foldl(
                    fun(#storage_stats{file_path  = _ObjPath,
                                       total_num  = Total,
                                       active_num = Active},
                        {SumTotal, SumActive}) ->
+                           ?debugVal({SumTotal, SumActive}),
                            {SumTotal + Total, SumActive + Active}
                    end, {0, 0}, Res1),
              ?assertEqual(9, SumTotal0),
