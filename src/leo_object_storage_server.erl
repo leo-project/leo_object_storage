@@ -72,7 +72,8 @@
           state_filepath :: string(),
           is_strict_check = false :: boolean(),
           is_locked = false       :: boolean(),
-          is_del_blocked = false  :: boolean()
+          is_del_blocked = false  :: boolean(),
+          threshold_slow_processing = ?DEF_THRESHOLD_SLOW_PROC :: non_neg_integer()
          }).
 
 -define(DEF_TIMEOUT, 30000).
@@ -335,7 +336,6 @@ init([Id, SeqNo, MetaDBId, CompactionWorkerId, DiagnosisLogId, RootPath, IsStric
     ObjectStoragePath = lists:append([ObjectStorageDir, integer_to_list(SeqNo), ?AVS_FILE_EXT]),
     StateFilePath     = lists:append([RootPath, ?DEF_STATE_SUB_DIR, atom_to_list(Id)]),
     LogFilePath       = lists:append([RootPath, ?DEF_LOG_SUB_DIR]),
-
     StorageStats =
         case file:consult(StateFilePath) of
             {ok, Props} ->
@@ -381,7 +381,8 @@ init([Id, SeqNo, MetaDBId, CompactionWorkerId, DiagnosisLogId, RootPath, IsStric
                                 storage_stats        = StorageStats,
                                 state_filepath       = StateFilePath,
                                 is_strict_check      = IsStrictCheck,
-                                is_locked = false
+                                is_locked = false,
+                                threshold_slow_processing = ?env_threshold_slow_processing()
                                }};
                 {error, Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
@@ -407,11 +408,16 @@ handle_call(stop, _From, State) ->
 %% Insert an object
 handle_call({put, _}, _From, #state{is_locked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
-handle_call({put, Object}, _From, #state{object_storage = StorageInfo} = State) ->
-    Key = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
-                           Object#?OBJECT.addr_id,
-                           Object#?OBJECT.key),
-    {Reply, State_1} = put_1(Key, Object, State),
+handle_call({put, #?OBJECT{addr_id = AddrId,
+                           key = Key} = Object}, _From,
+            #state{object_storage = StorageInfo,
+                   threshold_slow_processing = ThresholdSlowProcessing} = State) ->
+    Fun = fun() ->
+                  Key_1 = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
+                                           AddrId, Key),
+                  put_1(Key_1, Object, State)
+          end,
+    {Reply, State_1} = execute(put, Key, Fun, ThresholdSlowProcessing),
     erlang:garbage_collect(self()),
     {reply, Reply, State_1};
 
@@ -419,26 +425,35 @@ handle_call({put, Object}, _From, #state{object_storage = StorageInfo} = State) 
 handle_call({get, {AddrId, Key}, StartPos, EndPos},
             _From, #state{meta_db_id      = MetaDBId,
                           object_storage  = StorageInfo,
-                          is_strict_check = IsStrictCheck} = State) ->
-    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
-                                  AddrId, Key),
-    Reply = leo_object_storage_haystack:get(
-              MetaDBId, StorageInfo, BackendKey, StartPos, EndPos, IsStrictCheck),
-
-    State_1 = after_proc(Reply, State),
+                          is_strict_check = IsStrictCheck,
+                          threshold_slow_processing = ThresholdSlowProcessing} = State) ->
+    Fun = fun() ->
+                  BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
+                                                AddrId, Key),
+                  Reply = leo_object_storage_haystack:get(
+                            MetaDBId, StorageInfo, BackendKey, StartPos, EndPos, IsStrictCheck),
+                  State_1 = after_proc(Reply, State),
+                  {Reply, State_1}
+          end,
+    {Reply_1, State_2} = execute(get, Key, Fun, ThresholdSlowProcessing),
     erlang:garbage_collect(self()),
-    {reply, Reply, State_1};
+    {reply, Reply_1, State_2};
 
 %% Remove an object
 handle_call({delete, _}, _From, #state{is_locked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
 handle_call({delete, _}, _From, #state{is_del_blocked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
-handle_call({delete, Object}, _From, #state{object_storage = StorageInfo} = State) ->
-    Key = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
-                           Object#?OBJECT.addr_id,
-                           Object#?OBJECT.key),
-    {Reply, State_1} = delete_1(Key, Object, State),
+handle_call({delete, #?OBJECT{addr_id = AddrId,
+                              key = Key} = Object}, _From,
+            #state{object_storage = StorageInfo,
+                   threshold_slow_processing = ThresholdSlowProcessing} = State) ->
+    Fun = fun() ->
+                  Key_1 = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
+                                           AddrId, Key),
+                  delete_1(Key_1, Object, State)
+          end,
+    {Reply, State_1} = execute(delete, Key, Fun, ThresholdSlowProcessing),
     {reply, Reply, State_1};
 
 %% Head an object
@@ -668,6 +683,29 @@ open_container(#state{object_storage =
     end.
 
 
+%% @doc Execute the function - put/get/delete
+%% @private
+-spec(execute(Method, Key, Fun, ThresholdSlowProcessing) ->
+             {any(), #state{}} when Method::put|get|delete,
+                                    Key::binary(),
+                                    Fun::fun(),
+                                    ThresholdSlowProcessing::non_neg_integer()).
+execute(Method, Key, Fun, ThresholdSlowProcessing) ->
+    %% Execute the function
+    _ = erlang:statistics(wall_clock),
+    {Ret, State} = Fun(),
+    {_,Time} = erlang:statistics(wall_clock),
+
+    %% Judge the processing time
+    case (Time > ThresholdSlowProcessing) of
+        true ->
+            leo_object_storage_event_notifier:notify(Method, Key, Time);
+        false ->
+            void
+    end,
+    {Ret, State}.
+
+
 %% @doc After object-operations
 %% @private
 after_proc(Ret, State) ->
@@ -803,8 +841,8 @@ close_storage(Id, MetaDBId, StateFilePath,
            {active_num,      StorageStats#storage_stats.active_num},
            {compaction_hist, StorageStats#storage_stats.compaction_hist}
           ]),
-    ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
-    ok = leo_backend_db_server:close(MetaDBId),
+    catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
+    catch leo_backend_db_server:close(MetaDBId),
     ok;
 close_storage(_,_,_,_,_,_) ->
     ok.
