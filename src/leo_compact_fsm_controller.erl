@@ -68,7 +68,7 @@
           num_of_concurrency = 1 :: non_neg_integer(),
           is_diagnosing = false     :: boolean(),
           is_recovering = false :: boolean(),
-          callback_mod              :: function() | undefined,
+          callback_mod              :: module() | undefined,
           total_num_of_targets = 0  :: non_neg_integer(),
           reserved_targets = []     :: [atom()],
           pending_targets  = []     :: [atom()],
@@ -90,7 +90,7 @@
           num_of_concurrency = 1         :: pos_integer(),
           is_diagnosing = false :: boolean(),
           is_recovering = false :: boolean(),
-          callback :: function() %% depends on "leo_compact_callback"
+          callback :: module() %% depends on "leo_compact_callback"
          }).
 -define(DEF_TIMEOUT, 3000).
 
@@ -123,7 +123,7 @@ run(NumOfConcurrency) ->
 
 -spec(run(NumOfConcurrency, CallbackMod) ->
              term() when NumOfConcurrency::pos_integer(),
-                         CallbackMod::function()|undefined).
+                         CallbackMod::module()|undefined).
 run(NumOfConcurrency, CallbackMod) ->
     TargetPids = leo_object_storage_api:get_object_storage_pid('all'),
     run(TargetPids, NumOfConcurrency, CallbackMod).
@@ -131,7 +131,7 @@ run(NumOfConcurrency, CallbackMod) ->
 -spec(run(TargetPids, NumOfConcurrency, CallbackMod) ->
              term() when TargetPids::[pid()|atom()],
                          NumOfConcurrency::pos_integer(),
-                         CallbackMod::function()|undefined).
+                         CallbackMod::module()|undefined).
 run(TargetPids, NumOfConcurrency, CallbackMod) ->
     gen_fsm:sync_send_event(
       ?MODULE, #event_info{event = ?EVENT_RUN,

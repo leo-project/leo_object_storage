@@ -65,7 +65,7 @@
           client_pid     :: pid(),
           is_diagnosing = false :: boolean(),
           is_recovering = false :: boolean(),
-          callback :: atom()
+          callback :: module()
          }).
 
 -record(compaction_prms, {
@@ -74,7 +74,7 @@
           metadata = #?METADATA{} :: #?METADATA{},
           next_offset = 0         :: non_neg_integer()|eof,
           start_lock_offset = 0   :: non_neg_integer(),
-          callback_mod            :: atom(),
+          callback                :: module(),
           num_of_active_objs = 0  :: non_neg_integer(),
           size_of_active_objs = 0 :: non_neg_integer(),
           total_num_of_objs = 0   :: non_neg_integer(),
@@ -153,7 +153,7 @@ run(Id, IsDiagnosing, IsRecovering) ->
                                       ControllerPid::pid(),
                                       IsDiagnosing::boolean(),
                                       IsRecovering::boolean(),
-                                      CallbackMod::atom()).
+                                      CallbackMod::module()).
 run(Id, ControllerPid, IsDiagnosing, IsRecovering, CallbackMod) ->
     gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_RUN,
                                             controller_pid = ControllerPid,
@@ -301,7 +301,7 @@ idling(#event_info{event = ?EVENT_RUN,
                                 num_of_active_objs  = 0,
                                 size_of_active_objs = 0,
                                 next_offset = ?AVS_SUPER_BLOCK_LEN,
-                                callback_mod = CallbackMod
+                                callback = CallbackMod
                                },
                           start_datetime = leo_date:now()
                          },
@@ -723,7 +723,7 @@ execute(#state{meta_db_id       = MetaDBId,
         false ->
             #compaction_prms{key_bin  = Key,
                              body_bin = Body,
-                             callback_mod = CallbackMod,
+                             callback = CallbackMod,
                              num_of_active_objs  = NumOfActiveObjs,
                              size_of_active_objs = ActiveSize,
                              total_num_of_objs  = TotalObjs,
@@ -814,7 +814,7 @@ execute_1(ok, #state{meta_db_id       = MetaDBId,
     erlang:garbage_collect(self()),
     ReadHandler = StorageInfo#backend_info.read_handler,
     NextOffset  = CompactionPrms#compaction_prms.next_offset,
-    CallbackMod = CompactionPrms#compaction_prms.callback_mod,
+    CallbackMod = CompactionPrms#compaction_prms.callback,
 
     case leo_object_storage_haystack:get_obj_for_new_cntnr(
            ReadHandler, NextOffset) of
