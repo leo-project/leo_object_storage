@@ -65,7 +65,7 @@
           client_pid     :: pid(),
           is_diagnosing = false :: boolean(),
           is_recovering = false :: boolean(),
-          callback :: function()
+          callback :: atom()
          }).
 
 -record(compaction_prms, {
@@ -74,7 +74,7 @@
           metadata = #?METADATA{} :: #?METADATA{},
           next_offset = 0         :: non_neg_integer()|eof,
           start_lock_offset = 0   :: non_neg_integer(),
-          callback_fun            :: function(),
+          callback_mod            :: atom(),
           num_of_active_objs = 0  :: non_neg_integer(),
           size_of_active_objs = 0 :: non_neg_integer(),
           total_num_of_objs = 0   :: non_neg_integer(),
@@ -148,18 +148,18 @@ run(Id, IsDiagnosing, IsRecovering) ->
                                        is_recovering = IsRecovering
                                       }).
 
--spec(run(Id, ControllerPid, IsDiagnosing, IsRecovering, CallbackFun) ->
+-spec(run(Id, ControllerPid, IsDiagnosing, IsRecovering, CallbackMod) ->
              ok | {error, any()} when Id::atom(),
                                       ControllerPid::pid(),
                                       IsDiagnosing::boolean(),
                                       IsRecovering::boolean(),
-                                      CallbackFun::function()).
-run(Id, ControllerPid, IsDiagnosing, IsRecovering, CallbackFun) ->
+                                      CallbackMod::atom()).
+run(Id, ControllerPid, IsDiagnosing, IsRecovering, CallbackMod) ->
     gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_RUN,
                                             controller_pid = ControllerPid,
                                             is_diagnosing  = IsDiagnosing,
                                             is_recovering  = IsRecovering,
-                                            callback = CallbackFun}, ?DEF_TIMEOUT).
+                                            callback = CallbackMod}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve an object from the object-storage
@@ -282,7 +282,7 @@ idling(#event_info{event = ?EVENT_RUN,
                    controller_pid = ControllerPid,
                    is_diagnosing  = IsDiagnosing,
                    is_recovering  = IsRecovering,
-                   callback = CallbackFun}, From, #state{id = Id,
+                   callback = CallbackMod}, From, #state{id = Id,
                                                          compaction_prms = CompactionPrms} = State) ->
     NextStatus = ?ST_RUNNING,
     State_1 = State#state{compact_cntl_pid = ControllerPid,
@@ -301,7 +301,7 @@ idling(#event_info{event = ?EVENT_RUN,
                                 num_of_active_objs  = 0,
                                 size_of_active_objs = 0,
                                 next_offset = ?AVS_SUPER_BLOCK_LEN,
-                                callback_fun = CallbackFun
+                                callback_mod = CallbackMod
                                },
                           start_datetime = leo_date:now()
                          },
@@ -723,17 +723,18 @@ execute(#state{meta_db_id       = MetaDBId,
         false ->
             #compaction_prms{key_bin  = Key,
                              body_bin = Body,
-                             callback_fun = CallbackFun,
+                             callback_mod = CallbackMod,
                              num_of_active_objs  = NumOfActiveObjs,
                              size_of_active_objs = ActiveSize,
                              total_num_of_objs  = TotalObjs,
                              total_size_of_objs = TotaSize} = CompactionPrms,
-            NumOfReplicas   = Metadata#?METADATA.num_of_replicas,
-            HasChargeOfNode = case (CallbackFun == undefined) of
+            NumOfReplicas = Metadata#?METADATA.num_of_replicas,
+            HasChargeOfNode = case (CallbackMod == undefined) of
                                   true ->
                                       true;
                                   false ->
-                                      CallbackFun(Key, NumOfReplicas)
+                                      erlang:apply(
+                                        CallbackMod, has_charge_of_node, [Key, NumOfReplicas])
                               end,
 
             case (is_removed_obj(MetaDBId, StorageInfo, Metadata, IsRecovering)
@@ -813,6 +814,7 @@ execute_1(ok, #state{meta_db_id       = MetaDBId,
     erlang:garbage_collect(self()),
     ReadHandler = StorageInfo#backend_info.read_handler,
     NextOffset  = CompactionPrms#compaction_prms.next_offset,
+    CallbackMod = CompactionPrms#compaction_prms.callback_mod,
 
     case leo_object_storage_haystack:get_obj_for_new_cntnr(
            ReadHandler, NextOffset) of
@@ -828,6 +830,14 @@ execute_1(ok, #state{meta_db_id       = MetaDBId,
 
                     case leo_backend_db_api:put(
                            MetaDBId, KeyOfMetadata, term_to_binary(NewMetadata)) of
+                        ok when CallbackMod =/= undefined ->
+                            Method = case NewMetadata#?METADATA.del of
+                                         ?DEL_FALSE -> put;
+                                         ?DEL_TRUE  -> delete
+                                     end,
+                            catch erlang:apply(CallbackMod, recover_dir_metadata,
+                                               [Method, Key, NewMetadata]),
+                            ok;
                         ok ->
                             ok;
                         {error, Cause} ->

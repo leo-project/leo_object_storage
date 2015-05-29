@@ -68,7 +68,7 @@
           num_of_concurrency = 1 :: non_neg_integer(),
           is_diagnosing = false     :: boolean(),
           is_recovering = false :: boolean(),
-          callback_fun              :: function() | undefined,
+          callback_mod              :: function() | undefined,
           total_num_of_targets = 0  :: non_neg_integer(),
           reserved_targets = []     :: [atom()],
           pending_targets  = []     :: [atom()],
@@ -90,7 +90,7 @@
           num_of_concurrency = 1         :: pos_integer(),
           is_diagnosing = false :: boolean(),
           is_recovering = false :: boolean(),
-          callback :: function()
+          callback :: function() %% depends on "leo_compact_callback"
          }).
 -define(DEF_TIMEOUT, 3000).
 
@@ -121,24 +121,24 @@ run() ->
 run(NumOfConcurrency) ->
     run(NumOfConcurrency, undefined).
 
--spec(run(NumOfConcurrency, CallbackFun) ->
+-spec(run(NumOfConcurrency, CallbackMod) ->
              term() when NumOfConcurrency::pos_integer(),
-                         CallbackFun::function()|undefined).
-run(NumOfConcurrency, CallbackFun) ->
+                         CallbackMod::function()|undefined).
+run(NumOfConcurrency, CallbackMod) ->
     TargetPids = leo_object_storage_api:get_object_storage_pid('all'),
-    run(TargetPids, NumOfConcurrency, CallbackFun).
+    run(TargetPids, NumOfConcurrency, CallbackMod).
 
--spec(run(TargetPids, NumOfConcurrency, CallbackFun) ->
+-spec(run(TargetPids, NumOfConcurrency, CallbackMod) ->
              term() when TargetPids::[pid()|atom()],
                          NumOfConcurrency::pos_integer(),
-                         CallbackFun::function()|undefined).
-run(TargetPids, NumOfConcurrency, CallbackFun) ->
+                         CallbackMod::function()|undefined).
+run(TargetPids, NumOfConcurrency, CallbackMod) ->
     gen_fsm:sync_send_event(
       ?MODULE, #event_info{event = ?EVENT_RUN,
                            target_pids = TargetPids,
                            num_of_concurrency = NumOfConcurrency,
                            is_diagnosing = false,
-                           callback      = CallbackFun}, ?DEF_TIMEOUT).
+                           callback = CallbackMod}, ?DEF_TIMEOUT).
 
 
 %% @doc Request diagnosing data-compaction to the data-compaction's workers
@@ -330,7 +330,7 @@ idling(#event_info{event = ?EVENT_RUN,
                                    num_of_concurrency = NumOfConcurrency,
                                    is_diagnosing      = IsDiagnose,
                                    is_recovering      = IsRecovering,
-                                   callback_fun       = Callback,
+                                   callback_mod       = Callback,
                                    start_datetime     = leo_date:now(),
                                    reports = []
                                   }),
@@ -658,12 +658,12 @@ start_jobs_as_possible(#state{pid_pairs = PidPairs,
                               pending_targets = [Id|Rest],
                               ongoing_targets = InProgPids,
                               num_of_concurrency = NumOfConcurrency,
-                              callback_fun  = CallbackFun,
+                              callback_mod  = CallbackMod,
                               is_diagnosing = IsDiagnose,
                               is_recovering = IsRecovering,
                               child_pids    = ChildPids} = State, NumChild) when NumChild < NumOfConcurrency ->
     Pid = spawn(fun() ->
-                        loop(CallbackFun)
+                        loop(CallbackMod)
                 end),
     _Ref = erlang:monitor(process, Pid),
     erlang:send(Pid, {run, Id, IsDiagnose, IsRecovering}),
@@ -681,42 +681,42 @@ start_jobs_as_possible(State, _NumChild) ->
 %% @private
 -spec(loop(fun()|undifined) ->
              ok | {error, any()}).
-loop(CallbackFun) ->
-    loop(CallbackFun, undefined).
+loop(CallbackMod) ->
+    loop(CallbackMod, undefined).
 
 -spec(loop(fun()|undifined, {atom(),atom()}|undefined) ->
              ok | {error, any()}).
-loop(CallbackFun, TargetId) ->
+loop(CallbackMod, TargetId) ->
     receive
         {run, Id, IsDiagnose, IsRecovering} ->
             {ok, Id_1} = leo_object_storage_server:get_compaction_worker(Id),
             case leo_compact_fsm_worker:run(
-                   Id_1, self(), IsDiagnose, IsRecovering, CallbackFun) of
+                   Id_1, self(), IsDiagnose, IsRecovering, CallbackMod) of
                 ok ->
                     ok = leo_object_storage_server:block_del(Id),
-                    loop(CallbackFun, {Id, Id_1});
+                    loop(CallbackMod, {Id, Id_1});
                 {error,_Cause} ->
                     ok = finish(self(), Id)
             end;
         {lock, Id} ->
             ok = lock(Id),
-            loop(CallbackFun, TargetId);
+            loop(CallbackMod, TargetId);
         suspend = Event ->
             operate(Event, TargetId),
-            loop(CallbackFun, TargetId);
+            loop(CallbackMod, TargetId);
         resume = Event ->
             operate(Event, TargetId),
-            loop(CallbackFun, TargetId);
+            loop(CallbackMod, TargetId);
         {finish, {ObjStorageId, Report}} ->
             ok = finish(self(), ObjStorageId, Report),
-            loop(CallbackFun, TargetId);
+            loop(CallbackMod, TargetId);
 
         increase = Event ->
             operate(Event, TargetId),
-            loop(CallbackFun, TargetId);
+            loop(CallbackMod, TargetId);
         decrease = Event ->
             operate(Event, TargetId),
-            loop(CallbackFun, TargetId);
+            loop(CallbackMod, TargetId);
 
         stop ->
             ok;

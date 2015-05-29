@@ -26,8 +26,10 @@
 
 -include("leo_object_storage.hrl").
 
+%% @doc Check the owner of the object by key
 -callback(has_charge_of_node(Key::binary(), NumOfReplicas::pos_integer()) ->
                  boolean()).
 
--callback(recreate_metadata(Method::put|delete, Key::binary(), Metadata::#?METADATA{}) ->
+%% @doc Re-create a metadata during a data-compaction processing
+-callback(recover_dir_metadata(Method::put|delete, Key::binary(), Metadata::#?METADATA{}) ->
                  ok | {error, any()}).

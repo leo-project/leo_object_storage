@@ -268,9 +268,11 @@ compact() ->
 
     %% Execute compaction
     timer:sleep(3000),
-    FunHasChargeOfNode = fun(_Key_,_NumOfReplicas_) ->
-                                 true
-                         end,
+    %% FunHasChargeOfNode = fun(_Key_,_NumOfReplicas_) ->
+    %%                              true
+    %%                      end,
+    FunHasChargeOfNode = undefined,
+
     TargetPids = leo_object_storage_api:get_object_storage_pid(all),
     ok = leo_compact_fsm_controller:run(TargetPids, 1, FunHasChargeOfNode),
 
@@ -321,9 +323,10 @@ compact_1() ->
 
     %% Execute compaction
     timer:sleep(3000),
-    FunHasChargeOfNode = fun(_Key_,_NumOfReplicas_) ->
-                                 true
-                         end,
+    %% FunHasChargeOfNode = fun(_Key_,_NumOfReplicas_) ->
+    %%                              true
+    %%                      end,
+    FunHasChargeOfNode = undefined,
     TargetPids = leo_object_storage_api:get_object_storage_pid(all),
     ok = leo_compact_fsm_controller:run(TargetPids, 1, FunHasChargeOfNode),
 
@@ -891,9 +894,10 @@ compact_2() ->
     ?assertEqual(true, SumTotalSize1 > SumActiveSize1),
     timer:sleep(250),
 
-    FunHasChargeOfNode = fun(_Key_,_NumOfReplicas_) ->
-                                 true
-                         end,
+    %% FunHasChargeOfNode = fun(_Key_,_NumOfReplicas_) ->
+    %%                              true
+    %%                      end,
+    FunHasChargeOfNode = undefined,
     TargetPids = leo_object_storage_api:get_object_storage_pid(all),
     io:format(user, "*** target-pids:~p~n", [TargetPids]),
 
