@@ -715,6 +715,7 @@ execute(#state{meta_db_id       = MetaDBId,
     State_1 = State#state{set_errors = sets:new()},
     Offset   = CompactionPrms#compaction_prms.next_offset,
     Metadata = CompactionPrms#compaction_prms.metadata,
+    Callback = CompactionPrms#compaction_prms.callback,
 
     %% Execute compaction
     case (Offset == ?AVS_SUPER_BLOCK_LEN) of
@@ -739,7 +740,13 @@ execute(#state{meta_db_id       = MetaDBId,
 
             case (is_removed_obj(MetaDBId, StorageInfo, Metadata, IsRecovering)
                   orelse HasChargeOfNode == false)  of
+                %%
+                %% For unnecessary/removed objects
+                %%
                 true when IsDiagnosing == false ->
+                    %% Recover a metadata for the metadata-layer
+                    catch erlang:apply(Callback, recover_dir_metadata,
+                                       [delete, Key, Metadata]),
                     execute_1(State_1);
                 true when IsDiagnosing == true ->
                     ok = output_diagnosis_log(LoggerId, Metadata),
@@ -764,6 +771,10 @@ execute(#state{meta_db_id       = MetaDBId,
                                                               Metadata#?METADATA.key),
                                 Ret = leo_backend_db_api:put_value_to_new_db(
                                         MetaDBId, KeyOfMeta, term_to_binary(Metadata_1)),
+
+                                %% Recover a metadata for the metadata-layer
+                                catch erlang:apply(Callback, recover_dir_metadata,
+                                                   [put, Key, Metadata_1]),
 
                                 %% Calculate num of objects and total size of objects
                                 execute_2(Ret, CompactionPrms, Metadata_1,
@@ -831,12 +842,6 @@ execute_1(ok, #state{meta_db_id       = MetaDBId,
                     case leo_backend_db_api:put(
                            MetaDBId, KeyOfMetadata, term_to_binary(NewMetadata)) of
                         ok when CallbackMod =/= undefined ->
-                            Method = case NewMetadata#?METADATA.del of
-                                         ?DEL_FALSE -> put;
-                                         ?DEL_TRUE  -> delete
-                                     end,
-                            catch erlang:apply(CallbackMod, recover_dir_metadata,
-                                               [Method, Key, NewMetadata]),
                             ok;
                         ok ->
                             ok;

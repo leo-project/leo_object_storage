@@ -30,6 +30,17 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("leo_object_storage.hrl").
 
+-export([has_charge_of_node/2,
+         recover_dir_metadata/3]).
+
+has_charge_of_node(_Key,_NumOfReplicas) ->
+    ?debugVal({_Key, _NumOfReplicas}),
+    true.
+
+recover_dir_metadata(_Method,_Key,_Metadata) ->
+    ?debugVal({_Method, _Key, _Metadata}),
+    ok.
+
 -ifdef(EUNIT).
 
 %%======================================================================
@@ -268,13 +279,8 @@ compact() ->
 
     %% Execute compaction
     timer:sleep(3000),
-    %% FunHasChargeOfNode = fun(_Key_,_NumOfReplicas_) ->
-    %%                              true
-    %%                      end,
-    FunHasChargeOfNode = undefined,
-
     TargetPids = leo_object_storage_api:get_object_storage_pid(all),
-    ok = leo_compact_fsm_controller:run(TargetPids, 1, FunHasChargeOfNode),
+    ok = leo_compact_fsm_controller:run(TargetPids, 1, ?MODULE),
 
     %% Insert objects during the compaction
     ok = put_regular_bin(200, 25),
@@ -323,12 +329,8 @@ compact_1() ->
 
     %% Execute compaction
     timer:sleep(3000),
-    %% FunHasChargeOfNode = fun(_Key_,_NumOfReplicas_) ->
-    %%                              true
-    %%                      end,
-    FunHasChargeOfNode = undefined,
     TargetPids = leo_object_storage_api:get_object_storage_pid(all),
-    ok = leo_compact_fsm_controller:run(TargetPids, 1, FunHasChargeOfNode),
+    ok = leo_compact_fsm_controller:run(TargetPids, 1, ?MODULE),
 
     %% Check comaction status
     ok = check_status(),
@@ -894,14 +896,10 @@ compact_2() ->
     ?assertEqual(true, SumTotalSize1 > SumActiveSize1),
     timer:sleep(250),
 
-    %% FunHasChargeOfNode = fun(_Key_,_NumOfReplicas_) ->
-    %%                              true
-    %%                      end,
-    FunHasChargeOfNode = undefined,
     TargetPids = leo_object_storage_api:get_object_storage_pid(all),
     io:format(user, "*** target-pids:~p~n", [TargetPids]),
 
-    ok = leo_compact_fsm_controller:run(TargetPids, 2, FunHasChargeOfNode),
+    ok = leo_compact_fsm_controller:run(TargetPids, 2, ?MODULE),
 
     {ok, CompactionStats} = leo_compact_fsm_controller:state(),
     ?assertEqual(?ST_RUNNING, CompactionStats#compaction_stats.status),
@@ -943,7 +941,7 @@ compact_2() ->
     timer:sleep(10000),
 
     %% confirm whether first compaction have broken avs files or not
-    ok = leo_compact_fsm_controller:run(TargetPids, 2, FunHasChargeOfNode),
+    ok = leo_compact_fsm_controller:run(TargetPids, 2, ?MODULE),
     ok = check_status(),
     timer:sleep(5000),
     {ok, Res3} = leo_object_storage_api:stats(),
