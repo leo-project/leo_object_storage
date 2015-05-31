@@ -713,9 +713,8 @@ execute(#state{meta_db_id       = MetaDBId,
                compaction_prms  = CompactionPrms} = State) ->
     %% Initialize set-error property
     State_1 = State#state{set_errors = sets:new()},
-    Offset   = CompactionPrms#compaction_prms.next_offset,
+    Offset = CompactionPrms#compaction_prms.next_offset,
     Metadata = CompactionPrms#compaction_prms.metadata,
-    Callback = CompactionPrms#compaction_prms.callback,
 
     %% Execute compaction
     case (Offset == ?AVS_SUPER_BLOCK_LEN) of
@@ -745,8 +744,13 @@ execute(#state{meta_db_id       = MetaDBId,
                 %%
                 true when IsDiagnosing == false ->
                     %% Recover a metadata for the metadata-layer
-                    catch erlang:apply(Callback, recover_dir_metadata,
-                                       [delete, Key, Metadata]),
+                    case Metadata#?METADATA.del of
+                        ?DEL_TRUE ->
+                            catch erlang:apply(CallbackMod, recover_dir_metadata,
+                                               [delete, Key, Metadata]);
+                        ?DEL_FALSE ->
+                            void
+                    end,
                     execute_1(State_1);
                 true when IsDiagnosing == true ->
                     ok = output_diagnosis_log(LoggerId, Metadata),
@@ -773,7 +777,7 @@ execute(#state{meta_db_id       = MetaDBId,
                                         MetaDBId, KeyOfMeta, term_to_binary(Metadata_1)),
 
                                 %% Recover a metadata for the metadata-layer
-                                catch erlang:apply(Callback, recover_dir_metadata,
+                                catch erlang:apply(CallbackMod, recover_dir_metadata,
                                                    [put, Key, Metadata_1]),
 
                                 %% Calculate num of objects and total size of objects
