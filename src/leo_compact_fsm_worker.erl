@@ -746,7 +746,7 @@ execute(#state{meta_db_id       = MetaDBId,
                     %% Recover a metadata for the metadata-layer
                     case Metadata#?METADATA.del of
                         ?DEL_TRUE ->
-                            catch erlang:apply(CallbackMod, recover_dir_metadata,
+                            catch erlang:apply(CallbackMod, update_metadata,
                                                [delete, Key, Metadata]);
                         ?DEL_FALSE ->
                             void
@@ -777,7 +777,7 @@ execute(#state{meta_db_id       = MetaDBId,
                                         MetaDBId, KeyOfMeta, term_to_binary(Metadata_1)),
 
                                 %% Recover a metadata for the metadata-layer
-                                catch erlang:apply(CallbackMod, recover_dir_metadata,
+                                catch erlang:apply(CallbackMod, update_metadata,
                                                    [put, Key, Metadata_1]),
 
                                 %% Calculate num of objects and total size of objects

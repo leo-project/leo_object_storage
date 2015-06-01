@@ -30,6 +30,6 @@
 -callback(has_charge_of_node(Key::binary(), NumOfReplicas::pos_integer()) ->
                  boolean()).
 
-%% @doc Re-create a metadata during a data-compaction processing
--callback(recover_dir_metadata(Method::put|delete, Key::binary(), Metadata::#?METADATA{}) ->
+%% @doc Update a metadata (during the data-compaction processing)
+-callback(update_metadata(Method::put|delete, Key::binary(), Metadata::#?METADATA{}) ->
                  ok | {error, any()}).

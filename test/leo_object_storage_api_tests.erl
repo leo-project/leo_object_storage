@@ -31,13 +31,13 @@
 -include("leo_object_storage.hrl").
 
 -export([has_charge_of_node/2,
-         recover_dir_metadata/3]).
+         update_metadata/3]).
 
 has_charge_of_node(_Key,_NumOfReplicas) ->
     ?debugVal({_Key, _NumOfReplicas}),
     true.
 
-recover_dir_metadata(_Method,_Key,_Metadata) ->
+update_metadata(_Method,_Key,_Metadata) ->
     ?debugVal({_Method, _Key, _Metadata}),
     ok.
 
