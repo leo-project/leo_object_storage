@@ -175,6 +175,14 @@
 -type(del_flag() :: ?DEL_TRUE | ?DEL_FALSE).
 -type(type_of_method() :: get | put | delete | head | head_with_calc_md5 | store).
 
+-define(which_method(_Metadata),
+        case _Metadata#?METADATA.del of
+            ?DEL_TRUE ->
+                delete;
+            ?DEL_FALSE ->
+                put
+        end).
+
 -define(MD5_EMPTY_BIN, 281949768489412648962353822266799178366).
 -define(MAX_KEY_SIZE,  1024 * 4).
 

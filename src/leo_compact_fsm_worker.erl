@@ -743,14 +743,6 @@ execute(#state{meta_db_id       = MetaDBId,
                 %% For unnecessary/removed objects
                 %%
                 true when IsDiagnosing == false ->
-                    %% Recover a metadata for the metadata-layer
-                    case Metadata#?METADATA.del of
-                        ?DEL_TRUE ->
-                            catch erlang:apply(CallbackMod, update_metadata,
-                                               [delete, Key, Metadata]);
-                        ?DEL_FALSE ->
-                            void
-                    end,
                     execute_1(State_1);
                 true when IsDiagnosing == true ->
                     ok = output_diagnosis_log(LoggerId, Metadata),
@@ -776,12 +768,8 @@ execute(#state{meta_db_id       = MetaDBId,
                                 Ret = leo_backend_db_api:put_value_to_new_db(
                                         MetaDBId, KeyOfMeta, term_to_binary(Metadata_1)),
 
-                                %% Recover a metadata for the metadata-layer
-                                catch erlang:apply(CallbackMod, update_metadata,
-                                                   [put, Key, Metadata_1]),
-
                                 %% Calculate num of objects and total size of objects
-                                execute_2(Ret, CompactionPrms, Metadata_1,
+                                execute_3(Ret, CompactionPrms, Metadata_1,
                                           NumOfActiveObjs, ActiveSize, State_1);
                             Error ->
                                 {Error,
@@ -795,7 +783,7 @@ execute(#state{meta_db_id       = MetaDBId,
                 %%
                 false when IsDiagnosing == true ->
                     ok = output_diagnosis_log(LoggerId, Metadata),
-                    {Ret_1, NewState} = execute_2(
+                    {Ret_1, NewState} = execute_3(
                                           ok, CompactionPrms, Metadata,
                                           NumOfActiveObjs, ActiveSize, State_1),
                     CompactionPrms_1 = NewState#state.compaction_prms,
@@ -817,15 +805,30 @@ execute(#state{meta_db_id       = MetaDBId,
              {{error, any()}, State} when State::#state{}).
 execute_1(State) ->
     execute_1(ok, State).
+execute_1(ok, #state{compaction_prms = #compaction_prms{metadata = Metadata,
+                                                        callback = Callback}} = State) ->
+    #?METADATA{key = Key} = Metadata,
+    case Key of
+        <<>> ->
+            void;
+        _ ->
+            %% Recover a metadata for the metadata-layer
+            Method = ?which_method(Metadata),
+            catch erlang:apply(Callback, update_metadata,
+                               [Method, Key, Metadata])
+    end,
+    execute_2(State);
+execute_1(Error, State) ->
+    {Error, State}.
 
--spec(execute_1(Ret, State) ->
+%% @private
+-spec(execute_2(State) ->
              {ok, {next|eof, State}} |
-             {{error, any()}, State} when Ret::ok|{error,any()},
-                                          State::#state{}).
-execute_1(ok, #state{meta_db_id       = MetaDBId,
-                     obj_storage_info = StorageInfo,
-                     compaction_prms  = CompactionPrms,
-                     is_recovering    = IsRecovering} = State) ->
+             {{error, any()}, State} when State::#state{}).
+execute_2(#state{meta_db_id       = MetaDBId,
+                 obj_storage_info = StorageInfo,
+                 compaction_prms  = CompactionPrms,
+                 is_recovering    = IsRecovering} = State) ->
     erlang:garbage_collect(self()),
     ReadHandler = StorageInfo#backend_info.read_handler,
     NextOffset  = CompactionPrms#compaction_prms.next_offset,
@@ -852,7 +855,7 @@ execute_1(ok, #state{meta_db_id       = MetaDBId,
                         {error, Cause} ->
                             error_logger:info_msg("~p,~p,~p,~p~n",
                                                   [{module, ?MODULE_STRING},
-                                                   {function, "execute_1/2"},
+                                                   {function, "execute_2/2"},
                                                    {line, ?LINE}, {body, Cause}]),
                             throw("unexpected_error happened at backend-db")
                     end;
@@ -899,21 +902,18 @@ execute_1(ok, #state{meta_db_id       = MetaDBId,
                                   ErrorPosCur
                           end,
             SetErrors = sets:add_element(Cause, State#state.set_errors),
-            execute_1(ok,
-                      State#state{error_pos  = ErrorPosNew,
+            execute_2(State#state{error_pos  = ErrorPosNew,
                                   set_errors = SetErrors,
                                   compaction_prms =
                                       CompactionPrms#compaction_prms{
                                         next_offset = NextOffset + 1}
                                  })
-    end;
-execute_1(Error, State) ->
-    {Error, State}.
+    end.
 
 
 %% @doc Calculate num of objects and total size of objects
 %% @private
-execute_2(Ret, CompactionPrms, Metadata, NumOfActiveObjs, ActiveSize, State) ->
+execute_3(Ret, CompactionPrms, Metadata, NumOfActiveObjs, ActiveSize, State) ->
     ObjectSize = leo_object_storage_haystack:calc_obj_size(Metadata),
     {Ret,
      State#state{compaction_prms =
