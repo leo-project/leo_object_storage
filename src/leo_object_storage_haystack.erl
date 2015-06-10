@@ -429,7 +429,7 @@ get_fun_1(_MetaDBId, StorageInfo, #?METADATA{ksize    = KSize,
     #backend_info{read_handler = ReadHandler} = StorageInfo,
     Object_1 = leo_object_storage_transformer:metadata_to_object(Metadata),
 
-    case file:pread(ReadHandler, Offset_1, DSize_1) of
+    case leo_file:pread(ReadHandler, Offset_1, DSize_1) of
         {ok, Bin} when IsStrictCheck == true,
                        StartPos == 0,
                        EndPos   == 0 ->
@@ -446,11 +446,19 @@ get_fun_1(_MetaDBId, StorageInfo, #?METADATA{ksize    = KSize,
         eof = Cause ->
             {error, Cause};
         {error, Cause} ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING},
-                                    {function, "get_fun/1"},
-                                    {line, ?LINE}, {body, Cause}]),
-            {error, Cause}
+            error_logger:error_msg(
+              "~p,~p,~p,~p~n",
+              [{module, ?MODULE_STRING},
+               {function, "get_fun/1"},
+               {line, ?LINE}, [{offset, Offset_1},
+                               {dsize, DSize_1},
+                               {body, Cause}]]),
+            case Cause of
+                unexpected_len ->
+                    {error, {abort, Cause}};
+                _ ->
+                    {error, Cause}
+            end
     end;
 
 %% @doc For parent of chunked object
@@ -653,22 +661,25 @@ get_obj_for_new_cntnr(ReadHandler) ->
 get_obj_for_new_cntnr(ReadHandler, Offset) ->
     HeaderSize = erlang:round(?BLEN_HEADER/8),
 
-    case file:pread(ReadHandler, Offset, HeaderSize) of
+    case leo_file:pread(ReadHandler, Offset, HeaderSize) of
         {ok, HeaderBin} ->
-            case byte_size(HeaderBin) of
-                HeaderSize ->
-                    get_obj_for_new_cntnr(ReadHandler, Offset, HeaderSize, HeaderBin);
-                _ ->
-                    {error, {?LINE,?ERROR_DATA_SIZE_DID_NOT_MATCH}}
-            end;
+            get_obj_for_new_cntnr(ReadHandler, Offset, HeaderSize, HeaderBin);
         eof = Cause ->
             {error, Cause};
         {error, Cause} ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING},
-                                    {function, "get_obj_for_new_cntnr/2"},
-                                    {line, ?LINE}, {body, Cause}]),
-            {error, Cause}
+            case Cause of
+                unexpected_len ->
+                    error_logger:error_msg(
+                      "~p,~p,~p,~p~n",
+                      [{module, ?MODULE_STRING},
+                       {function, "get_obj_for_new_cntnr/2"},
+                       {line, ?LINE}, [{offset, Offset},
+                                       {header_size, HeaderSize},
+                                       {body, Cause}]]),
+                    {error, {abort, Cause}};
+                _ ->
+                    {error, Cause}
+            end
     end.
 
 %% @private
@@ -699,21 +710,28 @@ get_obj_for_new_cntnr(#?METADATA{ksize = KSize,
             {error, {?LINE,?ERROR_INVALID_DATA}};
         false ->
             try
-                case file:pread(ReadHandler, Offset + HeaderSize, RemainSize) of
+                case leo_file:pread(ReadHandler, Offset + HeaderSize, RemainSize) of
                     {ok, RemainBin} ->
-                        case byte_size(RemainBin) of
-                            RemainSize ->
-                                TotalSize = Offset + HeaderSize + RemainSize,
-                                get_obj_for_new_cntnr_1(ReadHandler,
-                                                        HeaderBin, Metadata#?METADATA{offset = Offset},
-                                                        DSize4Read, RemainBin, TotalSize);
-                            _ ->
-                                {error, {?LINE,?ERROR_DATA_SIZE_DID_NOT_MATCH}}
-                        end;
+                        TotalSize = Offset + HeaderSize + RemainSize,
+                        get_obj_for_new_cntnr_1(ReadHandler,
+                                                HeaderBin, Metadata#?METADATA{offset = Offset},
+                                                DSize4Read, RemainBin, TotalSize);
                     eof = Cause ->
                         {error, Cause};
                     {error, Cause} ->
-                        {error, Cause}
+                        case Cause of
+                            unexpected_len ->
+                                error_logger:error_msg(
+                                  "~p,~p,~p,~p~n",
+                                  [{module, ?MODULE_STRING},
+                                   {function, "get_obj_for_new_cntnr/5"},
+                                   {line, ?LINE}, [{offset, Offset + HeaderSize},
+                                                   {length, RemainSize},
+                                                   {body, Cause}]]),
+                                {error, {abort, Cause}};
+                            _ ->
+                                {error, Cause}
+                        end
                 end
             catch
                 _:Reason ->
@@ -756,7 +774,7 @@ get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, Total
             case (?MAX_DATABLOCK_SIZE > MSize andalso MSize > 0) of
                 true ->
                     MPos = Offset + HeaderSize + KSize + DSize,
-                    case file:pread(ReadHandler, MPos, MSize) of
+                    case leo_file:pread(ReadHandler, MPos, MSize) of
                         {ok, CMetaBin} ->
                             case leo_object_storage_transformer:cmeta_bin_into_metadata(
                                    CMetaBin, Metadata_1) of
@@ -771,8 +789,20 @@ get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, Total
                             end;
                         eof = Cause ->
                             {error, Cause};
-                        {error,_Cause} ->
-                            {error, {?LINE, invalid_data}}
+                        {error, Cause} ->
+                            case Cause of
+                                unexpected_len ->
+                                    error_logger:error_msg(
+                                      "~p,~p,~p,~p~n",
+                                      [{module, ?MODULE_STRING},
+                                       {function, "get_obj_for_new_cntnr_2/6"},
+                                       {line, ?LINE}, [{offset, MPos},
+                                                       {length, MSize},
+                                                       {body, Cause}]]),
+                                    {error, {abort, Cause}};
+                                _ ->
+                                    {error, {?LINE, invalid_data}}
+                            end
                     end;
                 false ->
                     {ok, Metadata_1#?METADATA{msize = 0},

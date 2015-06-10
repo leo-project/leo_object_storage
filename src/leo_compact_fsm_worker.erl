@@ -868,6 +868,11 @@ execute_1(ok, #state{meta_db_id       = MetaDBId,
                                  next_offset = Cause}
                           }}};
 
+        %% Aan issue of unexpected length happened,
+        %% then need to rollback the data-compaction
+        {error, {abort, unexpected_len = Cause}} ->
+            erlang:error(Cause);
+
         %% It found this object is broken,
         %% then it seeks a regular object,
         %% finally it reports a collapsed object to the error-log
