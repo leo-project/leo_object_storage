@@ -286,10 +286,22 @@ header_bin_to_metadata(Bin) ->
                            checksum  = Checksum,
                            del       = Del};
             false ->
+                error_logger:error_msg(
+                  "~p,~p,~p,~p~n",
+                  [{module, ?MODULE_STRING},
+                   {function, "header_bin_to_metadata/1"},
+                   {line, ?LINE}, [{timestamp, Timestamp},
+                                   {cause, invalid_timestamp}]]),
                 {error, invalid_format}
         end
     catch
-        _:_ ->
+        _:Cause ->
+            error_logger:error_msg(
+              "~p,~p,~p,~p~n",
+              [{module, ?MODULE_STRING},
+               {function, "header_bin_to_metadata/1"},
+               {line, ?LINE}, [{byte_size, byte_size(Bin)},
+                               {cause, Cause}]]),
             {error, invalid_format}
     end.
 
