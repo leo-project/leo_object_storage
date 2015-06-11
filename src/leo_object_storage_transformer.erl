@@ -290,7 +290,8 @@ header_bin_to_metadata(Bin) ->
                   "~p,~p,~p,~p~n",
                   [{module, ?MODULE_STRING},
                    {function, "header_bin_to_metadata/1"},
-                   {line, ?LINE}, [{timestamp, Timestamp},
+                   {line, ?LINE}, [{timestamp, [{Year, Month, Day},
+                                                {Hour, Min, Second}]},
                                    {cause, invalid_timestamp}]]),
                 {error, invalid_format}
         end
