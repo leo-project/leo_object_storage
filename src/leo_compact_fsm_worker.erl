@@ -801,15 +801,18 @@ execute(#state{meta_db_id       = MetaDBId,
              {{error, any()}, State} when State::#state{}).
 execute_1(State) ->
     execute_1(ok, State).
+execute_1(Ret, State) ->
+    execute_1(Ret, State, 1).
 
--spec(execute_1(Ret, State) ->
+-spec(execute_1(Ret, State, RetryTimes) ->
              {ok, {next|eof, State}} |
              {{error, any()}, State} when Ret::ok|{error,any()},
-                                          State::#state{}).
-execute_1(ok, #state{meta_db_id       = MetaDBId,
-                     obj_storage_info = StorageInfo,
-                     compaction_prms  = CompactionPrms,
-                     is_recovering    = IsRecovering} = State) ->
+                                          State::#state{},
+                                          RetryTimes::non_neg_integer()).
+execute_1(ok = Ret, #state{meta_db_id       = MetaDBId,
+                           obj_storage_info = StorageInfo,
+                           compaction_prms  = CompactionPrms,
+                           is_recovering    = IsRecovering} = State, RetryTimes) ->
     erlang:garbage_collect(self()),
     ReadHandler = StorageInfo#backend_info.read_handler,
     NextOffset  = CompactionPrms#compaction_prms.next_offset,
@@ -831,10 +834,10 @@ execute_1(ok, #state{meta_db_id       = MetaDBId,
                         ok ->
                             ok;
                         {error, Cause} ->
-                            error_logger:info_msg("~p,~p,~p,~p~n",
-                                                  [{module, ?MODULE_STRING},
-                                                   {function, "execute_1/2"},
-                                                   {line, ?LINE}, {body, Cause}]),
+                            error_logger:error_msg("~p,~p,~p,~p~n",
+                                                   [{module, ?MODULE_STRING},
+                                                    {function, "execute_1/2"},
+                                                    {line, ?LINE}, {body, Cause}]),
                             throw("unexpected_error happened at backend-db")
                     end;
                 false ->
@@ -870,13 +873,21 @@ execute_1(ok, #state{meta_db_id       = MetaDBId,
 
         %% Aan issue of unexpected length happened,
         %% then need to rollback the data-compaction
-        {error, {abort, unexpected_len = Cause}} ->
+        {error, {abort, unexpected_len = Cause}} when RetryTimes == ?MAX_RETRY_TIMES ->
             erlang:error(Cause);
+        {error, {abort, unexpected_len = Cause}} ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING},
+                                    {function, "execute_1/3"},
+                                    {line, ?LINE}, [{offset, NextOffset},
+                                                    {body, Cause}]]),
+            timer:sleep(?WAIT_TIME_AFTER_ERROR),
+            execute_1(Ret, State, RetryTimes + 1);
 
         %% It found this object is broken,
         %% then it seeks a regular object,
         %% finally it reports a collapsed object to the error-log
-        {_, Cause} ->
+        {_, Cause} when RetryTimes == ?MAX_RETRY_TIMES ->
             ErrorPosCur = State#state.error_pos,
             ErrorPosNew = case (State#state.error_pos == 0) of
                               true ->
@@ -891,9 +902,11 @@ execute_1(ok, #state{meta_db_id       = MetaDBId,
                                   compaction_prms =
                                       CompactionPrms#compaction_prms{
                                         next_offset = NextOffset + 1}
-                                 })
+                                 });
+        {_,_Cause} ->
+            execute_1(Ret, State, RetryTimes + 1)
     end;
-execute_1(Error, State) ->
+execute_1(Error, State,_) ->
     {Error, State}.
 
 

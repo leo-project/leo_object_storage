@@ -120,6 +120,8 @@
                           undefined).
 
 -define(MAX_LEN_HIST, 50).
+-define(MAX_RETRY_TIMES, 2).
+-define(WAIT_TIME_AFTER_ERROR, 200). %% 200ms
 
 -record(compaction_report, {
           file_path = [] :: string(),
