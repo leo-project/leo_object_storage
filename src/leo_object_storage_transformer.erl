@@ -263,7 +263,7 @@ header_bin_to_metadata(Bin) ->
            _:?BLEN_BUF >> = Bin,
         Timestamp = case catch calendar:datetime_to_gregorian_seconds(
                                  {{Year, Month, Day}, {Hour, Min, Second}}) of
-                        {'EXIT',_Cause} ->
+                        {'EXIT',_} ->
                             0;
                         Val when Val < 63113904000;
                                  Val > 66301199999 ->
@@ -286,24 +286,11 @@ header_bin_to_metadata(Bin) ->
                            checksum  = Checksum,
                            del       = Del};
             false ->
-                error_logger:error_msg(
-                  "~p,~p,~p,~p~n",
-                  [{module, ?MODULE_STRING},
-                   {function, "header_bin_to_metadata/1"},
-                   {line, ?LINE}, [{timestamp, [{Year, Month, Day},
-                                                {Hour, Min, Second}]},
-                                   {cause, invalid_timestamp}]]),
-                {error, invalid_format}
+                {error, {invalid_format, unexpected_time_format}}
         end
     catch
-        _:Cause ->
-            error_logger:error_msg(
-              "~p,~p,~p,~p~n",
-              [{module, ?MODULE_STRING},
-               {function, "header_bin_to_metadata/1"},
-               {line, ?LINE}, [{byte_size, byte_size(Bin)},
-                               {cause, Cause}]]),
-            {error, invalid_format}
+        _:_Cause ->
+            {error, {invalid_format,_Cause}}
     end.
 
 
