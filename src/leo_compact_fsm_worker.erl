@@ -887,7 +887,7 @@ execute_1(ok = Ret, #state{meta_db_id       = MetaDBId,
         %% It found this object is broken,
         %% then it seeks a regular object,
         %% finally it reports a collapsed object to the error-log
-        {_, Cause} when RetryTimes == ?MAX_RETRY_TIMES ->
+        {_, Cause} ->
             ErrorPosCur = State#state.error_pos,
             ErrorPosNew = case (State#state.error_pos == 0) of
                               true ->
@@ -902,9 +902,7 @@ execute_1(ok = Ret, #state{meta_db_id       = MetaDBId,
                                   compaction_prms =
                                       CompactionPrms#compaction_prms{
                                         next_offset = NextOffset + 1}
-                                 });
-        {_,_Cause} ->
-            execute_1(Ret, State, RetryTimes + 1)
+                                 })
     end;
 execute_1(Error, State,_) ->
     {Error, State}.
