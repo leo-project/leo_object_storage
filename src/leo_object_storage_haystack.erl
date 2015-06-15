@@ -567,17 +567,25 @@ put_fun_1(MetaDBId, StorageInfo, Object) ->
     end.
 
 %% @private
-put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key      = Key,
-                                          data     = Bin,
-                                          checksum = Checksum} = Object) ->
+put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key = Key,
+                                          data = Bin,
+                                          checksum = Checksum,
+                                          timestamp = Timestamp} = Object) ->
     Checksum_1 = case Checksum of
                      0 -> leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin));
                      _ -> Checksum
                  end,
     Object_1 = Object#?OBJECT{ksize = byte_size(Key),
                               checksum = Checksum_1},
-    Object_2 = case Object_1#?OBJECT.timestamp =< 0 of
+    Object_2 = case Timestamp =< 0 of
                    true ->
+                       error_logger:error_msg("~p,~p,~p,~p~n",
+                                              [{module, ?MODULE_STRING},
+                                               {function, "put_fun_2/3"},
+                                               {line, ?LINE}, {body, [{key, Key},
+                                                                      {timestamp, Timestamp},
+                                                                      {cause, "Not set timestamp correctly"}
+                                                                     ]}]),
                        Object_1#?OBJECT{timestamp = leo_date:now()};
                    false ->
                        Object_1
