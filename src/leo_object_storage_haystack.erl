@@ -566,10 +566,16 @@ put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key      = Key,
                      0 -> leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin));
                      _ -> Checksum
                  end,
-    Object_1 = Object#?OBJECT{ksize    = byte_size(Key),
+    Object_1 = Object#?OBJECT{ksize = byte_size(Key),
                               checksum = Checksum_1},
-    Needle = create_needle(Object_1),
-    Metadata = leo_object_storage_transformer:object_to_metadata(Object_1),
+    Object_2 = case Object_1#?OBJECT.timestamp =< 0 of
+                   true ->
+                       Object_1#?OBJECT{timestamp = leo_date:now()};
+                   false ->
+                       Object_1
+               end,
+    Needle = create_needle(Object_2),
+    Metadata = leo_object_storage_transformer:object_to_metadata(Object_2),
     put_fun_3(MetaDBId, StorageInfo, Needle, Metadata).
 
 %% @private
