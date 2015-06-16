@@ -263,9 +263,6 @@ header_bin_to_metadata(Bin) ->
            _:?BLEN_BUF >> = Bin,
         Timestamp = case catch calendar:datetime_to_gregorian_seconds(
                                  {{Year, Month, Day}, {Hour, Min, Second}}) of
-                        {'EXIT',_} when Year == 0, Month == 0, Day == 0,
-                                        Hour == 0, Min == 0, Second == 0 ->
-                            -1;
                         {'EXIT',_} ->
                             0;
                         Val when Val < 63113904000;
@@ -274,22 +271,20 @@ header_bin_to_metadata(Bin) ->
                         Val ->
                             Val
                     end,
-        Metadata_1 = #?METADATA{addr_id   = AddrId,
-                                ksize     = KSize,
-                                msize     = MSize,
-                                dsize     = DSize,
-                                csize     = CSize,
-                                cnumber   = CNum,
-                                cindex    = CIndex,
-                                offset    = Offset,
-                                clock     = Clock,
-                                checksum  = Checksum,
-                                del       = Del},
         case (Timestamp /= 0) of
             true ->
-                Metadata_1#?METADATA{timestamp = Timestamp};
-            false when Timestamp == -1 ->
-                Metadata_1#?METADATA{timestamp = 0};
+                #?METADATA{addr_id   = AddrId,
+                           ksize     = KSize,
+                           msize     = MSize,
+                           dsize     = DSize,
+                           csize     = CSize,
+                           cnumber   = CNum,
+                           cindex    = CIndex,
+                           offset    = Offset,
+                           clock     = Clock,
+                           checksum  = Checksum,
+                           timestamp = Timestamp,
+                           del       = Del};
             false ->
                 {error, {invalid_format, unexpected_time_format}}
         end

@@ -578,19 +578,22 @@ put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key = Key,
                  end,
     Object_1 = Object#?OBJECT{ksize = byte_size(Key),
                               checksum = Checksum_1},
-    %% @TODO:
-    case Timestamp =< 0 of
-        true ->
-            ?debugVal([{key, Key},
-                       {timestamp, Timestamp},
-                       {del, DelFlag},
-                       {cause, "Not set timestamp correctly"}
-                      ]);
-        false ->
-            void
-    end,
-    Needle = create_needle(Object_1),
-    Metadata = leo_object_storage_transformer:object_to_metadata(Object_1),
+    Object_2 = case Timestamp =< 0 of
+                   true ->
+                       error_logger:error_msg("~p,~p,~p,~p~n",
+                                              [{module, ?MODULE_STRING},
+                                               {function, "put_fun_2/3"},
+                                               {line, ?LINE}, {body, [{key, Key},
+                                                                      {del, DelFlag},
+                                                                      {timestamp, Timestamp},
+                                                                      {cause, "Not set timestamp correctly"}
+                                                                     ]}]),
+                       Object_1#?OBJECT{timestamp = leo_date:now()};
+                   false ->
+                       Object_1
+               end,
+    Needle = create_needle(Object_2),
+    Metadata = leo_object_storage_transformer:object_to_metadata(Object_2),
     put_fun_3(MetaDBId, StorageInfo, Needle, Metadata).
 
 %% @private
