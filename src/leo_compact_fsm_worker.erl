@@ -769,7 +769,7 @@ execute(#state{meta_db_id       = MetaDBId,
                                         MetaDBId, KeyOfMeta, term_to_binary(Metadata_1)),
 
                                 %% Calculate num of objects and total size of objects
-                                execute_3(Ret, CompactionPrms, Metadata_1,
+                                execute_2(Ret, CompactionPrms, Metadata_1,
                                           NumOfActiveObjs, ActiveSize, State_1);
                             Error ->
                                 {Error,
@@ -783,7 +783,7 @@ execute(#state{meta_db_id       = MetaDBId,
                 %%
                 false when IsDiagnosing == true ->
                     ok = output_diagnosis_log(LoggerId, Metadata),
-                    {Ret_1, NewState} = execute_3(
+                    {Ret_1, NewState} = execute_2(
                                           ok, CompactionPrms, Metadata,
                                           NumOfActiveObjs, ActiveSize, State_1),
                     CompactionPrms_1 = NewState#state.compaction_prms,
@@ -805,30 +805,18 @@ execute(#state{meta_db_id       = MetaDBId,
              {{error, any()}, State} when State::#state{}).
 execute_1(State) ->
     execute_1(ok, State).
-execute_1(ok, #state{compaction_prms = #compaction_prms{metadata = Metadata,
-                                                        callback = Callback}} = State) ->
-    #?METADATA{key = Key} = Metadata,
-    case Key of
-        <<>> ->
-            void;
-        _ ->
-            %% Recover a metadata for the metadata-layer
-            Method = ?which_method(Metadata),
-            catch erlang:apply(Callback, update_metadata,
-                               [Method, Key, Metadata])
-    end,
-    execute_2(State);
-execute_1(Error, State) ->
-    {Error, State}.
+execute_1(Ret, State) ->
+    execute_1(Ret, State, 1).
 
-%% @private
--spec(execute_2(State) ->
+-spec(execute_1(Ret, State, RetryTimes) ->
              {ok, {next|eof, State}} |
-             {{error, any()}, State} when State::#state{}).
-execute_2(#state{meta_db_id       = MetaDBId,
-                 obj_storage_info = StorageInfo,
-                 compaction_prms  = CompactionPrms,
-                 is_recovering    = IsRecovering} = State) ->
+             {{error, any()}, State} when Ret::ok|{error,any()},
+                                          State::#state{},
+                                          RetryTimes::non_neg_integer()).
+execute_1(ok = Ret, #state{meta_db_id       = MetaDBId,
+                           obj_storage_info = StorageInfo,
+                           compaction_prms  = CompactionPrms,
+                           is_recovering    = IsRecovering} = State, RetryTimes) ->
     erlang:garbage_collect(self()),
     ReadHandler = StorageInfo#backend_info.read_handler,
     NextOffset  = CompactionPrms#compaction_prms.next_offset,
@@ -853,10 +841,10 @@ execute_2(#state{meta_db_id       = MetaDBId,
                         ok ->
                             ok;
                         {error, Cause} ->
-                            error_logger:info_msg("~p,~p,~p,~p~n",
-                                                  [{module, ?MODULE_STRING},
-                                                   {function, "execute_2/2"},
-                                                   {line, ?LINE}, {body, Cause}]),
+                            error_logger:error_msg("~p,~p,~p,~p~n",
+                                                   [{module, ?MODULE_STRING},
+                                                    {function, "execute_1/2"},
+                                                    {line, ?LINE}, {body, Cause}]),
                             throw("unexpected_error happened at backend-db")
                     end;
                 false ->
@@ -890,6 +878,19 @@ execute_2(#state{meta_db_id       = MetaDBId,
                                  next_offset = Cause}
                           }}};
 
+        %% Aan issue of unexpected length happened,
+        %% then need to rollback the data-compaction
+        {error, {abort, unexpected_len = Cause}} when RetryTimes == ?MAX_RETRY_TIMES ->
+            erlang:error(Cause);
+        {error, {abort, unexpected_len = Cause}} ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING},
+                                    {function, "execute_1/3"},
+                                    {line, ?LINE}, [{offset, NextOffset},
+                                                    {body, Cause}]]),
+            timer:sleep(?WAIT_TIME_AFTER_ERROR),
+            execute_1(Ret, State, RetryTimes + 1);
+
         %% It found this object is broken,
         %% then it seeks a regular object,
         %% finally it reports a collapsed object to the error-log
@@ -902,18 +903,20 @@ execute_2(#state{meta_db_id       = MetaDBId,
                                   ErrorPosCur
                           end,
             SetErrors = sets:add_element(Cause, State#state.set_errors),
-            execute_2(State#state{error_pos  = ErrorPosNew,
-                                  set_errors = SetErrors,
-                                  compaction_prms =
-                                      CompactionPrms#compaction_prms{
-                                        next_offset = NextOffset + 1}
-                                 })
-    end.
+            execute_1(ok, State#state{error_pos  = ErrorPosNew,
+                                      set_errors = SetErrors,
+                                      compaction_prms =
+                                          CompactionPrms#compaction_prms{
+                                            next_offset = NextOffset + 1}
+                                     })
+    end;
+execute_1(Error, State,_) ->
+    {Error, State}.
 
 
 %% @doc Calculate num of objects and total size of objects
 %% @private
-execute_3(Ret, CompactionPrms, Metadata, NumOfActiveObjs, ActiveSize, State) ->
+execute_2(Ret, CompactionPrms, Metadata, NumOfActiveObjs, ActiveSize, State) ->
     ObjectSize = leo_object_storage_haystack:calc_obj_size(Metadata),
     {Ret,
      State#state{compaction_prms =

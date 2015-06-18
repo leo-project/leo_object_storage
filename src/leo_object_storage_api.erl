@@ -132,8 +132,7 @@ put(AddrIdAndKey, Object) ->
 -spec(get(AddrIdAndKey) ->
              {ok, list()} | not_found | {error, any()} when AddrIdAndKey::addrid_and_key()).
 get(AddrIdAndKey) ->
-    get(AddrIdAndKey, 0, 0).
-
+    get(AddrIdAndKey, -1, -1).
 -spec(get(AddrIdAndKey, StartPos, EndPos) ->
              {ok, #?METADATA{}, #?OBJECT{}} |
              not_found |

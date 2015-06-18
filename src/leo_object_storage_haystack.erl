@@ -180,7 +180,7 @@ put(MetaDBId, StorageInfo, Object) ->
                                  StorageInfo::#backend_info{},
                                  Key::binary()).
 get(MetaDBId, StorageInfo, Key) ->
-    get(MetaDBId, StorageInfo, Key, 0, 0, false).
+    get(MetaDBId, StorageInfo, Key, -1, -1, false).
 
 %% @doc Retrieve part of an object and a metadata
 %%
@@ -244,7 +244,7 @@ head(MetaDBId, Key) ->
                                  Key:: binary(),
                                  MD5Context::any()).
 head_with_calc_md5(MetaDBId, StorageInfo, Key, MD5Context) ->
-    case get_fun(MetaDBId, StorageInfo, Key, 0, 0, false) of
+    case get_fun(MetaDBId, StorageInfo, Key, -1, -1, false) of
         {ok, #?METADATA{cnumber = 0} = Meta, #?OBJECT{data = Bin}} ->
             %% calc MD5
             {ok, Meta, crypto:hash_update(MD5Context, Bin)};
@@ -407,32 +407,48 @@ get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck) ->
 %% @private
 get_fun_1(_MetaDBId,_StorageInfo, #?METADATA{dsize = DSize} = Metadata,
           StartPos, EndPos,_IsStrictCheck) when StartPos >= DSize orelse
-                                                StartPos <  0 orelse
+                                                StartPos <  -1 orelse
                                                 EndPos   >= DSize ->
     Object_1 = leo_object_storage_transformer:metadata_to_object(Metadata),
     Object_2 = Object_1#?OBJECT{data  = <<>>,
                                 dsize = -2},
     {ok, Metadata, Object_2};
 
-get_fun_1(_MetaDBId, StorageInfo, #?METADATA{ksize    = KSize,
-                                             dsize    = DSize,
-                                             offset   = Offset,
-                                             cnumber  = 0,
-                                             checksum = Checksum} = Metadata,
+get_fun_1(_MetaDBId, StorageInfo, #?METADATA{cnumber = 0,
+                                             dsize = DSize} = Metadata, -1, -1, IsStrictCheck) ->
+    StartPos = 0,
+    EndPos = DSize -1,
+    get_fun_2(StorageInfo, Metadata, StartPos, EndPos, IsStrictCheck, false);
+
+get_fun_1(_MetaDBId, StorageInfo, #?METADATA{cnumber = 0,
+                                             dsize = DSize} = Metadata,
           StartPos, EndPos, IsStrictCheck) ->
     %% Calculate actual start-point and end-point
     {StartPos_1, EndPos_1} = calc_pos(StartPos, EndPos, DSize),
-    Offset_1 = Offset + erlang:round(?BLEN_HEADER/8) + KSize + StartPos_1,
-    DSize_1  = EndPos_1 - StartPos_1 + 1,
+    get_fun_2(StorageInfo, Metadata, StartPos_1, EndPos_1, IsStrictCheck, true);
 
+%% @doc For parent of chunked object
+%% @private
+get_fun_1(_MetaDBId,_StorageInfo, #?METADATA{} = Metadata, _,_,_) ->
+    Object = leo_object_storage_transformer:metadata_to_object(Metadata),
+    {ok, Metadata, Object#?OBJECT{data  = <<>>,
+                                  dsize = 0}}.
+
+%% @private
+get_fun_2(StorageInfo, #?METADATA{ksize = KSize,
+                                  offset = Offset,
+                                  checksum = Checksum} = Metadata,
+          StartPos, EndPos, IsStrictCheck, IsRangeQuery) ->
     %% Retrieve the object
+    Offset_1 = Offset + erlang:round(?BLEN_HEADER/8) + KSize + StartPos,
+    DSize_1  = EndPos - StartPos + 1,
+
     #backend_info{read_handler = ReadHandler} = StorageInfo,
     Object_1 = leo_object_storage_transformer:metadata_to_object(Metadata),
 
-    case file:pread(ReadHandler, Offset_1, DSize_1) of
+    case leo_file:pread(ReadHandler, Offset_1, DSize_1) of
         {ok, Bin} when IsStrictCheck == true,
-                       StartPos == 0,
-                       EndPos   == 0 ->
+                       IsRangeQuery  == false ->
             case leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)) of
                 Checksum ->
                     {ok, Metadata, Object_1#?OBJECT{data  = Bin,
@@ -446,30 +462,30 @@ get_fun_1(_MetaDBId, StorageInfo, #?METADATA{ksize    = KSize,
         eof = Cause ->
             {error, Cause};
         {error, Cause} ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING},
-                                    {function, "get_fun/1"},
-                                    {line, ?LINE}, {body, Cause}]),
-            {error, Cause}
-    end;
+            error_logger:error_msg(
+              "~p,~p,~p,~p~n",
+              [{module, ?MODULE_STRING},
+               {function, "get_fun_2/4"},
+               {line, ?LINE}, [{offset, Offset_1},
+                               {dsize, DSize_1},
+                               {body, Cause}]]),
+            case Cause of
+                unexpected_len ->
+                    {error, {abort, Cause}};
+                _ ->
+                    {error, Cause}
+            end
+    end.
 
-%% @doc For parent of chunked object
+
 %% @private
-get_fun_1(_MetaDBId,_StorageInfo, #?METADATA{} = Metadata, _,_,_) ->
-    Object = leo_object_storage_transformer:metadata_to_object(Metadata),
-    {ok, Metadata, Object#?OBJECT{data  = <<>>,
-                                  dsize = 0}}.
-
-
-%% @doc Retrieve start-position and endposition of an object
-%% @private
-calc_pos(_StartPos, EndPos, DSize) when EndPos < 0 ->
-    StartPos_1 = DSize + EndPos,
-    EndPos_1   = DSize - 1,
-    {StartPos_1, EndPos_1};
-calc_pos(StartPos, 0, DSize) ->
-    {StartPos, DSize - 1};
-calc_pos(StartPos, EndPos, _DSize) ->
+calc_pos(_StartPos, EndPos, ObjectSize) when EndPos < 0 ->
+    NewStartPos = ObjectSize + EndPos,
+    NewEndPos   = ObjectSize - 1,
+    {NewStartPos, NewEndPos};
+calc_pos(StartPos, 0, ObjectSize) when StartPos > 0 ->
+    {StartPos, ObjectSize - 1};
+calc_pos(StartPos, EndPos, _ObjectSize) ->
     {StartPos, EndPos}.
 
 
@@ -551,17 +567,33 @@ put_fun_1(MetaDBId, StorageInfo, Object) ->
     end.
 
 %% @private
-put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key      = Key,
-                                          data     = Bin,
-                                          checksum = Checksum} = Object) ->
+put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key = Key,
+                                          data = Bin,
+                                          checksum = Checksum,
+                                          timestamp = Timestamp,
+                                          del = DelFlag} = Object) ->
     Checksum_1 = case Checksum of
                      0 -> leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin));
                      _ -> Checksum
                  end,
-    Object_1 = Object#?OBJECT{ksize    = byte_size(Key),
+    Object_1 = Object#?OBJECT{ksize = byte_size(Key),
                               checksum = Checksum_1},
-    Needle = create_needle(Object_1),
-    Metadata = leo_object_storage_transformer:object_to_metadata(Object_1),
+    Object_2 = case Timestamp =< 0 of
+                   true ->
+                       error_logger:error_msg("~p,~p,~p,~p~n",
+                                              [{module, ?MODULE_STRING},
+                                               {function, "put_fun_2/3"},
+                                               {line, ?LINE}, {body, [{key, Key},
+                                                                      {del, DelFlag},
+                                                                      {timestamp, Timestamp},
+                                                                      {cause, "Not set timestamp correctly"}
+                                                                     ]}]),
+                       Object_1#?OBJECT{timestamp = leo_date:now()};
+                   false ->
+                       Object_1
+               end,
+    Needle = create_needle(Object_2),
+    Metadata = leo_object_storage_transformer:object_to_metadata(Object_2),
     put_fun_3(MetaDBId, StorageInfo, Needle, Metadata).
 
 %% @private
@@ -653,22 +685,25 @@ get_obj_for_new_cntnr(ReadHandler) ->
 get_obj_for_new_cntnr(ReadHandler, Offset) ->
     HeaderSize = erlang:round(?BLEN_HEADER/8),
 
-    case file:pread(ReadHandler, Offset, HeaderSize) of
+    case leo_file:pread(ReadHandler, Offset, HeaderSize) of
         {ok, HeaderBin} ->
-            case byte_size(HeaderBin) of
-                HeaderSize ->
-                    get_obj_for_new_cntnr(ReadHandler, Offset, HeaderSize, HeaderBin);
-                _ ->
-                    {error, {?LINE,?ERROR_DATA_SIZE_DID_NOT_MATCH}}
-            end;
+            get_obj_for_new_cntnr(ReadHandler, Offset, HeaderSize, HeaderBin);
         eof = Cause ->
             {error, Cause};
         {error, Cause} ->
-            error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING},
-                                    {function, "get_obj_for_new_cntnr/2"},
-                                    {line, ?LINE}, {body, Cause}]),
-            {error, Cause}
+            case Cause of
+                unexpected_len ->
+                    error_logger:error_msg(
+                      "~p,~p,~p,~p~n",
+                      [{module, ?MODULE_STRING},
+                       {function, "get_obj_for_new_cntnr/2"},
+                       {line, ?LINE}, [{offset, Offset},
+                                       {header_size, HeaderSize},
+                                       {body, Cause}]]),
+                    {error, {abort, Cause}};
+                _ ->
+                    {error, Cause}
+            end
     end.
 
 %% @private
@@ -699,21 +734,28 @@ get_obj_for_new_cntnr(#?METADATA{ksize = KSize,
             {error, {?LINE,?ERROR_INVALID_DATA}};
         false ->
             try
-                case file:pread(ReadHandler, Offset + HeaderSize, RemainSize) of
+                case leo_file:pread(ReadHandler, Offset + HeaderSize, RemainSize) of
                     {ok, RemainBin} ->
-                        case byte_size(RemainBin) of
-                            RemainSize ->
-                                TotalSize = Offset + HeaderSize + RemainSize,
-                                get_obj_for_new_cntnr_1(ReadHandler,
-                                                        HeaderBin, Metadata#?METADATA{offset = Offset},
-                                                        DSize4Read, RemainBin, TotalSize);
-                            _ ->
-                                {error, {?LINE,?ERROR_DATA_SIZE_DID_NOT_MATCH}}
-                        end;
+                        TotalSize = Offset + HeaderSize + RemainSize,
+                        get_obj_for_new_cntnr_1(ReadHandler,
+                                                HeaderBin, Metadata#?METADATA{offset = Offset},
+                                                DSize4Read, RemainBin, TotalSize);
                     eof = Cause ->
                         {error, Cause};
                     {error, Cause} ->
-                        {error, Cause}
+                        case Cause of
+                            unexpected_len ->
+                                error_logger:error_msg(
+                                  "~p,~p,~p,~p~n",
+                                  [{module, ?MODULE_STRING},
+                                   {function, "get_obj_for_new_cntnr/5"},
+                                   {line, ?LINE}, [{offset, Offset + HeaderSize},
+                                                   {length, RemainSize},
+                                                   {body, Cause}]]),
+                                {error, {abort, Cause}};
+                            _ ->
+                                {error, Cause}
+                        end
                 end
             catch
                 _:Reason ->
@@ -756,7 +798,7 @@ get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, Total
             case (?MAX_DATABLOCK_SIZE > MSize andalso MSize > 0) of
                 true ->
                     MPos = Offset + HeaderSize + KSize + DSize,
-                    case file:pread(ReadHandler, MPos, MSize) of
+                    case leo_file:pread(ReadHandler, MPos, MSize) of
                         {ok, CMetaBin} ->
                             case leo_object_storage_transformer:cmeta_bin_into_metadata(
                                    CMetaBin, Metadata_1) of
@@ -771,8 +813,20 @@ get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, Total
                             end;
                         eof = Cause ->
                             {error, Cause};
-                        {error,_Cause} ->
-                            {error, {?LINE, invalid_data}}
+                        {error, Cause} ->
+                            case Cause of
+                                unexpected_len ->
+                                    error_logger:error_msg(
+                                      "~p,~p,~p,~p~n",
+                                      [{module, ?MODULE_STRING},
+                                       {function, "get_obj_for_new_cntnr_2/6"},
+                                       {line, ?LINE}, [{offset, MPos},
+                                                       {length, MSize},
+                                                       {body, Cause}]]),
+                                    {error, {abort, Cause}};
+                                _ ->
+                                    {error, {?LINE, invalid_data}}
+                            end
                     end;
                 false ->
                     {ok, Metadata_1#?METADATA{msize = 0},
