@@ -727,9 +727,15 @@ put_1(Key, Object, #state{meta_db_id     = MetaDBId,
             not_found ->
                 {ok, 1, 0};
             {ok, MetaBin} ->
-                Metadata_1 = binary_to_term(MetaBin),
-                Metadata_2 = leo_object_storage_transformer:transform_metadata(Metadata_1),
-                {ok, 0, leo_object_storage_haystack:calc_obj_size(Metadata_2)};
+                Meta1 = binary_to_term(MetaBin),
+                Meta2 = leo_object_storage_transformer:transform_metadata(Meta1),
+                #?METADATA{del = DelFlag} = Meta2,
+                case DelFlag of
+                    ?DEL_FALSE ->
+                        {ok, 0, leo_object_storage_haystack:calc_obj_size(Meta2)};
+                    ?DEL_TRUE ->
+                        {ok, 1, 0}
+                end;
             _Error ->
                 {_Error, 0, 0}
         end,
