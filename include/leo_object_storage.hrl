@@ -569,7 +569,7 @@
           compaction_prms = #compaction_prms{} :: #compaction_prms{},
           start_datetime = 0 :: non_neg_integer(),
           error_pos = 0      :: non_neg_integer(),
-          set_errors         :: sets:set(),
+          set_errors         :: set(),
           acc_errors = []    :: [{pos_integer(), pos_integer()}],
           result :: compaction_ret()
          }).
