@@ -92,6 +92,8 @@
           is_recovering = false :: boolean(),
           callback :: function()
          }).
+
+-compile(nowarn_deprecated_type).
 -define(DEF_TIMEOUT, 3000).
 
 %%====================================================================

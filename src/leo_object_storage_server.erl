@@ -76,6 +76,7 @@
           threshold_slow_processing = ?DEF_THRESHOLD_SLOW_PROC :: non_neg_integer()
          }).
 
+-compile(nowarn_deprecated_type).
 -define(DEF_TIMEOUT, 30000).
 
 
