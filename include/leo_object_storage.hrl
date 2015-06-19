@@ -520,7 +520,7 @@
         end).
 
 %% @doc Default value of step of a batch-processing
--define(DEF_CONSUME_NUM_OF_STEPS, 10).
+-define(DEF_COMPACTION_NUM_OF_STEPS, 10).
 
 %% @doc Compaction-related records:
 -record(compaction_event_info, {
@@ -564,7 +564,7 @@
           count_procs = 0 :: non_neg_integer(),
           num_of_batch_procs = 0     :: non_neg_integer(),
           max_num_of_batch_procs = 0 :: non_neg_integer(),
-          num_of_steps = ?DEF_CONSUME_NUM_OF_STEPS :: pos_integer(),
+          num_of_steps = ?DEF_COMPACTION_NUM_OF_STEPS :: pos_integer(),
           %% compaction-info:
           compaction_prms = #compaction_prms{} :: #compaction_prms{},
           start_datetime = 0 :: non_neg_integer(),
