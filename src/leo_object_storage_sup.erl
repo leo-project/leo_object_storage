@@ -38,7 +38,6 @@
          init/1,
          start_child/1]).
 
--compile(nowarn_deprecated_type).
 -define(DEVICE_ID_INTERVALS, 10000).
 
 %%-----------------------------------------------------------------------

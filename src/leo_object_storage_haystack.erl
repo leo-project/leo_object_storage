@@ -51,7 +51,6 @@
 -export([add_incorrect_data/2]).
 -endif.
 
--compile(nowarn_deprecated_type).
 -define(ERR_TYPE_TIMEOUT, timeout).
 
 

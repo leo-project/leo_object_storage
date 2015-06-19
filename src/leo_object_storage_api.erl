@@ -57,7 +57,6 @@
 -export([add_incorrect_data/1]).
 -endif.
 
--compile(nowarn_deprecated_type).
 -define(SERVER_MODULE, 'leo_object_storage_server').
 
 %%--------------------------------------------------------------------

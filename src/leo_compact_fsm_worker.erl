@@ -55,7 +55,6 @@
          running/2, running/3,
          suspending/2, suspending/3]).
 
--compile(nowarn_deprecated_type).
 -define(DEF_TIMEOUT, timer:seconds(30)).
 
 

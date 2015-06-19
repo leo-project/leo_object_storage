@@ -22,6 +22,7 @@
 %% Leo Object Storage
 %%
 %%======================================================================
+-compile(nowarn_deprecated_type).
 -define(APP_NAME, 'leo_object_storage').
 
 %% Default Values
