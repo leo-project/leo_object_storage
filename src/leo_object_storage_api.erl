@@ -33,7 +33,9 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([start/1, start_with_path/1,
-         put/2, get/1, get/3, delete/2,
+         put/2,
+         get/1, get/2, get/3, get/4,
+         delete/2,
          head/1, head_with_calc_md5/2,
          fetch_by_addr_id/2, fetch_by_addr_id/3,
          fetch_by_key/2, fetch_by_key/3,
@@ -132,7 +134,14 @@ put(AddrIdAndKey, Object) ->
 -spec(get(AddrIdAndKey) ->
              {ok, list()} | not_found | {error, any()} when AddrIdAndKey::addrid_and_key()).
 get(AddrIdAndKey) ->
-    get(AddrIdAndKey, -1, -1).
+    get(AddrIdAndKey, false).
+
+-spec(get(AddrIdAndKey, IsForcedCheck) ->
+             {ok, list()} | not_found | {error, any()} when AddrIdAndKey::addrid_and_key(),
+                                                            IsForcedCheck::boolean()).
+get(AddrIdAndKey, IsForcedCheck) ->
+    get(AddrIdAndKey, ?DEF_POS_START, ?DEF_POS_END, IsForcedCheck).
+
 -spec(get(AddrIdAndKey, StartPos, EndPos) ->
              {ok, #?METADATA{}, #?OBJECT{}} |
              not_found |
@@ -140,7 +149,17 @@ get(AddrIdAndKey) ->
                                  StartPos::non_neg_integer(),
                                  EndPos::non_neg_integer()).
 get(AddrIdAndKey, StartPos, EndPos) ->
-    do_request(get, [AddrIdAndKey, StartPos, EndPos]).
+    get(AddrIdAndKey, StartPos, EndPos, false).
+
+-spec(get(AddrIdAndKey, StartPos, EndPos, IsForcedCheck) ->
+             {ok, #?METADATA{}, #?OBJECT{}} |
+             not_found |
+             {error, any()} when AddrIdAndKey::addrid_and_key(),
+                                 StartPos::non_neg_integer(),
+                                 EndPos::non_neg_integer(),
+                                 IsForcedCheck::boolean()).
+get(AddrIdAndKey, StartPos, EndPos, IsForcedCheck) ->
+    do_request(get, [AddrIdAndKey, StartPos, EndPos, IsForcedCheck]).
 
 
 %% @doc Remove an object from the object-storage
@@ -478,11 +497,11 @@ start_app() ->
              {ok, #?METADATA{}, #?OBJECT{}} |
              not_found |
              {error, any()}).
-do_request(get, [{AddrId, Key}, StartPos, EndPos]) ->
+do_request(get, [{AddrId, Key}, StartPos, EndPos, IsForcedCheck]) ->
     KeyBin = term_to_binary({AddrId, Key}),
     case get_object_storage_pid(KeyBin) of
         [Pid|_] ->
-            ?SERVER_MODULE:get(Pid, {AddrId, Key}, StartPos, EndPos);
+            ?SERVER_MODULE:get(Pid, {AddrId, Key}, StartPos, EndPos, IsForcedCheck);
         _ ->
             {error, ?ERROR_PROCESS_NOT_FOUND}
     end;
