@@ -168,6 +168,9 @@
 -define(ERROR_LOCKED_CONTAINER,         "locked obj-conatainer").
 -define(ERROR_COULD_NOT_START_WORKER,   "could NOT start worker processes").
 
+-define(ERROR_MSG_SLOW_OPERATION, 'slow_operation').
+-define(ERROR_MSG_TIMEOUT,        'timeout').
+
 -define(DEL_TRUE,  1).
 -define(DEL_FALSE, 0).
 

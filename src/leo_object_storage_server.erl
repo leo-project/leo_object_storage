@@ -704,7 +704,8 @@ execute(Method, Key, Fun, ThresholdSlowProcessing) ->
     %% Judge the processing time
     case (Time > ThresholdSlowProcessing) of
         true ->
-            leo_object_storage_event_notifier:notify(Method, Key, Time);
+            leo_object_storage_event_notifier:notify(
+              ?ERROR_MSG_SLOW_OPERATION, Method, Key, Time);
         false ->
             void
     end,
