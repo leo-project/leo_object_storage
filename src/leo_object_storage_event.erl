@@ -63,15 +63,13 @@ handle_event({?ERROR_MSG_SLOW_OPERATION = Msg,
                                [Msg, Method, Key, ProcessingTime])
     end,
     {ok, State};
+handle_event({?ERROR_MSG_TIMEOUT,
+              _Method,_Key, undefined}, State) ->
+    {ok, State};
 handle_event({?ERROR_MSG_TIMEOUT = Msg,
               Method, Key, CallbackMod}, State) ->
-    case CallbackMod of
-        undefined ->
-            void;
-        _ ->
-            catch erlang:apply(CallbackMod, notify,
-                               [Msg, Method, Key])
-    end,
+    catch erlang:apply(CallbackMod, notify,
+                       [Msg, Method, Key]),
     {ok, State};
 handle_event(_, State) ->
     {ok, State}.
