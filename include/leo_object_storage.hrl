@@ -554,7 +554,7 @@
           metadata = #?METADATA{} :: #?METADATA{},
           next_offset = 0         :: non_neg_integer()|eof,
           start_lock_offset = 0   :: non_neg_integer(),
-          callback_fun            :: function(),
+          callback                :: module(),
           num_of_active_objs = 0  :: non_neg_integer(),
           size_of_active_objs = 0 :: non_neg_integer(),
           total_num_of_objs = 0   :: non_neg_integer(),
