@@ -92,6 +92,7 @@
           is_recovering = false :: boolean(),
           callback :: module() %% depends on "leo_compact_callback"
          }).
+
 -define(DEF_TIMEOUT, 3000).
 
 %%====================================================================

@@ -37,7 +37,7 @@
 
 %% API
 -export([start_link/6, start_link/7, stop/1]).
--export([put/2, get/4, delete/2, head/2, fetch/4, store/3,
+-export([put/2, get/5, delete/2, head/2, fetch/4, store/3,
          get_stats/1, set_stats/2,
          get_avs_version_bin/1,
          head_with_calc_md5/3,
@@ -150,15 +150,16 @@ put(Id, #?OBJECT{del = ?DEL_TRUE} = Object) ->
 
 %% @doc Retrieve an object from the object-storage
 %%
--spec(get(Id, AddrIdAndKey, StartPos, EndPos) ->
+-spec(get(Id, AddrIdAndKey, StartPos, EndPos, IsForcedCheck) ->
              {ok, #?METADATA{}, #?OBJECT{}} |
              not_found |
              {error, any()} when Id::atom(),
                                  AddrIdAndKey::addrid_and_key(),
                                  StartPos::non_neg_integer(),
-                                 EndPos::non_neg_integer()).
-get(Id, AddrIdAndKey, StartPos, EndPos) ->
-    gen_server:call(Id, {get, AddrIdAndKey, StartPos, EndPos}, ?DEF_TIMEOUT).
+                                 EndPos::non_neg_integer(),
+                                 IsForcedCheck::boolean()).
+get(Id, AddrIdAndKey, StartPos, EndPos, IsForcedCheck) ->
+    gen_server:call(Id, {get, AddrIdAndKey, StartPos, EndPos, IsForcedCheck}, ?DEF_TIMEOUT).
 
 
 %% @doc Remove an object from the object-storage - (logical-delete)
@@ -422,16 +423,20 @@ handle_call({put, #?OBJECT{addr_id = AddrId,
     {reply, Reply, State_1};
 
 %% Retrieve an object
-handle_call({get, {AddrId, Key}, StartPos, EndPos},
+handle_call({get, {AddrId, Key}, StartPos, EndPos, IsForcedCheck},
             _From, #state{meta_db_id      = MetaDBId,
                           object_storage  = StorageInfo,
                           is_strict_check = IsStrictCheck,
                           threshold_slow_processing = ThresholdSlowProcessing} = State) ->
+    IsStrictCheck_1 = case IsForcedCheck of
+                          true  -> IsForcedCheck;
+                          false -> IsStrictCheck
+                      end,
     Fun = fun() ->
                   BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                                 AddrId, Key),
                   Reply = leo_object_storage_haystack:get(
-                            MetaDBId, StorageInfo, BackendKey, StartPos, EndPos, IsStrictCheck),
+                            MetaDBId, StorageInfo, BackendKey, StartPos, EndPos, IsStrictCheck_1),
                   State_1 = after_proc(Reply, State),
                   {Reply, State_1}
           end,
@@ -699,7 +704,8 @@ execute(Method, Key, Fun, ThresholdSlowProcessing) ->
     %% Judge the processing time
     case (Time > ThresholdSlowProcessing) of
         true ->
-            leo_object_storage_event_notifier:notify(Method, Key, Time);
+            leo_object_storage_event_notifier:notify(
+              ?ERROR_MSG_SLOW_OPERATION, Method, Key, Time);
         false ->
             void
     end,

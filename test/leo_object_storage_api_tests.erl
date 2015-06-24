@@ -32,6 +32,7 @@
 
 -export([has_charge_of_node/2,
          update_metadata/3]).
+-export([notify/4]).
 
 has_charge_of_node(_Key,_NumOfReplicas) ->
     ?debugVal({_Key, _NumOfReplicas}),
@@ -39,6 +40,11 @@ has_charge_of_node(_Key,_NumOfReplicas) ->
 
 update_metadata(_Method,_Key,_Metadata) ->
     ?debugVal({_Method, _Key, _Metadata}),
+    ok.
+
+notify(slow_operation, Method, Key, ProcessingTime) ->
+    ?debugVal({slow_operation, Method, Key, ProcessingTime});
+notify(_Info,_Method,_Key,_ProcessingTime) ->
     ok.
 
 -ifdef(EUNIT).
@@ -190,7 +196,7 @@ compaction_0_test_() ->
      end,
      [
       {"test compaction",
-       {timeout, 1000, fun compact/0}}
+       {timeout, 6000, fun compact/0}}
      ]}.
 
 compaction_1_test_() ->
@@ -334,7 +340,7 @@ recover() ->
 
 compact() ->
     %% Launch object-storage
-    leo_object_storage_api:start([{1, ?AVS_DIR_FOR_COMPACTION}]),
+    leo_object_storage_api:start([{1, ?AVS_DIR_FOR_COMPACTION}], ?MODULE),
     ok = put_regular_bin(1, 50),
     ok = put_irregular_bin(),
     ok = put_regular_bin(36, 25),

@@ -55,61 +55,7 @@
          running/2, running/3,
          suspending/2, suspending/3]).
 
--compile(nowarn_deprecated_type).
 -define(DEF_TIMEOUT, timer:seconds(30)).
-
--record(event_info, {
-          id :: atom(),
-          event = ?EVENT_RUN :: compaction_event(),
-          controller_pid :: pid(),
-          client_pid     :: pid(),
-          is_diagnosing = false :: boolean(),
-          is_recovering = false :: boolean(),
-          callback :: module()
-         }).
-
--record(compaction_prms, {
-          key_bin  = <<>> :: binary(),
-          body_bin = <<>> :: binary(),
-          metadata = #?METADATA{} :: #?METADATA{},
-          next_offset = 0         :: non_neg_integer()|eof,
-          start_lock_offset = 0   :: non_neg_integer(),
-          callback                :: module(),
-          num_of_active_objs = 0  :: non_neg_integer(),
-          size_of_active_objs = 0 :: non_neg_integer(),
-          total_num_of_objs = 0   :: non_neg_integer(),
-          total_size_of_objs = 0  :: non_neg_integer()
-         }).
-
--record(state, {
-          id :: atom(),
-          obj_storage_id :: atom(),
-          meta_db_id     :: atom(),
-          obj_storage_info = #backend_info{} :: #backend_info{},
-          compact_cntl_pid       :: pid(),
-          diagnosis_log_id       :: atom(),
-          status = ?ST_IDLING    :: compaction_state(),
-          is_locked = false      :: boolean(),
-          is_diagnosing = false  :: boolean(),
-          is_recovering = false  :: boolean(),
-          %% interval_between_batch_procs:
-          interval = 0       :: non_neg_integer(),
-          max_interval = 0   :: non_neg_integer(),
-          step_interval = 0  :: non_neg_integer(),
-          %% batch-procs:
-          count_procs = 0        :: non_neg_integer(),
-          num_of_batch_procs = 0        :: non_neg_integer(),
-          max_num_of_batch_procs = 0    :: non_neg_integer(),
-          step_num_of_batch_procs = 0   :: non_neg_integer(),
-          %% compaction-info:
-          compaction_prms = #compaction_prms{} :: #compaction_prms{},
-          start_datetime = 0 :: non_neg_integer(),
-          error_pos = 0      :: non_neg_integer(),
-          set_errors         :: set(),
-          acc_errors = []    :: [{pos_integer(), pos_integer()}],
-          result :: compaction_ret()
-         }).
-
 
 %%====================================================================
 %% API
@@ -143,10 +89,10 @@ stop(Id) ->
                                       IsDiagnosing::boolean(),
                                       IsRecovering::boolean()).
 run(Id, IsDiagnosing, IsRecovering) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_RUN,
-                                       is_diagnosing = IsDiagnosing,
-                                       is_recovering = IsRecovering
-                                      }).
+    gen_fsm:send_event(Id, #compaction_event_info{event = ?EVENT_RUN,
+                                                  is_diagnosing = IsDiagnosing,
+                                                  is_recovering = IsRecovering
+                                                 }).
 
 -spec(run(Id, ControllerPid, IsDiagnosing, IsRecovering, CallbackMod) ->
              ok | {error, any()} when Id::atom(),
@@ -155,11 +101,11 @@ run(Id, IsDiagnosing, IsRecovering) ->
                                       IsRecovering::boolean(),
                                       CallbackMod::module()).
 run(Id, ControllerPid, IsDiagnosing, IsRecovering, CallbackMod) ->
-    gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_RUN,
-                                            controller_pid = ControllerPid,
-                                            is_diagnosing  = IsDiagnosing,
-                                            is_recovering  = IsRecovering,
-                                            callback = CallbackMod}, ?DEF_TIMEOUT).
+    gen_fsm:sync_send_event(Id, #compaction_event_info{event = ?EVENT_RUN,
+                                                       controller_pid = ControllerPid,
+                                                       is_diagnosing  = IsDiagnosing,
+                                                       is_recovering  = IsRecovering,
+                                                       callback = CallbackMod}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve an object from the object-storage
@@ -167,7 +113,7 @@ run(Id, ControllerPid, IsDiagnosing, IsRecovering, CallbackMod) ->
 -spec(suspend(Id) ->
              ok | {error, any()} when Id::atom()).
 suspend(Id) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_SUSPEND}).
+    gen_fsm:send_event(Id, #compaction_event_info{event = ?EVENT_SUSPEND}).
 
 
 %% @doc Remove an object from the object-storage - (logical-delete)
@@ -175,7 +121,7 @@ suspend(Id) ->
 -spec(resume(Id) ->
              ok | {error, any()} when Id::atom()).
 resume(Id) ->
-    gen_fsm:sync_send_event(Id, #event_info{event = ?EVENT_RESUME}, ?DEF_TIMEOUT).
+    gen_fsm:sync_send_event(Id, #compaction_event_info{event = ?EVENT_RESUME}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve the storage stats specfied by Id
@@ -185,8 +131,8 @@ resume(Id) ->
              ok | {error, any()} when Id::atom(),
                                       Client::pid()).
 state(Id, Client) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_STATE,
-                                       client_pid = Client}).
+    gen_fsm:send_event(Id, #compaction_event_info{event = ?EVENT_STATE,
+                                                  client_pid = Client}).
 
 
 %% @doc Increase performance of the data-compaction processing
@@ -194,7 +140,7 @@ state(Id, Client) ->
 -spec(increase(Id) ->
              ok when Id::atom()).
 increase(Id) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_INCREASE}).
+    gen_fsm:send_event(Id, #compaction_event_info{event = ?EVENT_INCREASE}).
 
 
 %% @doc Decrease performance of the data-compaction processing
@@ -203,7 +149,7 @@ increase(Id) ->
 -spec(decrease(Id) ->
              ok when Id::atom()).
 decrease(Id) ->
-    gen_fsm:send_event(Id, #event_info{event = ?EVENT_DECREASE}).
+    gen_fsm:send_event(Id, #compaction_event_info{event = ?EVENT_DECREASE}).
 
 
 %%====================================================================
@@ -212,24 +158,22 @@ decrease(Id) ->
 %% @doc Initiates the server
 %%
 init([Id, ObjStorageId, MetaDBId, LoggerId]) ->
-    {ok, ?ST_IDLING, #state{id = Id,
-                            obj_storage_id     = ObjStorageId,
-                            meta_db_id         = MetaDBId,
-                            diagnosis_log_id   = LoggerId,
-                            interval       = ?env_compaction_interval_reg(),
-                            max_interval   = ?env_compaction_interval_max(),
-                            step_interval  = ?env_compaction_interval_step(),
-                            num_of_batch_procs        = ?env_compaction_num_of_batch_procs_reg(),
-                            max_num_of_batch_procs    = ?env_compaction_num_of_batch_procs_max(),
-                            step_num_of_batch_procs   = ?env_compaction_num_of_batch_procs_step(),
-                            compaction_prms = #compaction_prms{
-                                                 key_bin  = <<>>,
-                                                 body_bin = <<>>,
-                                                 metadata = #?METADATA{},
-                                                 next_offset = 0,
-                                                 num_of_active_objs  = 0,
-                                                 size_of_active_objs = 0}
-                           }}.
+    {ok, ?ST_IDLING, #compaction_state{id = Id,
+                                       obj_storage_id     = ObjStorageId,
+                                       meta_db_id         = MetaDBId,
+                                       diagnosis_log_id   = LoggerId,
+                                       interval       = ?env_compaction_interval_reg(),
+                                       max_interval   = ?env_compaction_interval_max(),
+                                       num_of_batch_procs        = ?env_compaction_num_of_batch_procs_reg(),
+                                       max_num_of_batch_procs    = ?env_compaction_num_of_batch_procs_max(),
+                                       compaction_prms = #compaction_prms{
+                                                            key_bin  = <<>>,
+                                                            body_bin = <<>>,
+                                                            metadata = #?METADATA{},
+                                                            next_offset = 0,
+                                                            num_of_active_objs  = 0,
+                                                            size_of_active_objs = 0}
+                                      }}.
 
 %% @doc Handle events
 handle_event(_Event, StateName, State) ->
@@ -275,44 +219,42 @@ format_status(_Opt, [_PDict, State]) ->
 %% @doc State of 'idle'
 %%
 -spec(idling(EventInfo, From, State) ->
-             {next_state, ?ST_IDLING | ?ST_RUNNING, State} when EventInfo::#event_info{},
+             {next_state, ?ST_IDLING | ?ST_RUNNING, State} when EventInfo::#compaction_event_info{},
                                                                 From::{pid(),Tag::atom()},
-                                                                State::#state{}).
-idling(#event_info{event = ?EVENT_RUN,
-                   controller_pid = ControllerPid,
-                   is_diagnosing  = IsDiagnosing,
-                   is_recovering  = IsRecovering,
-                   callback = CallbackMod}, From, #state{id = Id,
-                                                         compaction_prms = CompactionPrms} = State) ->
+                                                                State::#compaction_state{}).
+idling(#compaction_event_info{event = ?EVENT_RUN,
+                              controller_pid = ControllerPid,
+                              is_diagnosing  = IsDiagnosing,
+                              is_recovering  = IsRecovering,
+                              callback = CallbackMod}, From, #compaction_state{id = Id,
+                                                                               compaction_prms = CompactionPrms} = State) ->
     NextStatus = ?ST_RUNNING,
-    State_1 = State#state{compact_cntl_pid = ControllerPid,
-                          status        = NextStatus,
-                          is_diagnosing = IsDiagnosing,
-                          is_recovering = IsRecovering,
-                          error_pos     = 0,
-                          set_errors    = sets:new(),
-                          acc_errors    = [],
-                          max_interval  = ?env_compaction_interval_max(),
-                          step_interval = ?env_compaction_interval_step(),
-                          max_num_of_batch_procs  = ?env_compaction_num_of_batch_procs_max(),
-                          step_num_of_batch_procs = ?env_compaction_num_of_batch_procs_step(),
-                          compaction_prms =
-                              CompactionPrms#compaction_prms{
-                                num_of_active_objs  = 0,
-                                size_of_active_objs = 0,
-                                next_offset = ?AVS_SUPER_BLOCK_LEN,
-                                callback = CallbackMod
-                               },
-                          start_datetime = leo_date:now()
-                         },
+    State_1 = State#compaction_state{compact_cntl_pid = ControllerPid,
+                                     status        = NextStatus,
+                                     is_diagnosing = IsDiagnosing,
+                                     is_recovering = IsRecovering,
+                                     error_pos     = 0,
+                                     set_errors    = sets:new(),
+                                     acc_errors    = [],
+                                     max_interval  = ?env_compaction_interval_max(),
+                                     max_num_of_batch_procs  = ?env_compaction_num_of_batch_procs_max(),
+                                     compaction_prms =
+                                         CompactionPrms#compaction_prms{
+                                           num_of_active_objs  = 0,
+                                           size_of_active_objs = 0,
+                                           next_offset = ?AVS_SUPER_BLOCK_LEN,
+                                           callback = CallbackMod
+                                          },
+                                     start_datetime = leo_date:now()
+                                    },
     case prepare(State_1) of
         {ok, State_2} ->
             gen_fsm:reply(From, ok),
             ok = run(Id, IsDiagnosing, IsRecovering),
             {next_state, NextStatus, State_2};
-        {{error, Cause}, #state{obj_storage_info =
-                                    #backend_info{write_handler = WriteHandler,
-                                                  read_handler  = ReadHandler}}} ->
+        {{error, Cause}, #compaction_state{obj_storage_info =
+                                               #backend_info{write_handler = WriteHandler,
+                                                             read_handler  = ReadHandler}}} ->
             catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
             gen_fsm:reply(From, {error, Cause}),
             {next_state, ?ST_IDLING, State_1}
@@ -320,65 +262,64 @@ idling(#event_info{event = ?EVENT_RUN,
 idling(_, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
     NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#state{status = NextStatus}}.
+    {next_state, NextStatus, State#compaction_state{status = NextStatus}}.
 
 -spec(idling(EventInfo, State) ->
-             {next_state, ?ST_IDLING, State} when EventInfo::#event_info{},
-                                                  State::#state{}).
-idling(#event_info{event = ?EVENT_STATE,
-                   client_pid = Client}, State) ->
+             {next_state, ?ST_IDLING, State} when EventInfo::#compaction_event_info{},
+                                                  State::#compaction_state{}).
+idling(#compaction_event_info{event = ?EVENT_STATE,
+                              client_pid = Client}, State) ->
     NextStatus = ?ST_IDLING,
     erlang:send(Client, NextStatus),
-    {next_state, NextStatus, State#state{status = NextStatus}};
+    {next_state, NextStatus, State#compaction_state{status = NextStatus}};
 
-idling(#event_info{event = ?EVENT_INCREASE}, State) ->
+idling(#compaction_event_info{event = ?EVENT_INCREASE}, State) ->
     BatchProcs = ?env_compaction_num_of_batch_procs_reg(),
     Interval = ?env_compaction_interval_reg(),
     NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs,
-                                         interval = Interval,
-                                         status = NextStatus}};
-
-idling(#event_info{event = ?EVENT_DECREASE}, #state{num_of_batch_procs = BatchProcs,
-                                                    step_num_of_batch_procs = StepBatchProcs,
+    {next_state, NextStatus, State#compaction_state{num_of_batch_procs = BatchProcs,
                                                     interval = Interval,
-                                                    max_interval  = MaxInterval,
-                                                    step_interval = StepInterval} = State) ->
+                                                    status = NextStatus}};
+
+idling(#compaction_event_info{event = ?EVENT_DECREASE}, #compaction_state{num_of_batch_procs = BatchProcs,
+                                                                          interval = Interval,
+                                                                          max_interval  = MaxInterval} = State) ->
+    {ok, {StepBatchProcs, StepInterval}} = ?step_compaction_proc_values(State),
     BatchProcs_1 = decr_batch_of_msgs_fun(BatchProcs, StepBatchProcs),
     Interval_1 = incr_interval_fun(Interval, MaxInterval, StepInterval),
     NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs_1,
-                                         interval = Interval_1,
-                                         status = NextStatus}};
+    {next_state, NextStatus, State#compaction_state{num_of_batch_procs = BatchProcs_1,
+                                                    interval = Interval_1,
+                                                    status = NextStatus}};
 idling(_, State) ->
     NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#state{status = NextStatus}}.
+    {next_state, NextStatus, State#compaction_state{status = NextStatus}}.
 
 
 %% @doc State of 'running'
 -spec(running(EventInfo, State) ->
-             {next_state, ?ST_RUNNING, State} when EventInfo::#event_info{},
-                                                   State::#state{}).
-running(#event_info{event = ?EVENT_RUN},
-        #state{obj_storage_id = #backend_info{linked_path = []}} = State) ->
+             {next_state, ?ST_RUNNING, State} when EventInfo::#compaction_event_info{},
+                                                   State::#compaction_state{}).
+running(#compaction_event_info{event = ?EVENT_RUN},
+        #compaction_state{obj_storage_id = #backend_info{linked_path = []}} = State) ->
     NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#state{status = NextStatus}};
-running(#event_info{event = ?EVENT_RUN},
-        #state{obj_storage_id = #backend_info{file_path = []}} = State) ->
+    {next_state, NextStatus, State#compaction_state{status = NextStatus}};
+running(#compaction_event_info{event = ?EVENT_RUN},
+        #compaction_state{obj_storage_id = #backend_info{file_path = []}} = State) ->
     NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#state{status = NextStatus}};
-running(#event_info{event = ?EVENT_RUN,
-                    is_diagnosing = IsDiagnosing,
-                    is_recovering = IsRecovering},
-        #state{id = Id,
-               obj_storage_id   = ObjStorageId,
-               compact_cntl_pid = CompactCntlPid,
-               interval  = Interval,
-               count_procs = CountProcs,
-               num_of_batch_procs = BatchProcs,
-               compaction_prms =
-                   #compaction_prms{
-                      start_lock_offset = StartLockOffset}} = State) ->
+    {next_state, NextStatus, State#compaction_state{status = NextStatus}};
+running(#compaction_event_info{event = ?EVENT_RUN,
+                               is_diagnosing = IsDiagnosing,
+                               is_recovering = IsRecovering},
+        #compaction_state{id = Id,
+                          obj_storage_id   = ObjStorageId,
+                          compact_cntl_pid = CompactCntlPid,
+                          interval  = Interval,
+                          count_procs = CountProcs,
+                          num_of_batch_procs = BatchProcs,
+                          compaction_prms =
+                              #compaction_prms{
+                                 start_lock_offset = StartLockOffset}} = State) ->
     %% Temporally suspend the compaction
     %% in order to decrease i/o load
     CountProcs_1 = case (CountProcs < 1) of
@@ -394,21 +335,21 @@ running(#event_info{event = ?EVENT_RUN,
                    end,
 
     {NextStatus, State_3} =
-        case catch execute(State#state{is_diagnosing = IsDiagnosing,
-                                       is_recovering = IsRecovering}) of
+        case catch execute(State#compaction_state{is_diagnosing = IsDiagnosing,
+                                                  is_recovering = IsRecovering}) of
             %% Lock the object-storage in order to
             %%     reject requests during the data-compaction
-            {ok, {next, #state{is_locked = IsLocked,
-                               compaction_prms =
-                                   #compaction_prms{next_offset = NextOffset}
-                              } = State_1}} when NextOffset > StartLockOffset ->
+            {ok, {next, #compaction_state{is_locked = IsLocked,
+                                          compaction_prms =
+                                              #compaction_prms{next_offset = NextOffset}
+                                         } = State_1}} when NextOffset > StartLockOffset ->
                 State_2 = case IsLocked of
                               true ->
                                   State_1;
                               false ->
                                   ok = leo_object_storage_server:lock(ObjStorageId),
                                   erlang:send(CompactCntlPid, {lock, Id}),
-                                  State_1#state{is_locked = true}
+                                  State_1#compaction_state{is_locked = true}
                           end,
                 ok = run(Id, IsDiagnosing, IsRecovering),
                 {?ST_RUNNING, State_2};
@@ -423,12 +364,12 @@ running(#event_info{event = ?EVENT_RUN,
                                       [{module, ?MODULE_STRING}, {function, "running/2"},
                                        {line, ?LINE}, {body, {Id, Cause}}]),
                 {ok, State_1} = after_execute({error, Cause},
-                                              State#state{result = ?RET_FAIL}),
+                                              State#compaction_state{result = ?RET_FAIL}),
                 {?ST_IDLING, State_1};
             %% Reached end of the object-container
             {ok, {eof, State_1}} ->
                 {ok, State_2} = after_execute(ok,
-                                              State_1#state{result = ?RET_SUCCESS}),
+                                              State_1#compaction_state{result = ?RET_SUCCESS}),
                 {?ST_IDLING, State_2};
             %% An epected error has occured
             {{error, Cause}, State_1} ->
@@ -436,50 +377,48 @@ running(#event_info{event = ?EVENT_RUN,
                                       [{module, ?MODULE_STRING}, {function, "running/2"},
                                        {line, ?LINE}, {body, {Id, Cause}}]),
                 {ok, State_2} = after_execute({error, Cause},
-                                              State_1#state{result = ?RET_FAIL}),
+                                              State_1#compaction_state{result = ?RET_FAIL}),
                 {?ST_IDLING, State_2}
         end,
-    {next_state, NextStatus, State_3#state{status = NextStatus,
-                                           count_procs = CountProcs_1}};
+    {next_state, NextStatus, State_3#compaction_state{status = NextStatus,
+                                                      count_procs = CountProcs_1}};
 
-running(#event_info{event = ?EVENT_SUSPEND}, State) ->
+running(#compaction_event_info{event = ?EVENT_SUSPEND}, State) ->
     NextStatus = ?ST_SUSPENDING,
-    {next_state, NextStatus, State#state{status = NextStatus}};
+    {next_state, NextStatus, State#compaction_state{status = NextStatus}};
 
-running(#event_info{event = ?EVENT_STATE,
-                    client_pid = Client}, #state{id = Id,
-                                                 is_diagnosing = IsDiagnosing,
-                                                 is_recovering = IsRecovering} = State) ->
+running(#compaction_event_info{event = ?EVENT_STATE,
+                               client_pid = Client}, #compaction_state{id = Id,
+                                                                       is_diagnosing = IsDiagnosing,
+                                                                       is_recovering = IsRecovering} = State) ->
     ok = run(Id, IsDiagnosing, IsRecovering),
     NextStatus = ?ST_RUNNING,
     erlang:send(Client, NextStatus),
-    {next_state, NextStatus, State#state{status = NextStatus}};
+    {next_state, NextStatus, State#compaction_state{status = NextStatus}};
 
-running(#event_info{event = ?EVENT_INCREASE}, #state{id = Id,
-                                                     is_diagnosing = IsDiagnosing,
-                                                     is_recovering = IsRecovering,
-                                                     num_of_batch_procs = BatchProcs,
-                                                     max_num_of_batch_procs = MaxBatchProcs,
-                                                     step_num_of_batch_procs = StepBatchProcs,
-                                                     interval = Interval,
-                                                     step_interval = StepInterval} = State) ->
+running(#compaction_event_info{event = ?EVENT_INCREASE}, #compaction_state{id = Id,
+                                                                           is_diagnosing = IsDiagnosing,
+                                                                           is_recovering = IsRecovering,
+                                                                           num_of_batch_procs = BatchProcs,
+                                                                           max_num_of_batch_procs = MaxBatchProcs,
+                                                                           interval = Interval} = State) ->
+    {ok, {StepBatchProcs, StepInterval}} = ?step_compaction_proc_values(State),
     BatchProcs_1 = incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
     Interval_1 = decr_interval_fun(Interval, StepInterval),
 
     ok = run(Id, IsDiagnosing, IsRecovering),
     NextStatus = ?ST_RUNNING,
-    {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs_1,
-                                         interval = Interval_1,
-                                         status = NextStatus}};
+    {next_state, NextStatus, State#compaction_state{num_of_batch_procs = BatchProcs_1,
+                                                    interval = Interval_1,
+                                                    status = NextStatus}};
 
-running(#event_info{event = ?EVENT_DECREASE}, #state{id = Id,
-                                                     is_diagnosing = IsDiagnosing,
-                                                     is_recovering = IsRecovering,
-                                                     num_of_batch_procs = BatchProcs,
-                                                     step_num_of_batch_procs = StepBatchProcs,
-                                                     interval = Interval,
-                                                     step_interval = StepInterval,
-                                                     max_interval  = MaxInterval} = State) ->
+running(#compaction_event_info{event = ?EVENT_DECREASE}, #compaction_state{id = Id,
+                                                                           is_diagnosing = IsDiagnosing,
+                                                                           is_recovering = IsRecovering,
+                                                                           num_of_batch_procs = BatchProcs,
+                                                                           interval = Interval,
+                                                                           max_interval  = MaxInterval} = State) ->
+    {ok, {StepBatchProcs, StepInterval}} = ?step_compaction_proc_values(State),
     Interval_1 = Interval + StepInterval,
     Interval_2 = case (Interval_1 >= MaxInterval) of
                      true ->
@@ -497,84 +436,83 @@ running(#event_info{event = ?EVENT_DECREASE}, #state{id = Id,
                 {?ST_RUNNING,
                  decr_batch_of_msgs_fun(BatchProcs, StepBatchProcs)}
         end,
-    {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs_1,
-                                         interval = Interval_2,
-                                         status = NextStatus}};
+    {next_state, NextStatus, State#compaction_state{num_of_batch_procs = BatchProcs_1,
+                                                    interval = Interval_2,
+                                                    status = NextStatus}};
 
-running(_, #state{id = Id,
-                  is_diagnosing = IsDiagnosing,
-                  is_recovering = IsRecovering} = State) ->
+running(_, #compaction_state{id = Id,
+                             is_diagnosing = IsDiagnosing,
+                             is_recovering = IsRecovering} = State) ->
     ok = run(Id, IsDiagnosing, IsRecovering),
     NextStatus = ?ST_RUNNING,
-    {next_state, NextStatus, State#state{status = NextStatus}}.
+    {next_state, NextStatus, State#compaction_state{status = NextStatus}}.
 
 
--spec(running( _, _, #state{}) ->
-             {next_state, ?ST_SUSPENDING|?ST_RUNNING, #state{}}).
-running(_, From, #state{id = Id,
-                        is_diagnosing = IsDiagnosing,
-                        is_recovering = IsRecovering} = State) ->
+-spec(running( _, _, #compaction_state{}) ->
+             {next_state, ?ST_SUSPENDING|?ST_RUNNING, #compaction_state{}}).
+running(_, From, #compaction_state{id = Id,
+                                   is_diagnosing = IsDiagnosing,
+                                   is_recovering = IsRecovering} = State) ->
     gen_fsm:reply(From, {error, badstate}),
     ok = run(Id, IsDiagnosing, IsRecovering),
     NextStatus = ?ST_RUNNING,
-    {next_state, NextStatus, State#state{status = NextStatus}}.
+    {next_state, NextStatus, State#compaction_state{status = NextStatus}}.
 
 
 %% @doc State of 'suspend'
 %%
 -spec(suspending(EventInfo, State) ->
-             {next_state, ?ST_SUSPENDING, State} when EventInfo::#event_info{},
-                                                      State::#state{}).
-suspending(#event_info{event = ?EVENT_RUN}, State) ->
+             {next_state, ?ST_SUSPENDING, State} when EventInfo::#compaction_event_info{},
+                                                      State::#compaction_state{}).
+suspending(#compaction_event_info{event = ?EVENT_RUN}, State) ->
     NextStatus = ?ST_SUSPENDING,
-    {next_state, NextStatus, State#state{status = NextStatus}};
+    {next_state, NextStatus, State#compaction_state{status = NextStatus}};
 
-suspending(#event_info{event = ?EVENT_STATE,
-                       client_pid = Client}, State) ->
+suspending(#compaction_event_info{event = ?EVENT_STATE,
+                                  client_pid = Client}, State) ->
     NextStatus = ?ST_SUSPENDING,
     erlang:send(Client, NextStatus),
-    {next_state, NextStatus, State#state{status = NextStatus}};
+    {next_state, NextStatus, State#compaction_state{status = NextStatus}};
 
-suspending(#event_info{event = ?EVENT_INCREASE}, #state{id = Id,
-                                                        is_diagnosing = IsDiagnosing,
-                                                        is_recovering = IsRecovering,
-                                                        num_of_batch_procs = BatchProcs,
-                                                        max_num_of_batch_procs  = MaxBatchProcs,
-                                                        step_num_of_batch_procs = StepBatchProcs,
-                                                        interval = Interval,
-                                                        step_interval = StepInterval} = State) ->
+suspending(#compaction_event_info{event = ?EVENT_INCREASE}, #compaction_state{id = Id,
+                                                                              is_diagnosing = IsDiagnosing,
+                                                                              is_recovering = IsRecovering,
+                                                                              num_of_batch_procs = BatchProcs,
+                                                                              max_num_of_batch_procs  = MaxBatchProcs,
+                                                                              interval = Interval} = State) ->
+    {ok, {StepBatchProcs, StepInterval}} = ?step_compaction_proc_values(State),
     BatchProcs_1 = incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
     Interval_1 = decr_interval_fun(Interval, StepInterval),
 
     NextStatus = ?ST_RUNNING,
     timer:apply_after(timer:seconds(1), ?MODULE, run, [Id, IsDiagnosing, IsRecovering]),
-    {next_state, NextStatus, State#state{num_of_batch_procs = BatchProcs_1,
-                                         interval = Interval_1,
-                                         status = NextStatus}};
+    {next_state, NextStatus, State#compaction_state{num_of_batch_procs = BatchProcs_1,
+                                                    interval = Interval_1,
+                                                    status = NextStatus}};
 suspending(_, State) ->
     NextStatus = ?ST_SUSPENDING,
-    {next_state, NextStatus, State#state{status = NextStatus}}.
+    {next_state, NextStatus, State#compaction_state{status = NextStatus}}.
 
 
 -spec(suspending(EventInfo, From, State) ->
-             {next_state, ?ST_SUSPENDING | ?ST_RUNNING, State} when EventInfo::#event_info{},
+             {next_state, ?ST_SUSPENDING | ?ST_RUNNING, State} when EventInfo::#compaction_event_info{},
                                                                     From::{pid(),Tag::atom()},
-                                                                    State::#state{}).
-suspending(#event_info{event = ?EVENT_RESUME}, From, #state{id = Id,
-                                                            is_diagnosing = IsDiagnosing,
-                                                            is_recovering = IsRecovering} = State) ->
+                                                                    State::#compaction_state{}).
+suspending(#compaction_event_info{event = ?EVENT_RESUME}, From, #compaction_state{id = Id,
+                                                                                  is_diagnosing = IsDiagnosing,
+                                                                                  is_recovering = IsRecovering} = State) ->
     %% resume the data-compaction
     gen_fsm:reply(From, ok),
 
     NextStatus = ?ST_RUNNING,
     timer:apply_after(
       timer:seconds(1), ?MODULE, run, [Id, IsDiagnosing, IsRecovering]),
-    {next_state, NextStatus, State#state{status = NextStatus}};
+    {next_state, NextStatus, State#compaction_state{status = NextStatus}};
 
 suspending(_, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
     NextStatus = ?ST_SUSPENDING,
-    {next_state, NextStatus, State#state{status = NextStatus}}.
+    {next_state, NextStatus, State#compaction_state{status = NextStatus}}.
 
 
 %%--------------------------------------------------------------------
@@ -608,9 +546,9 @@ calc_remain_disksize(MetaDBId, FilePath) ->
 %% @doc compact objects from the object-container on a independent process.
 %% @private
 -spec(prepare(State) ->
-             {ok, State} | {{error, any()}, State} when State::#state{}).
-prepare(#state{obj_storage_id = ObjStorageId,
-               meta_db_id  = MetaDBId} = State) ->
+             {ok, State} | {{error, any()}, State} when State::#compaction_state{}).
+prepare(#compaction_state{obj_storage_id = ObjStorageId,
+                          meta_db_id  = MetaDBId} = State) ->
     %% Retrieve the current container's path
     {ok, #backend_info{
             linked_path = LinkedPath,
@@ -632,13 +570,13 @@ prepare(#state{obj_storage_id = ObjStorageId,
     end.
 
 
-prepare_1(LinkedPath, FilePath, #state{compaction_prms = CompactionPrms,
-                                       is_diagnosing   = true} = State) ->
+prepare_1(LinkedPath, FilePath, #compaction_state{compaction_prms = CompactionPrms,
+                                                  is_diagnosing   = true} = State) ->
     case leo_object_storage_haystack:open(FilePath, read) of
         {ok, [_, ReadHandler, AVSVsnBinPrv]} ->
             FileSize = filelib:file_size(FilePath),
             ok = file:advise(ReadHandler,  0, FileSize, sequential),
-            {ok, State#state{
+            {ok, State#compaction_state{
                    obj_storage_info =
                        #backend_info{
                           avs_ver_cur   = <<>>,
@@ -658,8 +596,8 @@ prepare_1(LinkedPath, FilePath, #state{compaction_prms = CompactionPrms,
             {Error, State}
     end;
 
-prepare_1(LinkedPath, FilePath, #state{meta_db_id = MetaDBId,
-                                       compaction_prms = CompactionPrms} = State) ->
+prepare_1(LinkedPath, FilePath, #compaction_state{meta_db_id = MetaDBId,
+                                                  compaction_prms = CompactionPrms} = State) ->
     %% Create the new container
     NewFilePath = ?gen_raw_file_path(LinkedPath),
 
@@ -674,7 +612,7 @@ prepare_1(LinkedPath, FilePath, #state{meta_db_id = MetaDBId,
 
                     case leo_backend_db_api:run_compaction(MetaDBId) of
                         ok ->
-                            {ok, State#state{
+                            {ok, State#compaction_state{
                                    obj_storage_info =
                                        #backend_info{
                                           avs_ver_cur   = AVSVsnBinCur,
@@ -704,16 +642,16 @@ prepare_1(LinkedPath, FilePath, #state{meta_db_id = MetaDBId,
 %% @doc Reduce unnecessary objects from object-container.
 %% @private
 -spec(execute(State) ->
-             {ok, State} | {{error, any()}, State} when State::#state{}).
-execute(#state{meta_db_id       = MetaDBId,
-               diagnosis_log_id = LoggerId,
-               obj_storage_info = StorageInfo,
-               is_diagnosing    = IsDiagnosing,
-               is_recovering    = IsRecovering,
-               compaction_prms  = CompactionPrms} = State) ->
+             {ok, State} | {{error, any()}, State} when State::#compaction_state{}).
+execute(#compaction_state{meta_db_id       = MetaDBId,
+                          diagnosis_log_id = LoggerId,
+                          obj_storage_info = StorageInfo,
+                          is_diagnosing    = IsDiagnosing,
+                          is_recovering    = IsRecovering,
+                          compaction_prms  = CompactionPrms} = State) ->
     %% Initialize set-error property
-    State_1 = State#state{set_errors = sets:new()},
-    Offset = CompactionPrms#compaction_prms.next_offset,
+    State_1 = State#compaction_state{set_errors = sets:new()},
+    Offset   = CompactionPrms#compaction_prms.next_offset,
     Metadata = CompactionPrms#compaction_prms.metadata,
 
     %% Execute compaction
@@ -746,7 +684,7 @@ execute(#state{meta_db_id       = MetaDBId,
                     execute_1(State_1);
                 true when IsDiagnosing == true ->
                     ok = output_diagnosis_log(LoggerId, Metadata),
-                    execute_1(State_1#state{
+                    execute_1(State_1#compaction_state{
                                 compaction_prms = CompactionPrms#compaction_prms{
                                                     total_num_of_objs  = TotalObjs + 1,
                                                     total_size_of_objs = TotaSize  +
@@ -773,9 +711,9 @@ execute(#state{meta_db_id       = MetaDBId,
                                           NumOfActiveObjs, ActiveSize, State_1);
                             Error ->
                                 {Error,
-                                 State_1#state{compaction_prms =
-                                                   CompactionPrms#compaction_prms{
-                                                     metadata = Metadata}}}
+                                 State_1#compaction_state{compaction_prms =
+                                                              CompactionPrms#compaction_prms{
+                                                                metadata = Metadata}}}
                         end,
                     execute_1(Ret_1, NewState);
                 %%
@@ -786,9 +724,9 @@ execute(#state{meta_db_id       = MetaDBId,
                     {Ret_1, NewState} = execute_2(
                                           ok, CompactionPrms, Metadata,
                                           NumOfActiveObjs, ActiveSize, State_1),
-                    CompactionPrms_1 = NewState#state.compaction_prms,
+                    CompactionPrms_1 = NewState#compaction_state.compaction_prms,
                     execute_1(Ret_1,
-                              NewState#state{
+                              NewState#compaction_state{
                                 compaction_prms = CompactionPrms_1#compaction_prms{
                                                     total_num_of_objs  = TotalObjs + 1,
                                                     total_size_of_objs = TotaSize  +
@@ -802,7 +740,7 @@ execute(#state{meta_db_id       = MetaDBId,
 %% @private
 -spec(execute_1(State) ->
              {ok, {next|eof, State}} |
-             {{error, any()}, State} when State::#state{}).
+             {{error, any()}, State} when State::#compaction_state{}).
 execute_1(State) ->
     execute_1(ok, State).
 execute_1(Ret, State) ->
@@ -811,12 +749,12 @@ execute_1(Ret, State) ->
 -spec(execute_1(Ret, State, RetryTimes) ->
              {ok, {next|eof, State}} |
              {{error, any()}, State} when Ret::ok|{error,any()},
-                                          State::#state{},
+                                          State::#compaction_state{},
                                           RetryTimes::non_neg_integer()).
-execute_1(ok = Ret, #state{meta_db_id       = MetaDBId,
-                           obj_storage_info = StorageInfo,
-                           compaction_prms  = CompactionPrms,
-                           is_recovering    = IsRecovering} = State, RetryTimes) ->
+execute_1(ok = Ret, #compaction_state{meta_db_id       = MetaDBId,
+                                      obj_storage_info = StorageInfo,
+                                      compaction_prms  = CompactionPrms,
+                                      is_recovering    = IsRecovering} = State, RetryTimes) ->
     erlang:garbage_collect(self()),
     ReadHandler = StorageInfo#backend_info.read_handler,
     NextOffset  = CompactionPrms#compaction_prms.next_offset,
@@ -852,7 +790,7 @@ execute_1(ok = Ret, #state{meta_db_id       = MetaDBId,
             end,
             %% Goto next object
             {ok, State_1} = output_accumulated_errors(State, NextOffset),
-            {ok, {next, State_1#state{
+            {ok, {next, State_1#compaction_state{
                           error_pos  = 0,
                           set_errors = sets:new(),
                           compaction_prms =
@@ -868,7 +806,7 @@ execute_1(ok = Ret, #state{meta_db_id       = MetaDBId,
             {ok, State_1} = output_accumulated_errors(State, NextOffset),
             NumOfAcriveObjs  = CompactionPrms#compaction_prms.num_of_active_objs,
             SizeOfActiveObjs = CompactionPrms#compaction_prms.size_of_active_objs,
-            {ok, {Cause, State_1#state{
+            {ok, {Cause, State_1#compaction_state{
                            error_pos  = 0,
                            set_errors = sets:new(),
                            compaction_prms =
@@ -895,20 +833,21 @@ execute_1(ok = Ret, #state{meta_db_id       = MetaDBId,
         %% then it seeks a regular object,
         %% finally it reports a collapsed object to the error-log
         {_, Cause} ->
-            ErrorPosCur = State#state.error_pos,
-            ErrorPosNew = case (State#state.error_pos == 0) of
+            ErrorPosCur = State#compaction_state.error_pos,
+            ErrorPosNew = case (State#compaction_state.error_pos == 0) of
                               true ->
                                   NextOffset;
                               false ->
                                   ErrorPosCur
                           end,
-            SetErrors = sets:add_element(Cause, State#state.set_errors),
-            execute_1(ok, State#state{error_pos  = ErrorPosNew,
-                                      set_errors = SetErrors,
-                                      compaction_prms =
-                                          CompactionPrms#compaction_prms{
-                                            next_offset = NextOffset + 1}
-                                     })
+            SetErrors = sets:add_element(Cause, State#compaction_state.set_errors),
+            execute_1(ok,
+                      State#compaction_state{error_pos  = ErrorPosNew,
+                                             set_errors = SetErrors,
+                                             compaction_prms =
+                                                 CompactionPrms#compaction_prms{
+                                                   next_offset = NextOffset + 1}
+                                            })
     end;
 execute_1(Error, State,_) ->
     {Error, State}.
@@ -919,16 +858,16 @@ execute_1(Error, State,_) ->
 execute_2(Ret, CompactionPrms, Metadata, NumOfActiveObjs, ActiveSize, State) ->
     ObjectSize = leo_object_storage_haystack:calc_obj_size(Metadata),
     {Ret,
-     State#state{compaction_prms =
-                     CompactionPrms#compaction_prms{
-                       metadata = Metadata,
-                       num_of_active_objs  = NumOfActiveObjs + 1,
-                       size_of_active_objs = ActiveSize + ObjectSize}}}.
+     State#compaction_state{compaction_prms =
+                                CompactionPrms#compaction_prms{
+                                  metadata = Metadata,
+                                  num_of_active_objs  = NumOfActiveObjs + 1,
+                                  size_of_active_objs = ActiveSize + ObjectSize}}}.
 
 
 %% @private
-finish(#state{obj_storage_id   = ObjStorageId,
-              compact_cntl_pid = CntlPid} = State) ->
+finish(#compaction_state{obj_storage_id   = ObjStorageId,
+                         compact_cntl_pid = CntlPid} = State) ->
     %% Generate the compaction report
     {ok, Report} = gen_compaction_report(State),
 
@@ -937,18 +876,18 @@ finish(#state{obj_storage_id   = ObjStorageId,
 
     %% Unlock handling request
     ok = leo_object_storage_server:unlock(ObjStorageId),
-    {ok, State#state{start_datetime = 0,
-                     error_pos  = 0,
-                     set_errors = sets:new(),
-                     acc_errors = [],
-                     obj_storage_info = #backend_info{},
-                     result = undefined}}.
+    {ok, State#compaction_state{start_datetime = 0,
+                                error_pos  = 0,
+                                set_errors = sets:new(),
+                                acc_errors = [],
+                                obj_storage_info = #backend_info{},
+                                result = undefined}}.
 
 %% @private
-after_execute(Ret, #state{obj_storage_info = StorageInfo,
-                          is_diagnosing    = IsDiagnosing,
-                          is_recovering    = _IsRecovering,
-                          diagnosis_log_id = LoggerId} = State) ->
+after_execute(Ret, #compaction_state{obj_storage_info = StorageInfo,
+                                     is_diagnosing    = IsDiagnosing,
+                                     is_recovering    = _IsRecovering,
+                                     diagnosis_log_id = LoggerId} = State) ->
     %% Close file handlers
     ReadHandler  = StorageInfo#backend_info.read_handler,
     WriteHandler = StorageInfo#backend_info.write_handler,
@@ -969,20 +908,20 @@ after_execute(Ret, #state{obj_storage_info = StorageInfo,
 
 %% @doc Reduce objects from the object-container.
 %% @private
-after_execute_1({_, #state{is_diagnosing = true,
-                           compaction_prms =
-                               #compaction_prms{
-                                  num_of_active_objs  = _NumActiveObjs,
-                                  size_of_active_objs = _SizeActiveObjs}}}) ->
+after_execute_1({_, #compaction_state{is_diagnosing = true,
+                                      compaction_prms =
+                                          #compaction_prms{
+                                             num_of_active_objs  = _NumActiveObjs,
+                                             size_of_active_objs = _SizeActiveObjs}}}) ->
     ok;
 
-after_execute_1({ok, #state{meta_db_id       = MetaDBId,
-                            obj_storage_id   = ObjStorageId,
-                            obj_storage_info = StorageInfo,
-                            compaction_prms =
-                                #compaction_prms{
-                                   num_of_active_objs  = NumActiveObjs,
-                                   size_of_active_objs = SizeActiveObjs}}}) ->
+after_execute_1({ok, #compaction_state{meta_db_id       = MetaDBId,
+                                       obj_storage_id   = ObjStorageId,
+                                       obj_storage_info = StorageInfo,
+                                       compaction_prms =
+                                           #compaction_prms{
+                                              num_of_active_objs  = NumActiveObjs,
+                                              size_of_active_objs = SizeActiveObjs}}}) ->
     %% Unlink the symbol
     LinkedPath = StorageInfo#backend_info.linked_path,
     FilePath   = StorageInfo#backend_info.file_path,
@@ -1002,8 +941,8 @@ after_execute_1({ok, #state{meta_db_id       = MetaDBId,
 
 %% @doc Rollback - delete the tmp-files
 %% @private
-after_execute_1({_Error, #state{meta_db_id       = MetaDBId,
-                                obj_storage_info = StorageInfo}}) ->
+after_execute_1({_Error, #compaction_state{meta_db_id       = MetaDBId,
+                                           obj_storage_info = StorageInfo}}) ->
     %% must reopen the original file when handling at another process:
     catch file:delete(StorageInfo#backend_info.file_path),
     leo_backend_db_api:finish_compaction(MetaDBId, false),
@@ -1021,12 +960,12 @@ output_diagnosis_log(LoggerId, Metadata) ->
 %% @doc Output accumulated errors to logger
 %% @private
 -spec(output_accumulated_errors(State, ErrorPosEnd) ->
-             {ok, State} when State::#state{},
+             {ok, State} when State::#compaction_state{},
                               ErrorPosEnd::non_neg_integer()).
-output_accumulated_errors(#state{obj_storage_id = ObjStorageId,
-                                 error_pos  = ErrorPosStart,
-                                 set_errors = SetErrors,
-                                 acc_errors = AccErrors} = State, ErrorPosEnd) ->
+output_accumulated_errors(#compaction_state{obj_storage_id = ObjStorageId,
+                                            error_pos  = ErrorPosStart,
+                                            set_errors = SetErrors,
+                                            acc_errors = AccErrors} = State, ErrorPosEnd) ->
     case sets:size(SetErrors) of
         0 ->
             {ok, State};
@@ -1043,7 +982,7 @@ output_accumulated_errors(#state{obj_storage_id = ObjStorageId,
                        {error_pos_end,   ErrorPosEnd},
                        {errors,          Errors}]}
               ]),
-            {ok, State#state{acc_errors = [{ErrorPosStart, ErrorPosEnd}|AccErrors]}}
+            {ok, State#compaction_state{acc_errors = [{ErrorPosStart, ErrorPosEnd}|AccErrors]}}
     end.
 
 
@@ -1091,17 +1030,17 @@ is_removed_obj_1(_MetaDBId,_StorageInfo,_Meta_1,_Meta_2) ->
 %% @doc Generate compaction report
 %% @private
 gen_compaction_report(State) ->
-    #state{obj_storage_id   = ObjStorageId,
-           compaction_prms  = CompactionPrms,
-           obj_storage_info = #backend_info{file_path   = FilePath,
-                                            linked_path = LinkedPath,
-                                            avs_ver_prv = AVSVerPrev,
-                                            avs_ver_cur = AVSVerCur},
-           start_datetime = StartDateTime,
-           is_diagnosing  = IsDiagnosing,
-           is_recovering  = _IsRecovering,
-           acc_errors     = AccErrors,
-           result = Ret} = State,
+    #compaction_state{obj_storage_id   = ObjStorageId,
+                      compaction_prms  = CompactionPrms,
+                      obj_storage_info = #backend_info{file_path   = FilePath,
+                                                       linked_path = LinkedPath,
+                                                       avs_ver_prv = AVSVerPrev,
+                                                       avs_ver_cur = AVSVerCur},
+                      start_datetime = StartDateTime,
+                      is_diagnosing  = IsDiagnosing,
+                      is_recovering  = _IsRecovering,
+                      acc_errors     = AccErrors,
+                      result = Ret} = State,
 
     %% Append the compaction history
     EndDateTime = leo_date:now(),
@@ -1246,7 +1185,7 @@ decr_batch_of_msgs_fun(BatchProcs, StepBatchProcs) ->
     BatchProcs_1 = BatchProcs - StepBatchProcs,
     case (BatchProcs_1 < 0) of
         true ->
-            0;
+            ?DEF_MIN_COMPACTION_BP;
         false ->
             BatchProcs_1
     end.
