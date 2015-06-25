@@ -34,8 +34,8 @@
 -include_lib("eunit/include/eunit.hrl").
 
 %% API
--export([start_link/0, stop/0]).
--export([notify/3]).
+-export([start_link/1, stop/0]).
+-export([notify/3, notify/4]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -47,7 +47,8 @@
 
 
 -record(state, {
-          event_pid :: pid()
+          event_pid :: pid(),
+          callback :: module()|undefined
          }).
 -define(TIMEOUT, 5000).
 
@@ -57,10 +58,10 @@
 %%====================================================================
 %% @doc Starts the server
 %%
--spec(start_link() ->
-             {ok, pid()} | {error, any()}).
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+-spec(start_link(CallbackMod) ->
+             {ok, pid()} | {error, any()} when CallbackMod::module()|undefined).
+start_link(CallbackMod) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [CallbackMod], []).
 
 
 %% @doc Stop this server
@@ -71,30 +72,49 @@ stop() ->
 
 
 %% @doc Operate the data
--spec(notify(Method, Key, ProcessingTime) ->
-             ok | {error, any()} when Method::put|get|delete,
+-spec(notify(Msg, Method, Key) ->
+             ok | {error, any()} when Msg::atom(),
+                                      Method::put|get|delete,
+                                      Key::binary()).
+notify(Msg, Method, Key) ->
+    gen_server:call(?MODULE, {notify, Msg, Method, Key}, ?TIMEOUT).
+
+-spec(notify(Msg, Method, Key, ProcessingTime) ->
+             ok | {error, any()} when Msg::atom(),
+                                      Method::put|get|delete,
                                       Key::binary(),
                                       ProcessingTime::non_neg_integer()).
-notify(Method, Key, ProcessingTime) ->
-    gen_server:call(?MODULE, {notify, Method, Key, ProcessingTime}, ?TIMEOUT).
+notify(Msg, Method, Key, ProcessingTime) ->
+    gen_server:call(?MODULE, {notify, Msg, Method, Key, ProcessingTime}, ?TIMEOUT).
 
 
 %%====================================================================
 %% GEN_SERVER CALLBACKS
 %%====================================================================
 %% @doc Initiates the server
-init([]) ->
+init([CallbackMod]) ->
     {ok, Pid} = gen_event:start_link(),
     ok = gen_event:add_handler(Pid, leo_object_storage_event, []),
-    {ok, #state{event_pid = Pid}}.
+    {ok, #state{event_pid = Pid,
+                callback = CallbackMod}}.
 
 
 %% @doc gen_server callback - Module:handle_call(Request, From, State) -> Result
 handle_call(stop, _From, State) ->
     {stop, shutdown, ok, State};
 
-handle_call({notify, Method, Key, ProcessingTime}, _From, #state{event_pid = Pid} = State) ->
-    ok = gen_event:notify(Pid, {Method, Key, ProcessingTime}),
+handle_call({notify, Msg, Method, Key},
+            _From, #state{event_pid = Pid,
+                          callback = CallbackMod} = State) ->
+    ok = gen_event:notify(
+           Pid, {Msg, Method, Key, CallbackMod}),
+    {reply, ok, State};
+
+handle_call({notify, Msg, Method, Key, ProcessingTime},
+            _From, #state{event_pid = Pid,
+                          callback = CallbackMod} = State) ->
+    ok = gen_event:notify(
+           Pid, {Msg, Method, Key, ProcessingTime, CallbackMod}),
     {reply, ok, State};
 
 handle_call(_Msg, _From, State) ->

@@ -22,6 +22,7 @@
 %% Leo Object Storage
 %%
 %%======================================================================
+-compile(nowarn_deprecated_type).
 -define(APP_NAME, 'leo_object_storage').
 
 %% Default Values
@@ -48,27 +49,23 @@
 -define(DEF_THRESHOLD_SLOW_PROC, 1000).
 
 -ifdef(TEST).
--define(DEF_MIN_COMPACTION_WT,  0).    %% 0msec
--define(DEF_REG_COMPACTION_WT,  100).  %% 100msec
--define(DEF_MAX_COMPACTION_WT,  300).  %% 300msec
--define(DEF_STEP_COMPACTION_WT, 100).  %% 100msec
+-define(DEF_MIN_COMPACTION_WT, 0).    %% 0msec
+-define(DEF_REG_COMPACTION_WT, 100).  %% 100msec
+-define(DEF_MAX_COMPACTION_WT, 300).  %% 300msec
 -else.
 -define(DEF_MIN_COMPACTION_WT,  100).  %% 100msec
--define(DEF_REG_COMPACTION_WT,  300).  %% 300msec
--define(DEF_MAX_COMPACTION_WT,  1000). %% 1000msec
--define(DEF_STEP_COMPACTION_WT, 100).  %% 100msec
+-define(DEF_REG_COMPACTION_WT,  500).  %% 300msec
+-define(DEF_MAX_COMPACTION_WT, 3000). %% 1000msec
 -endif.
 
 -ifdef(TEST).
--define(DEF_MIN_COMPACTION_BP,   10). %% 10
--define(DEF_REG_COMPACTION_BP,   50). %% 50
--define(DEF_MAX_COMPACTION_BP,  150). %% 150
--define(DEF_STEP_COMPACTION_BP,  50). %% 100
+-define(DEF_MIN_COMPACTION_BP,  10). %% 10
+-define(DEF_REG_COMPACTION_BP,  50). %% 50
+-define(DEF_MAX_COMPACTION_BP, 150). %% 150
 -else.
--define(DEF_MIN_COMPACTION_BP,    1000). %%   1,000
--define(DEF_REG_COMPACTION_BP,   10000). %%  10,000
--define(DEF_MAX_COMPACTION_BP,  100000). %% 100,000
--define(DEF_STEP_COMPACTION_BP,   1000). %%   1,000
+-define(DEF_MIN_COMPACTION_BP,   100). %%    100
+-define(DEF_REG_COMPACTION_BP,  1000). %%  1,000
+-define(DEF_MAX_COMPACTION_BP, 10000). %% 10,000
 -endif.
 
 
@@ -120,6 +117,8 @@
                           undefined).
 
 -define(MAX_LEN_HIST, 50).
+-define(MAX_RETRY_TIMES, 2).
+-define(WAIT_TIME_AFTER_ERROR, 200). %% 200ms
 
 -record(compaction_report, {
           file_path = [] :: string(),
@@ -168,6 +167,9 @@
 -define(ERROR_COULD_NOT_GET_MOUNT_PATH, "could not get mout path").
 -define(ERROR_LOCKED_CONTAINER,         "locked obj-conatainer").
 -define(ERROR_COULD_NOT_START_WORKER,   "could NOT start worker processes").
+
+-define(ERROR_MSG_SLOW_OPERATION, 'slow_operation').
+-define(ERROR_MSG_TIMEOUT,        'timeout').
 
 -define(DEL_TRUE,  1).
 -define(DEL_FALSE, 0).
@@ -235,6 +237,9 @@
 -define(LEN_PADDING,         8). %% footer
 
 -type(addrid_and_key() :: {non_neg_integer(), binary()}).
+
+-define(DEF_POS_START, -1).
+-define(DEF_POS_END,   -1).
 
 %%--------------------------------------------------------------------
 %% Records
@@ -398,15 +403,6 @@
         end).
 
 %% [Interval between batch processes]
--define(env_compaction_interval_min(),
-        case application:get_env(leo_object_storage,
-                                 compaction_waiting_time_min) of
-            {ok, EnvMinCompactionWT} when is_integer(EnvMinCompactionWT) ->
-                EnvMinCompactionWT;
-            _ ->
-                ?DEF_MIN_COMPACTION_WT
-        end).
-
 -define(env_compaction_interval_reg(),
         case application:get_env(leo_object_storage,
                                  compaction_waiting_time_regular) of
@@ -425,15 +421,6 @@
                 ?DEF_MAX_COMPACTION_WT
         end).
 
--define(env_compaction_interval_step(),
-        case application:get_env(leo_object_storage,
-                                 compaction_waiting_time_step) of
-            {ok, EnvStepCompactionWT} when is_integer(EnvStepCompactionWT) ->
-                EnvStepCompactionWT;
-            _ ->
-                ?DEF_STEP_COMPACTION_WT
-        end).
-
 %% [Number of batch processes]
 -define(env_compaction_num_of_batch_procs_max(),
         case application:get_env(leo_object_storage, batch_procs_max) of
@@ -450,22 +437,6 @@
             _ ->
                 ?DEF_REG_COMPACTION_BP
         end).
-
--define(env_compaction_num_of_batch_procs_min(),
-        case application:get_env(leo_object_storage, batch_procs_min) of
-            {ok, EnvMinCompactionBP} when is_integer(EnvMinCompactionBP) ->
-                EnvMinCompactionBP;
-            _ ->
-                ?DEF_MIN_COMPACTION_BP
-        end).
--define(env_compaction_num_of_batch_procs_step(),
-        case application:get_env(leo_object_storage, batch_procs_step) of
-            {ok, EnvStepCompactionBP} when is_integer(EnvStepCompactionBP) ->
-                EnvStepCompactionBP;
-            _ ->
-                ?DEF_STEP_COMPACTION_BP
-        end).
-
 
 -define(num_of_compaction_concurrency(_PrmNumOfConcurrency),
         begin
@@ -553,4 +524,70 @@
                                                  _Del
                                                 ]}
               })
+        end).
+
+%% @doc Default value of step of a batch-processing
+-define(DEF_COMPACTION_NUM_OF_STEPS, 10).
+
+%% @doc Compaction-related records:
+-record(compaction_event_info, {
+          id :: atom(),
+          event = ?EVENT_RUN :: compaction_event(),
+          controller_pid :: pid(),
+          client_pid     :: pid(),
+          is_diagnosing = false :: boolean(),
+          is_recovering = false :: boolean(),
+          callback :: function()
+         }).
+
+-record(compaction_prms, {
+          key_bin  = <<>> :: binary(),
+          body_bin = <<>> :: binary(),
+          metadata = #?METADATA{} :: #?METADATA{},
+          next_offset = 0         :: non_neg_integer()|eof,
+          start_lock_offset = 0   :: non_neg_integer(),
+          callback_fun            :: function(),
+          num_of_active_objs = 0  :: non_neg_integer(),
+          size_of_active_objs = 0 :: non_neg_integer(),
+          total_num_of_objs = 0   :: non_neg_integer(),
+          total_size_of_objs = 0  :: non_neg_integer()
+         }).
+
+-record(compaction_state, {
+          id :: atom(),
+          obj_storage_id :: atom(),
+          meta_db_id     :: atom(),
+          obj_storage_info = #backend_info{} :: #backend_info{},
+          compact_cntl_pid       :: pid(),
+          diagnosis_log_id       :: atom(),
+          status = ?ST_IDLING    :: compaction_state(),
+          is_locked = false      :: boolean(),
+          is_diagnosing = false  :: boolean(),
+          is_recovering = false  :: boolean(),
+          %% interval_between_batch_procs:
+          interval = 0     :: non_neg_integer(),
+          max_interval = 0 :: non_neg_integer(),
+          %% batch-procs:
+          count_procs = 0 :: non_neg_integer(),
+          num_of_batch_procs = 0     :: non_neg_integer(),
+          max_num_of_batch_procs = 0 :: non_neg_integer(),
+          num_of_steps = ?DEF_COMPACTION_NUM_OF_STEPS :: pos_integer(),
+          %% compaction-info:
+          compaction_prms = #compaction_prms{} :: #compaction_prms{},
+          start_datetime = 0 :: non_neg_integer(),
+          error_pos = 0      :: non_neg_integer(),
+          set_errors         :: set(),
+          acc_errors = []    :: [{pos_integer(), pos_integer()}],
+          result :: compaction_ret()
+         }).
+
+%% @doc Retrieve compaction-proc's step parameters
+-define(step_compaction_proc_values(_State),
+        begin
+            #compaction_state{interval = _RegInterval,
+                              num_of_batch_procs = _RegBatchProcs,
+                              num_of_steps = _NumOfSteps} = _State,
+            _StepBatchOfProcs = leo_math:ceiling(_RegBatchProcs / _NumOfSteps),
+            _StepInterval = leo_math:ceiling(_RegInterval / _NumOfSteps),
+            {ok, {_StepBatchOfProcs,_StepInterval}}
         end).

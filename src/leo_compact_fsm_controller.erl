@@ -92,6 +92,7 @@
           is_recovering = false :: boolean(),
           callback :: function()
          }).
+
 -define(DEF_TIMEOUT, 3000).
 
 %%====================================================================

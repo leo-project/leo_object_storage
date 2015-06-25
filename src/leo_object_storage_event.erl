@@ -29,6 +29,7 @@
 
 -behaviour(gen_event).
 
+-include("leo_object_storage.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 %% gen_server callbacks
@@ -46,13 +47,29 @@
 init([]) ->
     {ok, []}.
 
-handle_event({Method, Key, ProcessingTime}, State) ->
+handle_event({?ERROR_MSG_SLOW_OPERATION = Msg,
+              Method, Key, ProcessingTime, CallbackMod}, State) ->
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "handle_event/2"},
                            {line, ?LINE}, {body, [{cause, "slow operation"},
                                                   {mehtod, Method},
                                                   {key, Key},
                                                   {processing_time, ProcessingTime}]}]),
+    case CallbackMod of
+        undefined ->
+            void;
+        _ ->
+            catch erlang:apply(CallbackMod, notify,
+                               [Msg, Method, Key, ProcessingTime])
+    end,
+    {ok, State};
+handle_event({?ERROR_MSG_TIMEOUT,
+              _Method,_Key, undefined}, State) ->
+    {ok, State};
+handle_event({?ERROR_MSG_TIMEOUT = Msg,
+              Method, Key, CallbackMod}, State) ->
+    catch erlang:apply(CallbackMod, notify,
+                       [Msg, Method, Key]),
     {ok, State};
 handle_event(_, State) ->
     {ok, State}.
