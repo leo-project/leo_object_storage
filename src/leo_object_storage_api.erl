@@ -41,7 +41,8 @@
          fetch_by_addr_id/2, fetch_by_addr_id/3,
          fetch_by_key/2, fetch_by_key/3,
          store/2,
-         stats/0
+         stats/0,
+         du_and_compaction_stats/0
         ]).
 
 -export([get_object_storage_pid/1,
@@ -52,6 +53,7 @@
 -export([compact_data/0, compact_data/1,
          compact_data/2, compact_data/3,
          compact_data_via_console/2,
+         compact_state/0,
          diagnose_data/0, diagnose_data/1, diagnose_data/2,
          recover_metadata/0, recover_metadata/1, recover_metadata/2
         ]).
@@ -294,6 +296,23 @@ stats() ->
     end.
 
 
+%% @doc Retrieve the storage and compaction stats
+%%
+-spec(du_and_compaction_stats() ->
+             {ok, [#storage_stats{}]} | not_found).
+du_and_compaction_stats() ->
+    DUState = case stats() of
+                   not_found ->
+                       [];
+                   {ok, RetL} ->
+                       RetL
+               end,
+    {ok, CompactionState} = compact_state(),
+    {ok, [{du, DUState},
+          {compaction, CompactionState}
+         ]}.
+
+
 %% @doc Retrieve the storage process-id
 -spec(get_object_storage_pid(Arg) ->
              [atom()] when Arg::all | any()).
@@ -401,6 +420,12 @@ compact_data_via_console(AVSPath, TargetContainers) ->
         Error ->
             Error
     end.
+
+
+%% @doc Retrieve current data-compaction status
+%%
+compact_state() ->
+    leo_compact_fsm_controller:state().
 
 
 %% @doc Diagnode the data
