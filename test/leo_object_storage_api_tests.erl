@@ -278,7 +278,9 @@ diagnose() ->
     ?assertEqual(99,  ActiveNum),
 
     {ok, State} = leo_compact_fsm_controller:state(),
+    {ok, DU_Copmaction_Stats} = leo_object_storage_api:du_and_compaction_stats(),
     ?debugVal(State#compaction_stats.acc_reports),
+    ?debugVal(DU_Copmaction_Stats),
     ok.
 
 recover() ->
