@@ -560,6 +560,13 @@ operate_([Path1, Path2]) ->
                       clock     = leo_date:clock()},
     {ok,_ETag} = leo_object_storage_api:put({AddrId, Key}, Object),
 
+    ZeroByteKey = <<"air/on/g/string/0byte">>,
+    {ok,_ETag} = leo_object_storage_api:put(
+                   {AddrId, ZeroByteKey}, Object#?OBJECT{
+                                                    ksize = byte_size(ZeroByteKey),
+                                                    key = ZeroByteKey,
+                                                    dsize = 0,
+                                                    data = <<>>}),
     %% 2. Get
     {ok, Meta1, Obj0} = leo_object_storage_api:get({AddrId, Key}),
     ?assertEqual(AddrId, Meta1#?METADATA.addr_id),
@@ -570,6 +577,10 @@ operate_([Path1, Path2]) ->
     ?assertEqual(Bin,            Obj0#?OBJECT.data),
     ?assertEqual(byte_size(Bin), Obj0#?OBJECT.dsize),
     ?assertEqual(0,              Obj0#?OBJECT.del),
+
+    {ok,_ZeroByteMeta, ZeroByteObj} = leo_object_storage_api:get({AddrId, ZeroByteKey}),
+    ?assertEqual(<<>>, ZeroByteObj#?OBJECT.data),
+    ?assertEqual(0,    ZeroByteObj#?OBJECT.dsize),
 
     %% 2-1. Head with calculating MD5
     ExpectedMD5 = crypto:hash(md5, Bin),
