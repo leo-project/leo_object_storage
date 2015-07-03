@@ -389,34 +389,24 @@ running(#compaction_event_info{event = ?EVENT_SUSPEND}, State) ->
     {next_state, NextStatus, State#compaction_state{status = NextStatus}};
 
 running(#compaction_event_info{event = ?EVENT_STATE,
-                               client_pid = Client}, #compaction_state{id = Id,
-                                                                       is_diagnosing = IsDiagnosing,
-                                                                       is_recovering = IsRecovering} = State) ->
-    ok = run(Id, IsDiagnosing, IsRecovering),
+                               client_pid = Client}, State) ->
     NextStatus = ?ST_RUNNING,
     erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#compaction_state{status = NextStatus}};
 
-running(#compaction_event_info{event = ?EVENT_INCREASE}, #compaction_state{id = Id,
-                                                                           is_diagnosing = IsDiagnosing,
-                                                                           is_recovering = IsRecovering,
-                                                                           num_of_batch_procs = BatchProcs,
+running(#compaction_event_info{event = ?EVENT_INCREASE}, #compaction_state{num_of_batch_procs = BatchProcs,
                                                                            max_num_of_batch_procs = MaxBatchProcs,
                                                                            interval = Interval} = State) ->
     {ok, {StepBatchProcs, StepInterval}} = ?step_compaction_proc_values(State),
     BatchProcs_1 = incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs),
     Interval_1 = decr_interval_fun(Interval, StepInterval),
 
-    ok = run(Id, IsDiagnosing, IsRecovering),
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#compaction_state{num_of_batch_procs = BatchProcs_1,
                                                     interval = Interval_1,
                                                     status = NextStatus}};
 
-running(#compaction_event_info{event = ?EVENT_DECREASE}, #compaction_state{id = Id,
-                                                                           is_diagnosing = IsDiagnosing,
-                                                                           is_recovering = IsRecovering,
-                                                                           num_of_batch_procs = BatchProcs,
+running(#compaction_event_info{event = ?EVENT_DECREASE}, #compaction_state{num_of_batch_procs = BatchProcs,
                                                                            interval = Interval,
                                                                            max_interval  = MaxInterval} = State) ->
     {ok, {StepBatchProcs, StepInterval}} = ?step_compaction_proc_values(State),
@@ -433,7 +423,6 @@ running(#compaction_event_info{event = ?EVENT_DECREASE}, #compaction_state{id = 
             true ->
                 {?ST_SUSPENDING, 0};
             false ->
-                ok = run(Id, IsDiagnosing, IsRecovering),
                 {?ST_RUNNING,
                  decr_batch_of_msgs_fun(BatchProcs, StepBatchProcs)}
         end,
@@ -441,21 +430,15 @@ running(#compaction_event_info{event = ?EVENT_DECREASE}, #compaction_state{id = 
                                                     interval = Interval_2,
                                                     status = NextStatus}};
 
-running(_, #compaction_state{id = Id,
-                             is_diagnosing = IsDiagnosing,
-                             is_recovering = IsRecovering} = State) ->
-    ok = run(Id, IsDiagnosing, IsRecovering),
+running(_, State) ->
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#compaction_state{status = NextStatus}}.
 
 
 -spec(running( _, _, #compaction_state{}) ->
              {next_state, ?ST_SUSPENDING|?ST_RUNNING, #compaction_state{}}).
-running(_, From, #compaction_state{id = Id,
-                                   is_diagnosing = IsDiagnosing,
-                                   is_recovering = IsRecovering} = State) ->
+running(_, From, State) ->
     gen_fsm:reply(From, {error, badstate}),
-    ok = run(Id, IsDiagnosing, IsRecovering),
     NextStatus = ?ST_RUNNING,
     {next_state, NextStatus, State#compaction_state{status = NextStatus}}.
 
@@ -475,10 +458,7 @@ suspending(#compaction_event_info{event = ?EVENT_STATE,
     erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#compaction_state{status = NextStatus}};
 
-suspending(#compaction_event_info{event = ?EVENT_INCREASE}, #compaction_state{id = Id,
-                                                                              is_diagnosing = IsDiagnosing,
-                                                                              is_recovering = IsRecovering,
-                                                                              num_of_batch_procs = BatchProcs,
+suspending(#compaction_event_info{event = ?EVENT_INCREASE}, #compaction_state{num_of_batch_procs = BatchProcs,
                                                                               max_num_of_batch_procs  = MaxBatchProcs,
                                                                               interval = Interval} = State) ->
     {ok, {StepBatchProcs, StepInterval}} = ?step_compaction_proc_values(State),
@@ -486,7 +466,6 @@ suspending(#compaction_event_info{event = ?EVENT_INCREASE}, #compaction_state{id
     Interval_1 = decr_interval_fun(Interval, StepInterval),
 
     NextStatus = ?ST_RUNNING,
-    timer:apply_after(timer:seconds(1), ?MODULE, run, [Id, IsDiagnosing, IsRecovering]),
     {next_state, NextStatus, State#compaction_state{num_of_batch_procs = BatchProcs_1,
                                                     interval = Interval_1,
                                                     status = NextStatus}};
