@@ -291,13 +291,7 @@ compact() ->
     ok = put_regular_bin(240, 10),
 
     %% Change waiting-time of the procs
-    ok = leo_compact_fsm_controller:decrease(),
-    timer:sleep(10),
-    ok = leo_compact_fsm_controller:decrease(),
-    timer:sleep(10),
-    ok = leo_compact_fsm_controller:decrease(),
-    timer:sleep(10),
-    ok = leo_compact_fsm_controller:decrease(),
+    [leo_compact_fsm_controller:decrease() || _Num <- lists:seq(1, 30)],
     timer:sleep(3000),
 
     ok = leo_compact_fsm_controller:increase(),

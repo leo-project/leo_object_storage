@@ -582,11 +582,8 @@
          }).
 
 %% @doc Retrieve compaction-proc's step parameters
--define(step_compaction_proc_values(_State),
+-define(step_compaction_proc_values(_RegBatchProcs,_RegInterval,_NumOfSteps),
         begin
-            #compaction_state{interval = _RegInterval,
-                              num_of_batch_procs = _RegBatchProcs,
-                              num_of_steps = _NumOfSteps} = _State,
             _StepBatchOfProcs = leo_math:ceiling(_RegBatchProcs / _NumOfSteps),
             _StepInterval = leo_math:ceiling(_RegInterval / _NumOfSteps),
             {ok, {_StepBatchOfProcs,_StepInterval}}
