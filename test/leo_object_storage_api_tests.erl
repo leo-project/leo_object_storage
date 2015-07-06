@@ -363,18 +363,17 @@ compact() ->
     ok = put_regular_bin(240, 10),
 
     %% Change waiting-time of the procs
-    ok = leo_compact_fsm_controller:decrease(),
-    timer:sleep(timer:seconds(10)),
-    ok = leo_compact_fsm_controller:decrease(),
-    timer:sleep(timer:seconds(10)),
-    ok = leo_compact_fsm_controller:decrease(),
-    timer:sleep(timer:seconds(10)),
-    ok = leo_compact_fsm_controller:decrease(),
-    timer:sleep(timer:seconds(3)),
-
-    ok = leo_compact_fsm_controller:increase(),
-    timer:sleep(timer:seconds(10)),
-    ok = leo_compact_fsm_controller:increase(),
+    _ = leo_compact_fsm_controller:decrease(),
+    timer:sleep(timer:seconds(1)),
+    _ = leo_compact_fsm_controller:decrease(),
+    timer:sleep(timer:seconds(1)),
+    _ = leo_compact_fsm_controller:decrease(),
+    timer:sleep(timer:seconds(1)),
+    _ = leo_compact_fsm_controller:decrease(),
+    timer:sleep(timer:seconds(1)),
+    _ = leo_compact_fsm_controller:increase(),
+    timer:sleep(timer:seconds(1)),
+    _ = leo_compact_fsm_controller:increase(),
 
     %% Check comaction status
     ok = check_status(),
