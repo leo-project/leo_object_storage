@@ -553,7 +553,7 @@
           total_size_of_objs = 0  :: non_neg_integer()
          }).
 
--record(compaction_state, {
+-record(compaction_worker_state, {
           id :: atom(),
           obj_storage_id :: atom(),
           meta_db_id     :: atom(),
