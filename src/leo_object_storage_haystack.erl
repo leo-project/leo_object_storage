@@ -401,14 +401,21 @@ get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck) ->
     end.
 
 
-%% @doc When getting invalid positions,
-%%      should return an identified status to reply 416 on HTTP
-%%      for now dsize = -2 indicate invalid position
+
 %% @private
+get_fun_1(_MetaDBId,_StorageInfo, #?METADATA{dsize = 0} = Metadata,
+          _StartPos,_EndPos,_IsStrictCheck) ->
+    Object_1 = leo_object_storage_transformer:metadata_to_object(Metadata),
+    Object_2 = Object_1#?OBJECT{data = <<>>},
+    {ok, Metadata, Object_2};
+
 get_fun_1(_MetaDBId,_StorageInfo, #?METADATA{dsize = DSize} = Metadata,
           StartPos, EndPos,_IsStrictCheck) when StartPos >= DSize orelse
                                                 StartPos <  -1 orelse
                                                 EndPos   >= DSize ->
+    %% When getting invalid positions,
+    %%   should return an identified status to reply 416 on HTTP
+    %%   for now dsize = -2 indicate invalid position
     Object_1 = leo_object_storage_transformer:metadata_to_object(Metadata),
     Object_2 = Object_1#?OBJECT{data  = <<>>,
                                 dsize = -2},
