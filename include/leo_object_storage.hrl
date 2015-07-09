@@ -49,13 +49,13 @@
 -define(DEF_THRESHOLD_SLOW_PROC, 1000).
 
 -ifdef(TEST).
--define(DEF_MIN_COMPACTION_WT, 0).    %% 0msec
+-define(DEF_MIN_COMPACTION_WT, 10).   %% 10msec
 -define(DEF_REG_COMPACTION_WT, 100).  %% 100msec
 -define(DEF_MAX_COMPACTION_WT, 300).  %% 300msec
 -else.
--define(DEF_MIN_COMPACTION_WT,  100).  %% 100msec
--define(DEF_REG_COMPACTION_WT,  500).  %% 300msec
--define(DEF_MAX_COMPACTION_WT, 3000). %% 1000msec
+-define(DEF_MIN_COMPACTION_WT,  300). %% 300msec
+-define(DEF_REG_COMPACTION_WT,  500). %% 500msec
+-define(DEF_MAX_COMPACTION_WT, 3000). %% 3sec
 -endif.
 
 -ifdef(TEST).
