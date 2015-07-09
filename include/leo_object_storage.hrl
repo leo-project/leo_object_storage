@@ -564,6 +564,7 @@
           is_locked = false      :: boolean(),
           is_diagnosing = false  :: boolean(),
           is_recovering = false  :: boolean(),
+          is_forced_suspending = false :: boolean(),
           %% interval_between_batch_procs:
           interval = 0     :: non_neg_integer(),
           max_interval = 0 :: non_neg_integer(),
