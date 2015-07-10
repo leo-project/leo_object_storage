@@ -41,6 +41,7 @@
          lock/1,
          suspend/0, resume/0,
          state/0,
+         state_of_workers/0,
          finish/2, finish/3,
          increase/0,
          decrease/0
@@ -68,16 +69,15 @@
           num_of_concurrency = 1 :: non_neg_integer(),
           is_diagnosing = false  :: boolean(),
           is_recovering = false  :: boolean(),
-          callback_fun              :: function() | undefined,
-          total_num_of_targets = 0  :: non_neg_integer(),
-          reserved_targets = []     :: [atom()],
-          pending_targets  = []     :: [atom()],
-          ongoing_targets  = []     :: [atom()],
-          locked_targets   = []     :: [atom()],
-          child_pids       = []     :: orddict:orddict(), %% {Child :: pid(), hasJob :: boolean()}
-          worker_status    = []     :: orddict:orddict(), %% {Id :: atom(), state :: compaction_state()}
-          start_datetime   = 0      :: non_neg_integer(), %% gregory-sec
-          reports          = []     :: [#compaction_report{}],
+          callback_fun             :: function() | undefined,
+          total_num_of_targets = 0 :: non_neg_integer(),
+          reserved_targets = []    :: [atom()],
+          pending_targets  = []    :: [atom()],
+          ongoing_targets  = []    :: [atom()],
+          locked_targets   = []    :: [atom()],
+          child_pids       = []    :: orddict:orddict(), %% {Child :: pid(), hasJob :: boolean()}
+          start_datetime   = 0     :: non_neg_integer(), %% gregory-sec
+          reports          = []    :: [#compaction_report{}],
           status = ?ST_IDLING :: compaction_state()
          }).
 
@@ -237,6 +237,14 @@ resume() ->
 state() ->
     gen_fsm:sync_send_all_state_event(
       ?MODULE, state, ?DEF_TIMEOUT).
+
+
+%% @doc Retrieve the all compaction statuses from the data-compaction's workers
+-spec(state_of_workers() ->
+             term()).
+state_of_workers() ->
+    gen_fsm:sync_send_all_state_event(
+      ?MODULE, state_of_workers, ?DEF_TIMEOUT).
 
 
 %% @doc Terminate a child
@@ -589,6 +597,22 @@ handle_event(_Event, StateName, State) ->
 
 
 %% @doc Handle 'state' event
+handle_sync_event(state_of_workers, _From, StateName, #state{server_pairs = ServerPairs} = State) ->
+    Ret = [
+           [{status, CStatus},
+            {interval, I},
+            {num_of_batch_procs, N},
+            {is_locked, L}
+           ]
+           || {CStatus, #compaction_worker_state{
+                           interval = I,
+                           num_of_batch_procs = N,
+                           is_locked = L
+                          }}
+                  <-  [sys:get_state(WorkerId)
+                       || {WorkerId,_} <- ServerPairs]
+          ],
+    {reply, {ok, Ret}, StateName, State};
 handle_sync_event(state, _From, StateName, #state{status = Status,
                                                   total_num_of_targets = TotalNumOfTargets,
                                                   reserved_targets     = ReservedTargets,
