@@ -35,6 +35,7 @@
 %% API
 -export([start_link/4, stop/1]).
 -export([run/3, run/5,
+         forced_run/3,
          suspend/1,
          resume/1,
          state/2,
@@ -92,8 +93,8 @@ stop(Id) ->
 run(Id, IsDiagnosing, IsRecovering) ->
     gen_fsm:send_event(Id, #compaction_event_info{event = ?EVENT_RUN,
                                                   is_diagnosing = IsDiagnosing,
-                                                  is_recovering = IsRecovering
-                                                 }).
+                                                  is_recovering = IsRecovering,
+                                                  is_forced_run = false}).
 
 -spec(run(Id, ControllerPid, IsDiagnosing, IsRecovering, CallbackFun) ->
              ok | {error, any()} when Id::atom(),
@@ -106,7 +107,18 @@ run(Id, ControllerPid, IsDiagnosing, IsRecovering, CallbackFun) ->
                                                        controller_pid = ControllerPid,
                                                        is_diagnosing  = IsDiagnosing,
                                                        is_recovering  = IsRecovering,
+                                                       is_forced_run  = false,
                                                        callback = CallbackFun}, ?DEF_TIMEOUT).
+
+-spec(forced_run(Id, IsDiagnosing, IsRecovering) ->
+             ok | {error, any()} when Id::atom(),
+                                      IsDiagnosing::boolean(),
+                                      IsRecovering::boolean()).
+forced_run(Id, IsDiagnosing, IsRecovering) ->
+    gen_fsm:send_event(Id, #compaction_event_info{event = ?EVENT_RUN,
+                                                  is_diagnosing = IsDiagnosing,
+                                                  is_recovering = IsRecovering,
+                                                  is_forced_run = true}).
 
 
 %% @doc Retrieve an object from the object-storage
@@ -228,6 +240,7 @@ idling(#compaction_event_info{event = ?EVENT_RUN,
                               controller_pid = ControllerPid,
                               is_diagnosing  = IsDiagnosing,
                               is_recovering  = IsRecovering,
+                              is_forced_run  = false,
                               callback = CallbackFun}, From,
        #compaction_worker_state{id = Id,
                                 compaction_prms = CompactionPrms} = State) ->
@@ -342,6 +355,7 @@ running(#compaction_event_info{event = ?EVENT_RUN,
                           } = State_1}} when NextOffset > StartLockOffset ->
                 State_2 = case IsLocked of
                               true ->
+                                  erlang:send(CompactCntlPid, run),
                                   State_1;
                               false ->
                                   ok = leo_object_storage_server:lock(ObjStorageId),
@@ -353,6 +367,7 @@ running(#compaction_event_info{event = ?EVENT_RUN,
             %% Execute the data-compaction repeatedly
             {ok, {next, State_1}} ->
                 ok = run(Id, IsDiagnosing, IsRecovering),
+                erlang:send(CompactCntlPid, run),
                 {?ST_RUNNING, State_1};
 
             %% An unxepected error has occured
