@@ -52,10 +52,12 @@
 -define(DEF_MIN_COMPACTION_WT, 10).   %% 10msec
 -define(DEF_REG_COMPACTION_WT, 100).  %% 100msec
 -define(DEF_MAX_COMPACTION_WT, 300).  %% 300msec
+-define(DEF_COMPACTION_TIMEOUT, timer:minutes(1)). %% 1min
 -else.
 -define(DEF_MIN_COMPACTION_WT,  300). %% 300msec
 -define(DEF_REG_COMPACTION_WT,  500). %% 500msec
 -define(DEF_MAX_COMPACTION_WT, 3000). %% 3sec
+-define(DEF_COMPACTION_TIMEOUT, timer:minutes(1)). %% 1min
 -endif.
 
 -ifdef(TEST).
@@ -537,6 +539,7 @@
           client_pid     :: pid(),
           is_diagnosing = false :: boolean(),
           is_recovering = false :: boolean(),
+          is_forced_run = false :: boolean(),
           callback :: function()
          }).
 
