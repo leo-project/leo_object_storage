@@ -723,7 +723,6 @@ loop(CallbackFun, Params) ->
             operate(Event, Params),
             loop(CallbackFun, Params);
         stop ->
-            ?debugVal({stop, Params}),
             ok;
         _ ->
             loop(CallbackFun, Params)
