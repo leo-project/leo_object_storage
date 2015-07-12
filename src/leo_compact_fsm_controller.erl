@@ -759,11 +759,12 @@ loop(CallbackMod, Params) ->
     end.
 
 
+%% @doc Execute an operation of a data-compaction
 %% @private
 operate(?EVENT_SUSPEND, {_,WorkerId,_,_}) ->
     leo_compact_fsm_worker:suspend(WorkerId);
 operate(?EVENT_RESUME, {_,WorkerId,_,_}) ->
-    resume(WorkerId, ?MAX_RETRY_TIMES);
+    resume_worker(WorkerId, ?MAX_RETRY_TIMES);
 operate(?EVENT_INCREASE, {_,WorkerId,_,_}) ->
     leo_compact_fsm_worker:increase(WorkerId);
 operate(?EVENT_DECREASE, {_,WorkerId,_,_}) ->
@@ -772,15 +773,17 @@ operate(_,_) ->
     ok.
 
 
+%% @doc Resume a compaction-worker
 %% @private
-resume(_,0) ->
-    {error, resume_operation_failure};
-resume(WorkerId, RetryTimes) ->
+resume_worker(_,0) ->
+    {error, resume_worker_operation_failure};
+resume_worker(WorkerId, RetryTimes) ->
     case catch leo_compact_fsm_worker:resume(WorkerId) of
         ok ->
             ok;
         _ ->
-            resume(WorkerId, RetryTimes - 1)
+            timer:sleep(timer:seconds(1)),
+            resume_worker(WorkerId, RetryTimes - 1)
     end.
 
 
