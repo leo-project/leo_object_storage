@@ -41,6 +41,7 @@
          lock/1,
          suspend/0, resume/0,
          state/0,
+         state_of_workers/0,
          finish/2, finish/3,
          increase/0,
          decrease/0
@@ -236,6 +237,14 @@ resume() ->
 state() ->
     gen_fsm:sync_send_all_state_event(
       ?MODULE, state, ?DEF_TIMEOUT).
+
+
+%% @doc Retrieve the all compaction statuses from the data-compaction's workers
+-spec(state_of_workers() ->
+             term()).
+state_of_workers() ->
+    gen_fsm:sync_send_all_state_event(
+      ?MODULE, state_of_workers, ?DEF_TIMEOUT).
 
 
 %% @doc Terminate a child
@@ -588,6 +597,22 @@ handle_event(_Event, StateName, State) ->
 
 
 %% @doc Handle 'state' event
+handle_sync_event(state_of_workers, _From, StateName, #state{server_pairs = ServerPairs} = State) ->
+    Ret = [
+           [{status, CStatus},
+            {interval, I},
+            {num_of_batch_procs, N},
+            {is_locked, L}
+           ]
+           || {CStatus, #compaction_worker_state{
+                           interval = I,
+                           num_of_batch_procs = N,
+                           is_locked = L
+                          }}
+                  <-  [sys:get_state(WorkerId)
+                       || {WorkerId,_} <- ServerPairs]
+          ],
+    {reply, {ok, Ret}, StateName, State};
 handle_sync_event(state, _From, StateName, #state{status = Status,
                                                   total_num_of_targets = TotalNumOfTargets,
                                                   reserved_targets     = ReservedTargets,
@@ -685,9 +710,11 @@ start_jobs_as_possible(State, _NumChild) ->
 loop(CallbackMod) ->
     loop(CallbackMod, undefined).
 
--spec(loop(fun()|undifined, {atom(),atom()}|undefined) ->
-             ok | {error, any()}).
-loop(CallbackMod, TargetId) ->
+-spec(loop(CallbackMod, Params) ->
+             ok | {error, any()}
+                 when CallbackMod::module()|undefined,
+                      Params::{atom(),atom(),atom(),atom()}|undefined).
+loop(CallbackMod, Params) ->
     receive
         {run, Id, IsDiagnose, IsRecovering} ->
             {ok, Id_1} = leo_object_storage_server:get_compaction_worker(Id),
@@ -695,48 +722,66 @@ loop(CallbackMod, TargetId) ->
                    Id_1, self(), IsDiagnose, IsRecovering, CallbackMod) of
                 ok ->
                     ok = leo_object_storage_server:block_del(Id),
-                    loop(CallbackMod, {Id, Id_1});
+                    loop(CallbackMod, {Id, Id_1, IsDiagnose, IsRecovering});
                 {error,_Cause} ->
                     ok = finish(self(), Id)
             end;
+        run ->
+            loop(CallbackMod, Params);
         {lock, Id} ->
             ok = lock(Id),
-            loop(CallbackMod, TargetId);
+            loop(CallbackMod, Params);
         suspend = Event ->
-            operate(Event, TargetId),
-            loop(CallbackMod, TargetId);
+            operate(Event, Params),
+            loop(CallbackMod, Params);
         resume = Event ->
-            operate(Event, TargetId),
-            loop(CallbackMod, TargetId);
+            operate(Event, Params),
+            loop(CallbackMod, Params);
         {finish, {ObjStorageId, Report}} ->
             ok = finish(self(), ObjStorageId, Report),
-            loop(CallbackMod, TargetId);
-
+            loop(CallbackMod, Params);
         increase = Event ->
-            operate(Event, TargetId),
-            loop(CallbackMod, TargetId);
+            operate(Event, Params),
+            loop(CallbackMod, Params);
         decrease = Event ->
-            operate(Event, TargetId),
-            loop(CallbackMod, TargetId);
-
+            operate(Event, Params),
+            loop(CallbackMod, Params);
         stop ->
             ok;
         _ ->
-            {error, unknown_message}
+            loop(CallbackMod, Params)
+    after
+        ?DEF_COMPACTION_TIMEOUT ->
+            {_, WorkerId, IsDiagnose, IsRecovering} = Params,
+            leo_compact_fsm_worker:forced_run(
+              WorkerId, IsDiagnose, IsRecovering),
+            loop(CallbackMod, Params)
     end.
 
 
 %% @private
-operate(?EVENT_SUSPEND, {_,CompactionWorkerId}) ->
-    leo_compact_fsm_worker:suspend(CompactionWorkerId);
-operate(?EVENT_RESUME, {_,CompactionWorkerId}) ->
-    leo_compact_fsm_worker:resume(CompactionWorkerId);
-operate(?EVENT_INCREASE, {_,CompactionWorkerId}) ->
-    leo_compact_fsm_worker:increase(CompactionWorkerId);
-operate(?EVENT_DECREASE, {_,CompactionWorkerId}) ->
-    leo_compact_fsm_worker:decrease(CompactionWorkerId);
+operate(?EVENT_SUSPEND, {_,WorkerId,_,_}) ->
+    leo_compact_fsm_worker:suspend(WorkerId);
+operate(?EVENT_RESUME, {_,WorkerId,_,_}) ->
+    resume(WorkerId, ?MAX_RETRY_TIMES);
+operate(?EVENT_INCREASE, {_,WorkerId,_,_}) ->
+    leo_compact_fsm_worker:increase(WorkerId);
+operate(?EVENT_DECREASE, {_,WorkerId,_,_}) ->
+    leo_compact_fsm_worker:decrease(WorkerId);
 operate(_,_) ->
     ok.
+
+
+%% @private
+resume(_,0) ->
+    {error, resume_operation_failure};
+resume(WorkerId, RetryTimes) ->
+    case catch leo_compact_fsm_worker:resume(WorkerId) of
+        ok ->
+            ok;
+        _ ->
+            resume(WorkerId, RetryTimes - 1)
+    end.
 
 
 %% @doc Retrieve pending targets

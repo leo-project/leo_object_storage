@@ -49,13 +49,15 @@
 -define(DEF_THRESHOLD_SLOW_PROC, 1000).
 
 -ifdef(TEST).
--define(DEF_MIN_COMPACTION_WT, 0).    %% 0msec
+-define(DEF_MIN_COMPACTION_WT, 10).   %% 10msec
 -define(DEF_REG_COMPACTION_WT, 100).  %% 100msec
 -define(DEF_MAX_COMPACTION_WT, 300).  %% 300msec
+-define(DEF_COMPACTION_TIMEOUT, timer:minutes(1)). %% 1min
 -else.
--define(DEF_MIN_COMPACTION_WT,  100).  %% 100msec
--define(DEF_REG_COMPACTION_WT,  500).  %% 300msec
--define(DEF_MAX_COMPACTION_WT, 3000). %% 1000msec
+-define(DEF_MIN_COMPACTION_WT,  300). %% 300msec
+-define(DEF_REG_COMPACTION_WT,  500). %% 500msec
+-define(DEF_MAX_COMPACTION_WT, 3000). %% 3sec
+-define(DEF_COMPACTION_TIMEOUT, timer:minutes(1)). %% 1min
 -endif.
 
 -ifdef(TEST).
@@ -545,6 +547,7 @@
           client_pid     :: pid(),
           is_diagnosing = false :: boolean(),
           is_recovering = false :: boolean(),
+          is_forced_run = false :: boolean(),
           callback :: function()
          }).
 
@@ -561,7 +564,7 @@
           total_size_of_objs = 0  :: non_neg_integer()
          }).
 
--record(compaction_state, {
+-record(compaction_worker_state, {
           id :: atom(),
           obj_storage_id :: atom(),
           meta_db_id     :: atom(),
@@ -572,6 +575,7 @@
           is_locked = false      :: boolean(),
           is_diagnosing = false  :: boolean(),
           is_recovering = false  :: boolean(),
+          is_forced_suspending = false :: boolean(),
           %% interval_between_batch_procs:
           interval = 0     :: non_neg_integer(),
           max_interval = 0 :: non_neg_integer(),
@@ -590,11 +594,8 @@
          }).
 
 %% @doc Retrieve compaction-proc's step parameters
--define(step_compaction_proc_values(_State),
+-define(step_compaction_proc_values(_RegBatchProcs,_RegInterval,_NumOfSteps),
         begin
-            #compaction_state{interval = _RegInterval,
-                              num_of_batch_procs = _RegBatchProcs,
-                              num_of_steps = _NumOfSteps} = _State,
             _StepBatchOfProcs = leo_math:ceiling(_RegBatchProcs / _NumOfSteps),
             _StepInterval = leo_math:ceiling(_RegInterval / _NumOfSteps),
             {ok, {_StepBatchOfProcs,_StepInterval}}
