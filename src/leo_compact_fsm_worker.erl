@@ -1157,13 +1157,7 @@ gen_compaction_report(State) ->
                               StepInterval::non_neg_integer(),
                               NewInterval::non_neg_integer()).
 incr_interval_fun(Interval, MaxInterval, StepInterval) ->
-    Interval_1 = Interval + StepInterval,
-    case (Interval_1 >= MaxInterval) of
-        true ->
-            MaxInterval;
-        false ->
-            Interval_1
-    end.
+    erlang:min((Interval + StepInterval), MaxInterval).
 
 
 %% @doc Decrease the waiting time
@@ -1173,13 +1167,7 @@ incr_interval_fun(Interval, MaxInterval, StepInterval) ->
                               StepInterval::non_neg_integer(),
                               NewInterval::non_neg_integer()).
 decr_interval_fun(Interval, StepInterval) ->
-    Interval_1 = Interval - StepInterval,
-    case (Interval_1 =< ?DEF_MIN_COMPACTION_WT) of
-        true ->
-            ?DEF_MIN_COMPACTION_WT;
-        false ->
-            Interval_1
-    end.
+    erlang:max((Interval - StepInterval), ?DEF_MIN_COMPACTION_WT).
 
 
 %% @doc Increase the batch procs
@@ -1190,13 +1178,8 @@ decr_interval_fun(Interval, StepInterval) ->
                                 StepBatchProcs::non_neg_integer(),
                                 NewBatchProcs::non_neg_integer()).
 incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs) ->
-    BatchProcs_1 = BatchProcs + StepBatchProcs,
-    case (BatchProcs_1 > MaxBatchProcs) of
-        true ->
-            MaxBatchProcs;
-        false ->
-            BatchProcs_1
-    end.
+    erlang:min((BatchProcs + StepBatchProcs), MaxBatchProcs).
+
 
 %% @doc Increase the batch procs
 %% @private
@@ -1205,10 +1188,4 @@ incr_batch_of_msgs_fun(BatchProcs, MaxBatchProcs, StepBatchProcs) ->
                                 StepBatchProcs::non_neg_integer(),
                                 NewBatchProcs::non_neg_integer()).
 decr_batch_of_msgs_fun(BatchProcs, StepBatchProcs) ->
-    BatchProcs_1 = BatchProcs - StepBatchProcs,
-    case (BatchProcs_1 < 0) of
-        true ->
-            ?DEF_MIN_COMPACTION_BP;
-        false ->
-            BatchProcs_1
-    end.
+    erlang:max((BatchProcs - StepBatchProcs), ?DEF_MIN_COMPACTION_BP).
