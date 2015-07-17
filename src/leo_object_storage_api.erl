@@ -387,22 +387,22 @@ compact_data(NumOfConcurrency) ->
         ?num_of_compaction_concurrency(NumOfConcurrency),
     leo_compact_fsm_controller:run(NumOfConcurrency_1).
 
--spec(compact_data(NumOfConcurrency, CallbackFun) ->
+-spec(compact_data(NumOfConcurrency, CallbackMod) ->
              term() when NumOfConcurrency::integer(),
-                         CallbackFun::function()).
-compact_data(NumOfConcurrency, CallbackFun) ->
+                         CallbackMod::module()).
+compact_data(NumOfConcurrency, CallbackMod) ->
     NumOfConcurrency_1 =
         ?num_of_compaction_concurrency(NumOfConcurrency),
-    leo_compact_fsm_controller:run(NumOfConcurrency_1, CallbackFun).
+    leo_compact_fsm_controller:run(NumOfConcurrency_1, CallbackMod).
 
--spec(compact_data(TargetPids, NumOfConcurrency, CallbackFun) ->
+-spec(compact_data(TargetPids, NumOfConcurrency, CallbackMod) ->
              term() when TargetPids::[atom()],
                          NumOfConcurrency::integer(),
-                         CallbackFun::function()).
-compact_data(TargetPids, NumOfConcurrency, CallbackFun) ->
+                         CallbackMod::module()).
+compact_data(TargetPids, NumOfConcurrency, CallbackMod) ->
     NumOfConcurrency_1 =
         ?num_of_compaction_concurrency(NumOfConcurrency),
-    leo_compact_fsm_controller:run(TargetPids, NumOfConcurrency_1, CallbackFun).
+    leo_compact_fsm_controller:run(TargetPids, NumOfConcurrency_1, CallbackMod).
 
 
 %% @doc Execute data-comaction via console

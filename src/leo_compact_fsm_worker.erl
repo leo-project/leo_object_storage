@@ -688,8 +688,13 @@ execute(#compaction_worker_state{meta_db_id       = MetaDBId,
                                   true ->
                                       true;
                                   false ->
-                                      erlang:apply(
-                                        CallbackMod, has_charge_of_node, [Key, NumOfReplicas])
+                                      case catch erlang:apply(CallbackMod, has_charge_of_node,
+                                                              [Key, NumOfReplicas]) of
+                                          {_,_} ->
+                                              false;
+                                          RetHasChargeOfNode ->
+                                              RetHasChargeOfNode
+                                      end
                               end,
 
             case (is_removed_obj(MetaDBId, StorageInfo, Metadata, IsRecovering)
