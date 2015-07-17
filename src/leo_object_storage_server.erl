@@ -538,12 +538,11 @@ handle_call({head_with_calc_md5, {AddrId, Key}, MD5Context},
 %% Close the object-container
 handle_call(close, _From,
             #state{id = Id,
-                   meta_db_id = MetaDBId,
                    state_filepath = StateFilePath,
                    storage_stats  = StorageStats,
                    object_storage = #backend_info{write_handler = WriteHandler,
                                                   read_handler  = ReadHandler}} = State) ->
-    ok = close_storage(Id, MetaDBId, StateFilePath,
+    ok = close_storage(Id, StateFilePath,
                        StorageStats, WriteHandler, ReadHandler),
     {reply, ok, State};
 
@@ -645,7 +644,6 @@ handle_info(_Info, State) ->
 %%      terminate. It should be the opposite of Module:init/1 and do any necessary
 %%      cleaning up. When it returns, the gen_server terminates with Reason.
 terminate(_Reason, #state{id = Id,
-                          meta_db_id = MetaDBId,
                           state_filepath = StateFilePath,
                           storage_stats  = StorageStats,
                           object_storage = #backend_info{write_handler = WriteHandler,
@@ -653,7 +651,7 @@ terminate(_Reason, #state{id = Id,
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "terminate/2"},
                            {line, ?LINE}, {body, Id}]),
-    ok = close_storage(Id, MetaDBId, StateFilePath,
+    ok = close_storage(Id, StateFilePath,
                        StorageStats, WriteHandler, ReadHandler),
     ok.
 
@@ -841,7 +839,7 @@ get_raw_path(object, ObjectStorageRootDir, SymLinkPath) ->
 
 %% @doc Close a storage
 %% @private
-close_storage(Id, MetaDBId, StateFilePath,
+close_storage(Id, StateFilePath,
               StorageStats, WriteHandler, ReadHandler) when is_list(StateFilePath) ->
     _ = filelib:ensure_dir(StateFilePath),
     _ = leo_file:file_unconsult(
@@ -854,7 +852,6 @@ close_storage(Id, MetaDBId, StateFilePath,
            {compaction_hist, StorageStats#storage_stats.compaction_hist}
           ]),
     catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
-    catch leo_backend_db_server:close(MetaDBId),
     ok;
-close_storage(_,_,_,_,_,_) ->
+close_storage(_,_,_,_,_) ->
     ok.
