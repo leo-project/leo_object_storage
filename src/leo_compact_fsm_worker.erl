@@ -304,16 +304,9 @@ idling(_, State) ->
 
 %% @doc State of 'running'
 -spec(running(EventInfo, State) ->
-             {next_state, ?ST_RUNNING, State} when EventInfo::#compaction_event_info{},
-                                                   State::#compaction_worker_state{}).
-running(#compaction_event_info{event = ?EVENT_RUN},
-        #compaction_worker_state{obj_storage_id = #backend_info{linked_path = []}} = State) ->
-    NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}};
-running(#compaction_event_info{event = ?EVENT_RUN},
-        #compaction_worker_state{obj_storage_id = #backend_info{file_path = []}} = State) ->
-    NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}};
+             {next_state, ?ST_IDLING|?ST_RUNNING|?ST_SUSPENDING, State}
+                 when EventInfo::#compaction_event_info{},
+                      State::#compaction_worker_state{}).
 running(#compaction_event_info{event = ?EVENT_RUN,
                                is_diagnosing = IsDiagnosing,
                                is_recovering = IsRecovering},
