@@ -189,8 +189,8 @@ get(MetaDBId, StorageInfo, Key) ->
              {error, any()} when MetaDBId::atom(),
                                  StorageInfo::#backend_info{},
                                  Key::binary(),
-                                 StartPos::non_neg_integer(),
-                                 EndPos::non_neg_integer(),
+                                 StartPos::integer(),
+                                 EndPos::integer(),
                                  IsStrictCheck::boolean()).
 get(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck) ->
     get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck).

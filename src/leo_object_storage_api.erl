@@ -151,8 +151,8 @@ get(AddrIdAndKey, IsForcedCheck) ->
              {ok, #?METADATA{}, #?OBJECT{}} |
              not_found |
              {error, any()} when AddrIdAndKey::addrid_and_key(),
-                                 StartPos::non_neg_integer(),
-                                 EndPos::non_neg_integer()).
+                                 StartPos::integer(),
+                                 EndPos::integer()).
 get(AddrIdAndKey, StartPos, EndPos) ->
     get(AddrIdAndKey, StartPos, EndPos, false).
 
@@ -160,8 +160,8 @@ get(AddrIdAndKey, StartPos, EndPos) ->
              {ok, #?METADATA{}, #?OBJECT{}} |
              not_found |
              {error, any()} when AddrIdAndKey::addrid_and_key(),
-                                 StartPos::non_neg_integer(),
-                                 EndPos::non_neg_integer(),
+                                 StartPos::integer(),
+                                 EndPos::integer(),
                                  IsForcedCheck::boolean()).
 get(AddrIdAndKey, StartPos, EndPos, IsForcedCheck) ->
     do_request(get, [AddrIdAndKey, StartPos, EndPos, IsForcedCheck]).
@@ -299,7 +299,7 @@ stats() ->
 %% @doc Retrieve the storage and compaction stats
 %%
 -spec(du_and_compaction_stats() ->
-             {ok, [#storage_stats{}]} | not_found).
+             {ok, [{atom(), any()}]}).
 du_and_compaction_stats() ->
     DUState = case stats() of
                    not_found ->

@@ -355,7 +355,7 @@ idling(_, From, State) ->
 %% @doc State of 'idle'
 %%
 -spec(idling(EventInfo, State) ->
-             {next_state, string(), State}
+             {next_state, ?ST_IDLING, State}
                  when EventInfo::#event_info{}|any(),
                       State::#state{}).
 idling(_, State) ->
