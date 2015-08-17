@@ -284,7 +284,9 @@
           read_handler       :: pid()|undefined
          }).
 
--record(metadata, { %% - leofs-v1.0.0-pre3
+%% Metadata
+%% - leofs-v1.0.0-pre3
+-record(metadata, {
           key = <<>>          :: binary(),  %% filename
           addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
           ksize      = 0      :: integer(), %% file-path size
@@ -304,7 +306,8 @@
           del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
          }).
 
--record(metadata_1, { %% leofs-v1.0.0 - v1.2.12
+%% leofs-v1.0.0 - v1.2.12
+-record(metadata_1, {
           key = <<>>          :: binary(),  %% filename
           addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
           ksize      = 0      :: integer(), %% file-path size
@@ -328,7 +331,9 @@
 
           del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
          }).
--record(metadata_2, { %% leofs-v1.4.0 - current ver
+
+%% leofs-v1.4.0 - current ver
+-record(metadata_2, {
           key = <<>>          :: binary(),  %% filename
           addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
           ksize      = 0      :: integer(), %% file-path size
@@ -360,6 +365,9 @@
          }).
 -define(METADATA, 'metadata_2').
 
+
+%% Object
+%% - leofs-v1.0.0-pre3
 -record(object, { %% - leofs-v1.0.0-pre3
           method,
           key        = <<>>   :: binary(),  %% filename
@@ -383,7 +391,8 @@
           del = ?DEL_FALSE    :: del_flag() %% delete flag
          }).
 
--record(object_1, { %% leofs-v1.0.0 - current ver
+%% leofs-v1.0.0 - v1.2.12
+-record(object_1, {
           method,
           key        = <<>>   :: binary(),  %% filename
           addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
@@ -404,12 +413,50 @@
           ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
           req_id     = 0      :: integer(), %% request id
 
+          %% for large-size object
           cluster_id          :: atom(),    %% cluster-id for the mdc-replication
           num_of_replicas = 0 :: integer(), %% # of replicas for the mdc-replication
           ver = 0             :: integer(), %% version number
+
           del = ?DEL_FALSE    :: del_flag() %% delete flag
          }).
--define(OBJECT, 'object_1').
+
+%% leofs-v1.4.0 - current ver
+-record(object_2, {
+          method,
+          key        = <<>>   :: binary(),  %% filename
+          addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
+          data       = <<>>   :: binary(),  %% file
+          meta       = <<>>   :: binary(),  %% custom-metadata
+          ksize      = 0      :: integer(), %% filename size
+          dsize      = 0      :: integer(),         %% data size
+          msize      = 0      :: integer(), %% custom-metadata size
+
+          csize      = 0      :: integer(), %% * chunked data size    (for large-object)
+          cnumber    = 0      :: integer(), %% * # of chunked objects (for large-object)
+          cindex     = 0      :: integer(), %% * chunked object index (for large-object)
+
+          offset     = 0      :: integer(), %% object-container's offset
+          clock      = 0      :: integer(), %% clock
+          timestamp  = 0      :: integer(), %% timestamp
+          checksum   = 0      :: integer(), %% checksum (MD5 > hex-to-integer)
+          ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
+          req_id     = 0      :: integer(), %% request id
+
+          %% for large-size object
+          cluster_id          :: atom(),    %% cluster-id for the mdc-replication
+          num_of_replicas = 0 :: integer(), %% # of replicas for the mdc-replication
+          ver = 0             :: integer(), %% version number
+
+          %% for erasure-coding
+          datatype = ?DATATYPE_COPY :: datatype(), %% datatype of the object:[copy|fragment]
+          rep_method = ?REP_COPY :: rep_method(),  %% replication method: [copy|erasure-code]
+          ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_jerasure
+          ec_params = undefined :: undefined|tuple(), %% erasure-code params: @DEPEND:leo_jerasure
+
+          del = ?DEL_FALSE    :: del_flag() %% delete flag
+         }).
+-define(OBJECT, 'object_2').
 
 -record(storage_stats, {
           file_path       = [] :: string(),

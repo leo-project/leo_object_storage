@@ -38,7 +38,8 @@
          put/3, get/3, get/6, delete/3, head/2,
          fetch/4]).
 
--export([head_with_calc_md5/4]).
+-export([head_with_calc_md5/4
+        ]).
 
 -export([calc_obj_size/1,
          calc_obj_size/2,
@@ -513,6 +514,9 @@ put_super_block(ObjectStorageWriteHandler) ->
 
 %% @doc Create a needle
 %% @private
+-spec(create_needle(Object) ->
+             Bin when Object::#?OBJECT{},
+                      Bin::binary()).
 create_needle(#?OBJECT{addr_id    = AddrId,
                        key        = Key,
                        ksize      = KSize,
