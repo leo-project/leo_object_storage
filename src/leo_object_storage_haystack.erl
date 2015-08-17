@@ -786,6 +786,7 @@ get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, Total
     Checksum_1 = leo_hex:raw_binary_to_integer(crypto:hash(md5, BodyBin)),
     Metadata_1 = Metadata#?METADATA{key = KeyBin},
 
+    %% check whether the obejct's size is large or small
     IsLargeObjParent = (Metadata#?METADATA.ksize =< ?MAX_KEY_SIZE andalso
                         Metadata#?METADATA.timestamp > 0 andalso
                         Metadata#?METADATA.cnumber   > 0 andalso
@@ -793,6 +794,8 @@ get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, Total
                         Metadata#?METADATA.del      == 0 andalso
                         Checksum_1 == ?MD5_EMPTY_BIN),
 
+    %% check a checksum of the object
+    %% and then retrieve data - metadata, key, body and footer of the object
     case (Checksum == Checksum_1 orelse
           IsLargeObjParent == true) of
         true ->
@@ -802,7 +805,8 @@ get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, Total
                        dsize  = DSize,
                        msize  = MSize} = Metadata,
 
-            case (?MAX_DATABLOCK_SIZE > MSize andalso MSize > 0) of
+            case (?MAX_DATABLOCK_SIZE > MSize andalso
+                  MSize > 0) of
                 true ->
                     MPos = Offset + HeaderSize + KSize + DSize,
                     case leo_file:pread(ReadHandler, MPos, MSize) of

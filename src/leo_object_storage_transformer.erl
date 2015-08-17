@@ -119,7 +119,7 @@ metadata_to_object(_M) ->
                          Metadata::#?METADATA{},
                          Object::#?OBJECT{}).
 metadata_to_object(Bin, Metadata) ->
-    Object_1 = leo_object_storage_transformer:metadata_to_object(Metadata),
+    Object_1 = metadata_to_object(Metadata),
     Object_2 = Object_1#?OBJECT{data = Bin},
     case (Metadata#?METADATA.cnumber > 0) of
         true ->
@@ -306,9 +306,17 @@ cmeta_bin_into_metadata(CustomMetaBin, Metadata) ->
         ClusterId     = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID,      CustomMeta, []),
         NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomMeta, 0),
         Version       = leo_misc:get_value(?PROP_CMETA_VER,             CustomMeta, 0),
+        DataType      = leo_misc:get_value(?PROP_CMETA_DATATYPE,        CustomMeta, ?DATATYPE_COPY),
+        RepMethod     = leo_misc:get_value(?PROP_CMETA_REP_METHOD,      CustomMeta, ?REP_COPY),
+        ECMethod      = leo_misc:get_value(?PROP_CMETA_EC_METHOD,       CustomMeta, undefined),
+        ECParams      = leo_misc:get_value(?PROP_CMETA_EC_PARAMS,       CustomMeta, undefined),
         Metadata#?METADATA{cluster_id = ClusterId,
                            num_of_replicas = NumOfReplicas,
-                           ver = Version}
+                           ver = Version,
+                           datatype = DataType,
+                           rep_method = RepMethod,
+                           ec_method = ECMethod,
+                           ec_params = ECParams}
     catch
         _:_Cause ->
             {error, invalid_format}
@@ -321,7 +329,15 @@ list_to_cmeta_bin(CustomMeta) ->
     ClusterId     = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID,      CustomMeta, []),
     NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomMeta, 0),
     Version       = leo_misc:get_value(?PROP_CMETA_VER,             CustomMeta, 0),
+    DataType      = leo_misc:get_value(?PROP_CMETA_DATATYPE,        CustomMeta, ?DATATYPE_COPY),
+    RepMethod     = leo_misc:get_value(?PROP_CMETA_REP_METHOD,      CustomMeta, ?REP_COPY),
+    ECMethod      = leo_misc:get_value(?PROP_CMETA_EC_METHOD,       CustomMeta, undefined),
+    ECParams      = leo_misc:get_value(?PROP_CMETA_EC_PARAMS,       CustomMeta, undefined),
     term_to_binary([{?PROP_CMETA_CLUSTER_ID, ClusterId},
                     {?PROP_CMETA_NUM_OF_REPLICAS, NumOfReplicas},
-                    {?PROP_CMETA_VER, Version}
+                    {?PROP_CMETA_VER, Version},
+                    {?PROP_CMETA_DATATYPE, DataType},
+                    {?PROP_CMETA_REP_METHOD, RepMethod},
+                    {?PROP_CMETA_EC_METHOD, ECMethod},
+                    {?PROP_CMETA_EC_PARAMS, ECParams}
                    ]).

@@ -251,6 +251,26 @@
 -define(DEF_POS_START, -1).
 -define(DEF_POS_END,   -1).
 
+-define(DATATYPE_COPY, 'copy').
+-define(DATATYPE_FRAGMENT, 'fragment').
+-type(datatype() :: ?DATATYPE_COPY |
+                    ?DATATYPE_FRAGMENT).
+
+-define(REP_COPY, 'copy').
+-define(REP_ERASURE_CODE, 'erasure_code').
+-type(rep_method() :: ?REP_COPY |
+                      ?REP_ERASURE_CODE).
+
+%% custom-metadata's items for MDC-replication and erasure-coding
+-define(PROP_CMETA_CLUSTER_ID, 'cluster_id').
+-define(PROP_CMETA_NUM_OF_REPLICAS, 'num_of_replicas').
+-define(PROP_CMETA_VER, 'ver').
+-define(PROP_CMETA_DATATYPE, 'datatype').
+-define(PROP_CMETA_REP_METHOD, 'rep_method').
+-define(PROP_CMETA_EC_METHOD, 'ec_method').
+-define(PROP_CMETA_EC_PARAMS, 'ec_params').
+
+
 %%--------------------------------------------------------------------
 %% Records
 %%--------------------------------------------------------------------
@@ -271,9 +291,10 @@
           dsize      = 0      :: integer(), %% data size
           msize      = 0      :: integer(), %% custom-metadata size
 
-          csize      = 0      :: integer(), %% * chunked data size    (for large-object)
-          cnumber    = 0      :: integer(), %% * # of chunked objects (for large-object)
-          cindex     = 0      :: integer(), %% * chunked object index (for large-object)
+          %% for large-size object
+          csize      = 0      :: integer(), %% chunked data size
+          cnumber    = 0      :: integer(), %% # of chunked objects
+          cindex     = 0      :: integer(), %% chunked object index
 
           offset     = 0      :: integer(), %% object-container's offset
           clock      = 0      :: integer(), %% clock
@@ -283,16 +304,17 @@
           del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
          }).
 
--record(metadata_1, { %% leofs-v1.0.0 - current ver
+-record(metadata_1, { %% leofs-v1.0.0 - v1.2.12
           key = <<>>          :: binary(),  %% filename
           addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
           ksize      = 0      :: integer(), %% file-path size
           dsize      = 0      :: integer(), %% data size
           msize      = 0      :: integer(), %% custom-metadata size
 
-          csize      = 0      :: integer(), %% * chunked data size    (for large-object)
-          cnumber    = 0      :: integer(), %% * # of chunked objects (for large-object)
-          cindex     = 0      :: integer(), %% * chunked object index (for large-object)
+          %% for large-size object
+          csize      = 0      :: integer(), %% chunked data size
+          cnumber    = 0      :: integer(), %% # of chunked objects
+          cindex     = 0      :: integer(), %% chunked object index
 
           offset     = 0      :: integer(), %% object-container's offset
           clock      = 0      :: integer(), %% clock
@@ -306,7 +328,37 @@
 
           del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
          }).
--define(METADATA, 'metadata_1').
+-record(metadata_2, { %% leofs-v1.4.0 - current ver
+          key = <<>>          :: binary(),  %% filename
+          addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
+          ksize      = 0      :: integer(), %% file-path size
+          dsize      = 0      :: integer(), %% data size
+          msize      = 0      :: integer(), %% custom-metadata size
+
+          %% for large-size object
+          csize      = 0      :: integer(), %% chunked data size
+          cnumber    = 0      :: integer(), %% # of chunked objects
+          cindex     = 0      :: integer(), %% chunked object index
+
+          %% for erasure-coding
+          datatype = ?DATATYPE_COPY :: datatype(), %% datatype of the object:[copy|fragment]
+          rep_method = ?REP_COPY :: rep_method(),  %% replication method: [copy|erasure-code]
+          ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_jerasure
+          ec_params = undefined :: undefined|tuple(), %% erasure-code params: @DEPEND:leo_jerasure
+
+          offset     = 0      :: integer(), %% object-container's offset
+          clock      = 0      :: integer(), %% clock
+          timestamp  = 0      :: integer(), %% timestamp
+          checksum   = 0      :: integer(), %% checksum (MD5 > hex-to-integer)
+          ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
+
+          cluster_id          :: atom(),    %% cluster-id for the mdc-replication
+          num_of_replicas = 0 :: integer(), %% # of replicas for the mdc-replication
+          ver = 0             :: integer(), %% version number
+
+          del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
+         }).
+-define(METADATA, 'metadata_2').
 
 -record(object, { %% - leofs-v1.0.0-pre3
           method,
@@ -468,11 +520,6 @@
                         end
                 end,_TargetContainers))
         end).
-
-%% custom-metadata's items for MDC-replication:
--define(PROP_CMETA_CLUSTER_ID, 'cluster_id').
--define(PROP_CMETA_NUM_OF_REPLICAS, 'num_of_replicas').
--define(PROP_CMETA_VER, 'ver').
 
 
 %% @doc Generate a raw file path
