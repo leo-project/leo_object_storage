@@ -369,7 +369,7 @@
 %% Object
 %% - leofs-v1.0.0-pre3
 -record(object, { %% - leofs-v1.0.0-pre3
-          method,
+          method :: atom(),
           key        = <<>>   :: binary(),  %% filename
           addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
           data       = <<>>   :: binary(),  %% file
@@ -393,7 +393,7 @@
 
 %% leofs-v1.0.0 - v1.2.12
 -record(object_1, {
-          method,
+          method :: atom(),
           key        = <<>>   :: binary(),  %% filename
           addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
           data       = <<>>   :: binary(),  %% file
@@ -423,7 +423,7 @@
 
 %% leofs-v1.4.0 - current ver
 -record(object_2, {
-          method,
+          method :: atom(),
           key        = <<>>   :: binary(),  %% filename
           addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
           data       = <<>>   :: binary(),  %% file
