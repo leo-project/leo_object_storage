@@ -69,7 +69,7 @@ calc_obj_size(#?METADATA{ksize = KSize,
 calc_obj_size(#?METADATA{ksize = KSize}) ->
     calc_obj_size(KSize, 0);
 
-calc_obj_size(#?OBJECT{key  = Key,
+calc_obj_size(#?OBJECT{key = Key,
                        dsize = DSize,
                        cnumber = 0}) ->
     KSize = byte_size(Key),
@@ -517,21 +517,21 @@ put_super_block(ObjectStorageWriteHandler) ->
 -spec(create_needle(Object) ->
              Bin when Object::#?OBJECT{},
                       Bin::binary()).
-create_needle(#?OBJECT{addr_id    = AddrId,
-                       key        = Key,
-                       ksize      = KSize,
-                       dsize      = DSize,
-                       msize      = MSize,
-                       meta       = MBin,
-                       csize      = CSize,
-                       cnumber    = CNum,
-                       cindex     = CIndex,
-                       data       = Body,
-                       clock      = Clock,
-                       offset     = Offset,
-                       timestamp  = Timestamp,
-                       checksum   = Checksum,
-                       del        = Del}) ->
+create_needle(#?OBJECT{addr_id = AddrId,
+                       key = Key,
+                       ksize = KSize,
+                       dsize = DSize,
+                       msize = MSize,
+                       meta = MBin,
+                       csize = CSize,
+                       cnumber = CNum,
+                       cindex = CIndex,
+                       data = Body,
+                       clock = Clock,
+                       offset = Offset,
+                       timestamp = Timestamp,
+                       checksum = Checksum,
+                       del = Del}) ->
     {{Year,Month,Day},{Hour,Min,Second}} =
         calendar:gregorian_seconds_to_datetime(Timestamp),
     Padding = <<0:64>>,
@@ -594,11 +594,12 @@ put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key = Key,
                        error_logger:error_msg("~p,~p,~p,~p~n",
                                               [{module, ?MODULE_STRING},
                                                {function, "put_fun_2/3"},
-                                               {line, ?LINE}, {body, [{key, Key},
-                                                                      {del, DelFlag},
-                                                                      {timestamp, Timestamp},
-                                                                      {cause, "Not set timestamp correctly"}
-                                                                     ]}]),
+                                               {line, ?LINE},
+                                               {body, [{key, Key},
+                                                       {del, DelFlag},
+                                                       {timestamp, Timestamp},
+                                                       {cause, "Not set timestamp correctly"}
+                                                      ]}]),
                        Object_1#?OBJECT{timestamp = leo_date:now()};
                    false ->
                        Object_1
@@ -608,9 +609,9 @@ put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key = Key,
     put_fun_3(MetaDBId, StorageInfo, Needle, Metadata).
 
 %% @private
-put_fun_3(MetaDBId, StorageInfo, Needle, #?METADATA{key      = Key,
-                                                    addr_id  = AddrId,
-                                                    offset   = Offset,
+put_fun_3(MetaDBId, StorageInfo, Needle, #?METADATA{key = Key,
+                                                    addr_id = AddrId,
+                                                    offset = Offset,
                                                     checksum = Checksum} = Meta) ->
     #backend_info{write_handler = WriteHandler,
                   avs_ver_cur   = AVSVsnBin} = StorageInfo,
@@ -656,7 +657,7 @@ put_obj_to_new_cntnr(WriteHandler, Metadata, KeyBin, BodyBin) ->
         {ok, Offset} ->
             Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
             Object = leo_object_storage_transformer:metadata_to_object(Metadata_1),
-            Needle = create_needle(Object#?OBJECT{key  = KeyBin,
+            Needle = create_needle(Object#?OBJECT{key = KeyBin,
                                                   data = BodyBin,
                                                   offset = Offset}),
             case catch file:pwrite(WriteHandler, Offset, Needle) of
@@ -775,14 +776,16 @@ get_obj_for_new_cntnr(#?METADATA{ksize = KSize,
     end.
 
 %% @private
-get_obj_for_new_cntnr_1(_ReadHandler,_HeaderBin, #?METADATA{ksize = 0},_DSize,_Bin,_TotalSize) ->
+get_obj_for_new_cntnr_1(_ReadHandler,_HeaderBin,
+                        #?METADATA{ksize = 0},_DSize,_Bin,_TotalSize) ->
     {error, {?LINE, ?ERROR_DATA_SIZE_DID_NOT_MATCH}};
 get_obj_for_new_cntnr_1(ReadHandler, HeaderBin, #?METADATA{ksize = KSize} = Metadata,
                         DSize, Bin, TotalSize) ->
     << KeyBin:KSize/binary,
        BodyBin:DSize/binary,
        _Footer/binary>> = Bin,
-    get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, TotalSize).
+    get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata,
+                            KeyBin, BodyBin, TotalSize).
 
 %% @private
 get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, TotalSize) ->
@@ -805,9 +808,9 @@ get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, Total
         true ->
             HeaderSize = erlang:round(?BLEN_HEADER/8),
             #?METADATA{offset = Offset,
-                       ksize  = KSize,
-                       dsize  = DSize,
-                       msize  = MSize} = Metadata,
+                       ksize = KSize,
+                       dsize = DSize,
+                       msize = MSize} = Metadata,
 
             case (?MAX_DATABLOCK_SIZE > MSize andalso
                   MSize > 0) of

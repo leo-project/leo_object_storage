@@ -176,9 +176,9 @@ start_child_3([{NumOfContainers, Path}|Rest], Index,
               MetadataDB, BackendDBSupPid, IsStrictCheck, Acc) ->
     Path_1 = get_path(Path),
     Props  = [{num_of_containers, NumOfContainers},
-              {path,              Path_1},
-              {metadata_db,       MetadataDB},
-              {is_strict_check,   IsStrictCheck}
+              {path, Path_1},
+              {metadata_db, MetadataDB},
+              {is_strict_check, IsStrictCheck}
              ],
     true = ets:insert(?ETS_INFO_TABLE,
                       {list_to_atom(?MODULE_STRING ++ integer_to_list(Index)), Props}),
@@ -225,7 +225,7 @@ start_child_5() ->
         SupRef ->
             Ret = case supervisor:count_children(SupRef) of
                       [_|_] = Props ->
-                          Active  = leo_misc:get_value('active',  Props),
+                          Active  = leo_misc:get_value('active', Props),
                           Workers = leo_misc:get_value('workers', Props),
                           case (Active > 0 andalso Workers > 0) of
                               true ->
@@ -304,14 +304,14 @@ get_path(Path0) ->
                                  Props::[{atom(), any()}],
                                  ServerPair::{atom(), atom()}).
 add_container(BackendDBSupPid, Id, Props) ->
-    ObjStorageId    = gen_id(obj_storage,     Id),
-    MetaDBId        = gen_id(metadata,        Id),
-    LoggerId        = gen_id(diagnosis_logger,Id),
+    ObjStorageId = gen_id(obj_storage,     Id),
+    MetaDBId = gen_id(metadata,        Id),
+    LoggerId = gen_id(diagnosis_logger,Id),
     CompactWorkerId = gen_id(compact_worker,  Id),
 
     %% %% Launch metadata-db
     MetadataDB = leo_misc:get_value('metadata_db', Props),
-    Path       = leo_misc:get_value('path', Props),
+    Path = leo_misc:get_value('path', Props),
     ok = leo_backend_db_sup:start_child(
            BackendDBSupPid, MetaDBId, 1, MetadataDB,
            lists:append([Path, ?DEF_METADATA_STORAGE_SUB_DIR, integer_to_list(Id)])),
@@ -357,7 +357,7 @@ add_container_1(leo_compact_fsm_worker = Mod,
 
 add_container_1(leo_object_storage_server = Mod, BaseId,
                 ObjStorageId, MetaDBId, CompactWorkerId, LoggerId, Props) ->
-    Path          = leo_misc:get_value('path',            Props),
+    Path = leo_misc:get_value('path',            Props),
     IsStrictCheck = leo_misc:get_value('is_strict_check', Props),
 
     Args = [ObjStorageId, BaseId,
@@ -368,8 +368,8 @@ add_container_1(leo_object_storage_server = Mod, BaseId,
 
     case supervisor:start_child(?MODULE, ChildSpec) of
         {ok,_} ->
-            true = ets:insert(?ETS_CONTAINERS_TABLE, {BaseId, [{obj_storage,    ObjStorageId},
-                                                               {metadata,       MetaDBId},
+            true = ets:insert(?ETS_CONTAINERS_TABLE, {BaseId, [{obj_storage, ObjStorageId},
+                                                               {metadata, MetaDBId},
                                                                {compact_worker, CompactWorkerId}]}),
             ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, ObjStorageId}, ?STATE_ACTIVE),
             ok;

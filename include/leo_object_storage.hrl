@@ -74,8 +74,8 @@
 -undef(ST_IDLING).
 -undef(ST_RUNNING).
 -undef(ST_SUSPENDING).
--define(ST_IDLING,     'idling').
--define(ST_RUNNING,    'running').
+-define(ST_IDLING, 'idling').
+-define(ST_RUNNING, 'running').
 -define(ST_SUSPENDING, 'suspending').
 -type(compaction_state() :: ?ST_IDLING     |
                             ?ST_RUNNING    |
@@ -149,12 +149,12 @@
           num_of_reserved_targets = 0  :: non_neg_integer(),
           num_of_pending_targets  = 0  :: non_neg_integer(),
           num_of_ongoing_targets  = 0  :: non_neg_integer(),
-          reserved_targets = []        :: [atom()],
-          pending_targets  = []        :: [atom()],
-          ongoing_targets  = []        :: [atom()],
-          locked_targets   = []        :: [atom()],
-          latest_exec_datetime = 0     :: non_neg_integer(),
-          acc_reports = []             :: [#compaction_report{}]
+          reserved_targets = [] :: [atom()],
+          pending_targets  = [] :: [atom()],
+          ongoing_targets  = [] :: [atom()],
+          locked_targets   = [] :: [atom()],
+          latest_exec_datetime = 0 :: non_neg_integer(),
+          acc_reports = [] :: [#compaction_report{}]
          }).
 
 %% Error Constants
@@ -194,8 +194,8 @@
 %% AVS-Related
 %%--------------------------------------------------------------------
 %% AVS version strings
--define(AVS_HEADER_VSN_2_2,  <<"LeoFS AVS-2.2">>). %% leofs v0.14 - v1.0.0-pre1
--define(AVS_HEADER_VSN_2_4,  <<"LeoFS AVS-2.4">>). %% leofs v1.0.0-pre1 - current ver
+-define(AVS_HEADER_VSN_2_2, <<"LeoFS AVS-2.2">>). %% leofs v0.14 - v1.0.0-pre1
+-define(AVS_HEADER_VSN_2_4, <<"LeoFS AVS-2.4">>). %% leofs v1.0.0-pre1 - current ver
 -define(AVS_HEADER_VSN_TOBE, ?AVS_HEADER_VSN_2_4).
 
 %% Max Data Block Size to be larger than leo_gateway's large object settings
@@ -287,80 +287,75 @@
 %% Metadata
 %% - leofs-v1.0.0-pre3
 -record(metadata, {
-          key = <<>>          :: binary(),  %% filename
-          addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
-          ksize      = 0      :: integer(), %% file-path size
-          dsize      = 0      :: integer(), %% data size
-          msize      = 0      :: integer(), %% custom-metadata size
+          key = <<>> :: binary(),   %% filename
+          addr_id = 0 :: integer(), %% ring-address id (MD5 > hex-to-integer)
+          ksize = 0 :: integer(),   %% file-path size
+          dsize = 0 :: integer(),   %% data size
+          msize = 0 :: integer(),   %% custom-metadata size
 
           %% for large-size object
-          csize      = 0      :: integer(), %% chunked data size
-          cnumber    = 0      :: integer(), %% # of chunked objects
-          cindex     = 0      :: integer(), %% chunked object index
+          csize = 0 :: integer(),   %% chunked data size
+          cnumber = 0 :: integer(), %% # of chunked objects
+          cindex = 0 :: integer(),  %% chunked object index
 
-          offset     = 0      :: integer(), %% object-container's offset
-          clock      = 0      :: integer(), %% clock
-          timestamp  = 0      :: integer(), %% timestamp
-          checksum   = 0      :: integer(), %% checksum (MD5 > hex-to-integer)
-          ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
-          del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
+          offset = 0 :: integer(),    %% object-container's offset
+          clock = 0 :: integer(),     %% clock
+          timestamp = 0 :: integer(), %% timestamp
+          checksum = 0 :: integer(),  %% checksum (MD5 > hex-to-integer)
+          ring_hash = 0 :: integer(), %% RING's Hash(CRC32) when write an object.
+          del = ?DEL_FALSE :: del_flag() %% [{0,not_deleted}, {1,deleted}]
          }).
 
 %% leofs-v1.0.0 - v1.2.12
 -record(metadata_1, {
-          key = <<>>          :: binary(),  %% filename
-          addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
-          ksize      = 0      :: integer(), %% file-path size
-          dsize      = 0      :: integer(), %% data size
-          msize      = 0      :: integer(), %% custom-metadata size
-
-          %% for large-size object
-          csize      = 0      :: integer(), %% chunked data size
-          cnumber    = 0      :: integer(), %% # of chunked objects
-          cindex     = 0      :: integer(), %% chunked object index
-
-          offset     = 0      :: integer(), %% object-container's offset
-          clock      = 0      :: integer(), %% clock
-          timestamp  = 0      :: integer(), %% timestamp
-          checksum   = 0      :: integer(), %% checksum (MD5 > hex-to-integer)
-          ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
-
-          cluster_id          :: atom(),    %% cluster-id for the mdc-replication
+          key = <<>> :: binary(),   %% filename
+          addr_id = 0 :: integer(), %% ring-address id (MD5 > hex-to-integer)
+          ksize = 0 :: integer(),   %% file-path size
+          dsize = 0 :: integer(),   %% data size
+          msize = 0 :: integer(),   %% custom-metadata size
+          %% large-size object elements:
+          csize = 0 :: integer(),   %% chunked data size
+          cnumber = 0 :: integer(), %% # of chunked objects
+          cindex = 0 :: integer(),  %% chunked object index
+          %% common elements:
+          offset = 0 :: integer(),    %% object-container's offset
+          clock = 0 :: integer(),     %% clock
+          timestamp = 0 :: integer(), %% timestamp
+          checksum = 0 :: integer(),  %% checksum (MD5 > hex-to-integer)
+          ring_hash = 0 :: integer(), %% RING's Hash(CRC32) when write an object.
+          %% multi-dc-replication elements:
+          cluster_id :: atom(),             %% cluster-id for the mdc-replication
           num_of_replicas = 0 :: integer(), %% # of replicas for the mdc-replication
-          ver = 0             :: integer(), %% version number
-
+          ver = 0 :: integer(),             %% version number
           del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
          }).
 
 %% leofs-v1.4.0 - current ver
 -record(metadata_2, {
-          key = <<>>          :: binary(),  %% filename
-          addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
-          ksize      = 0      :: integer(), %% file-path size
-          dsize      = 0      :: integer(), %% data size
-          msize      = 0      :: integer(), %% custom-metadata size
-
-          %% for large-size object
-          csize      = 0      :: integer(), %% chunked data size
-          cnumber    = 0      :: integer(), %% # of chunked objects
-          cindex     = 0      :: integer(), %% chunked object index
-
-          %% for erasure-coding
-          datatype = ?DATATYPE_COPY :: datatype(), %% datatype of the object:[copy|fragment]
-          rep_method = ?REP_COPY :: rep_method(),  %% replication method: [copy|erasure-code]
+          %% common elements:
+          key = <<>> :: binary(),   %% filename
+          addr_id = 0 :: integer(), %% ring-address id (MD5 > hex-to-integer)
+          ksize = 0 :: integer(),   %% file-path size
+          dsize = 0 :: integer(),   %% data size
+          msize = 0 :: integer(),   %% custom-metadata size
+          offset = 0 :: integer(),    %% object-container's offset
+          clock = 0 :: integer(),     %% clock
+          timestamp = 0 :: integer(), %% timestamp
+          checksum = 0 :: integer(),  %% checksum (MD5 > hex-to-integer)
+          ring_hash = 0 :: integer(), %% RING's Hash(CRC32) when write an object.
+          %% large-size object elements:
+          csize = 0 :: integer(),   %% chunked data size
+          cnumber = 0 :: integer(), %% # of chunked objects
+          cindex = 0 :: integer(),  %% chunked object index
+          %% multi-dc-replication elements:
+          cluster_id :: atom(),             %% cluster-id for the mdc-replication
+          num_of_replicas = 0 :: integer(), %% # of replicas for the mdc-replication
+          ver = 0 :: integer(),             %% version number
+          %% erasure-coding elements:
+          datatype = ?DATATYPE_COPY :: datatype(),    %% datatype of the object:[copy|fragment]
+          rep_method = ?REP_COPY :: rep_method(),     %% replication method: [copy|erasure-code]
           ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_jerasure
           ec_params = undefined :: undefined|tuple(), %% erasure-code params: @DEPEND:leo_jerasure
-
-          offset     = 0      :: integer(), %% object-container's offset
-          clock      = 0      :: integer(), %% clock
-          timestamp  = 0      :: integer(), %% timestamp
-          checksum   = 0      :: integer(), %% checksum (MD5 > hex-to-integer)
-          ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
-
-          cluster_id          :: atom(),    %% cluster-id for the mdc-replication
-          num_of_replicas = 0 :: integer(), %% # of replicas for the mdc-replication
-          ver = 0             :: integer(), %% version number
-
           del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
          }).
 -define(METADATA, 'metadata_2').
@@ -370,100 +365,95 @@
 %% - leofs-v1.0.0-pre3
 -record(object, { %% - leofs-v1.0.0-pre3
           method :: atom(),
-          key        = <<>>   :: binary(),  %% filename
-          addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
-          data       = <<>>   :: binary(),  %% file
-          meta       = <<>>   :: binary(),  %% custom-metadata
-          ksize      = 0      :: integer(), %% filename size
-          dsize      = 0      :: integer(), %% data size
-          msize      = 0      :: integer(), %% custom-metadata size
-
-          csize      = 0      :: integer(), %% * chunked data size    (for large-object)
-          cnumber    = 0      :: integer(), %% * # of chunked objects (for large-object)
-          cindex     = 0      :: integer(), %% * chunked object index (for large-object)
-
-          offset     = 0      :: integer(), %% object-container's offset
-          clock      = 0      :: integer(), %% clock
-          timestamp  = 0      :: integer(), %% timestamp
-          checksum   = 0      :: integer(), %% checksum (MD5 > hex-to-integer)
-          ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
-          req_id     = 0      :: integer(), %% request id
+          key = <<>> :: binary(),   %% filename
+          addr_id = 0 :: integer(), %% ring-address id (MD5 > hex-to-integer)
+          data = <<>> :: binary(),  %% file
+          meta = <<>> :: binary(),  %% custom-metadata
+          ksize = 0 :: integer(),   %% filename size
+          dsize = 0 :: integer(),   %% data size
+          msize = 0 :: integer(),   %% custom-metadata size
+          %% large-size object elements:
+          csize = 0 :: integer(),   %% * chunked data size    (for large-object)
+          cnumber = 0 :: integer(), %% * # of chunked objects (for large-object)
+          cindex = 0 :: integer(),  %% * chunked object index (for large-object)
+          %% common elements:
+          offset = 0 :: integer(), %% object-container's offset
+          clock = 0 :: integer(),  %% clock
+          timestamp = 0 :: integer(), %% timestamp
+          checksum = 0 :: integer(),  %% checksum (MD5 > hex-to-integer)
+          ring_hash = 0 :: integer(), %% RING's Hash(CRC32) when write an object.
+          req_id = 0 :: integer(),    %% request id
           del = ?DEL_FALSE    :: del_flag() %% delete flag
          }).
 
 %% leofs-v1.0.0 - v1.2.12
 -record(object_1, {
           method :: atom(),
-          key        = <<>>   :: binary(),  %% filename
-          addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
-          data       = <<>>   :: binary(),  %% file
-          meta       = <<>>   :: binary(),  %% custom-metadata
-          ksize      = 0      :: integer(), %% filename size
-          dsize      = 0      :: integer(),         %% data size
-          msize      = 0      :: integer(), %% custom-metadata size
-
-          csize      = 0      :: integer(), %% * chunked data size    (for large-object)
-          cnumber    = 0      :: integer(), %% * # of chunked objects (for large-object)
-          cindex     = 0      :: integer(), %% * chunked object index (for large-object)
-
-          offset     = 0      :: integer(), %% object-container's offset
-          clock      = 0      :: integer(), %% clock
-          timestamp  = 0      :: integer(), %% timestamp
-          checksum   = 0      :: integer(), %% checksum (MD5 > hex-to-integer)
-          ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
-          req_id     = 0      :: integer(), %% request id
-
-          %% for large-size object
-          cluster_id          :: atom(),    %% cluster-id for the mdc-replication
+          key = <<>> :: binary(),   %% filename
+          addr_id = 0 :: integer(), %% ring-address id (MD5 > hex-to-integer)
+          data = <<>> :: binary(),  %% file
+          meta = <<>> :: binary(),  %% custom-metadata
+          ksize = 0 :: integer(),   %% filename size
+          dsize = 0 :: integer(),   %% data size
+          msize = 0 :: integer(),   %% custom-metadata size
+          %% large-size object elements:
+          csize = 0 :: integer(),   %% * chunked data size    (for large-object)
+          cnumber = 0 :: integer(), %% * # of chunked objects (for large-object)
+          cindex = 0 :: integer(),  %% * chunked object index (for large-object)
+          %% common elements:
+          offset = 0 :: integer(),    %% object-container's offset
+          clock = 0 :: integer(),     %% clock
+          timestamp = 0 :: integer(), %% timestamp
+          checksum = 0 :: integer(),  %% checksum (MD5 > hex-to-integer)
+          ring_hash = 0 :: integer(), %% RING's Hash(CRC32) when write an object.
+          req_id  = 0 :: integer(),   %% request id
+          %% multi-dc-replication elements:
+          cluster_id :: atom(),             %% cluster-id for the mdc-replication
           num_of_replicas = 0 :: integer(), %% # of replicas for the mdc-replication
-          ver = 0             :: integer(), %% version number
-
-          del = ?DEL_FALSE    :: del_flag() %% delete flag
+          ver = 0 :: integer(),             %% version number
+          del = ?DEL_FALSE :: del_flag()    %% delete flag
          }).
 
 %% leofs-v1.4.0 - current ver
 -record(object_2, {
+          %% common elements:
           method :: atom(),
-          key        = <<>>   :: binary(),  %% filename
-          addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
-          data       = <<>>   :: binary(),  %% file
-          meta       = <<>>   :: binary(),  %% custom-metadata
-          ksize      = 0      :: integer(), %% filename size
-          dsize      = 0      :: integer(),         %% data size
-          msize      = 0      :: integer(), %% custom-metadata size
-
-          csize      = 0      :: integer(), %% * chunked data size    (for large-object)
-          cnumber    = 0      :: integer(), %% * # of chunked objects (for large-object)
-          cindex     = 0      :: integer(), %% * chunked object index (for large-object)
-
-          offset     = 0      :: integer(), %% object-container's offset
-          clock      = 0      :: integer(), %% clock
-          timestamp  = 0      :: integer(), %% timestamp
-          checksum   = 0      :: integer(), %% checksum (MD5 > hex-to-integer)
-          ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
-          req_id     = 0      :: integer(), %% request id
-
-          %% for large-size object
-          cluster_id          :: atom(),    %% cluster-id for the mdc-replication
+          key = <<>> :: binary(),   %% filename
+          addr_id = 0 :: integer(), %% ring-address id (MD5 > hex-to-integer)
+          data = <<>> :: binary(),  %% file
+          meta = <<>> :: binary(),  %% custom-metadata
+          ksize = 0 :: integer(),   %% filename size
+          dsize = 0 :: integer(),   %% data size
+          msize = 0 :: integer(),   %% custom-metadata size
+          offset = 0 :: integer(),    %% object-container's offset
+          clock = 0 :: integer(),     %% clock
+          timestamp = 0 :: integer(), %% timestamp
+          checksum = 0 :: integer(),  %% checksum (MD5 > hex-to-integer)
+          ring_hash = 0 :: integer(), %% RING's Hash(CRC32) when write an object.
+          req_id = 0 :: integer(),    %% request id
+          %% large-size object elements:
+          csize = 0 :: integer(),   %% * chunked data size    (for large-object)
+          cnumber = 0 :: integer(), %% * # of chunked objects (for large-object)
+          cindex = 0 :: integer(),  %% * chunked object index (for large-object)
+          %% multi-dc-replication elements:
+          cluster_id :: atom(),             %% cluster-id for the mdc-replication
           num_of_replicas = 0 :: integer(), %% # of replicas for the mdc-replication
-          ver = 0             :: integer(), %% version number
-
-          %% for erasure-coding
+          ver = 0 :: integer(),             %% version number
+          %% erasure-coding elements:
           datatype = ?DATATYPE_COPY :: datatype(), %% datatype of the object:[copy|fragment]
           rep_method = ?REP_COPY :: rep_method(),  %% replication method: [copy|erasure-code]
           ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_jerasure
           ec_params = undefined :: undefined|tuple(), %% erasure-code params: @DEPEND:leo_jerasure
-
           del = ?DEL_FALSE    :: del_flag() %% delete flag
          }).
 -define(OBJECT, 'object_2').
 
 -record(storage_stats, {
-          file_path       = [] :: string(),
-          total_sizes     = 0  :: non_neg_integer(),
-          active_sizes    = 0  :: non_neg_integer(),
-          total_num       = 0  :: non_neg_integer(),
-          active_num      = 0  :: non_neg_integer(),
+          file_path = [] :: string(),
+          total_sizes = 0 :: non_neg_integer(),
+          active_sizes = 0 :: non_neg_integer(),
+          total_num = 0 :: non_neg_integer(),
+          active_num = 0  :: non_neg_integer(),
           compaction_hist = [] :: [#compaction_hist{}]
          }).
 
@@ -638,7 +628,7 @@
           id :: atom(),
           event = ?EVENT_RUN :: compaction_event(),
           controller_pid :: pid(),
-          client_pid     :: pid(),
+          client_pid :: pid(),
           is_diagnosing = false :: boolean(),
           is_recovering = false :: boolean(),
           is_forced_run = false :: boolean(),
@@ -649,41 +639,41 @@
           key_bin  = <<>> :: binary(),
           body_bin = <<>> :: binary(),
           metadata = #?METADATA{} :: #?METADATA{},
-          next_offset = 0         :: non_neg_integer()|eof,
-          start_lock_offset = 0   :: non_neg_integer(),
-          callback                :: module(),
-          num_of_active_objs = 0  :: non_neg_integer(),
+          next_offset = 0 :: non_neg_integer()|eof,
+          start_lock_offset = 0 :: non_neg_integer(),
+          callback :: module(),
+          num_of_active_objs = 0 :: non_neg_integer(),
           size_of_active_objs = 0 :: non_neg_integer(),
-          total_num_of_objs = 0   :: non_neg_integer(),
-          total_size_of_objs = 0  :: non_neg_integer()
+          total_num_of_objs = 0 :: non_neg_integer(),
+          total_size_of_objs = 0 :: non_neg_integer()
          }).
 
 -record(compaction_worker_state, {
           id :: atom(),
           obj_storage_id :: atom(),
-          meta_db_id     :: atom(),
+          meta_db_id :: atom(),
           obj_storage_info = #backend_info{} :: #backend_info{},
-          compact_cntl_pid       :: pid(),
-          diagnosis_log_id       :: atom(),
-          status = ?ST_IDLING    :: compaction_state(),
-          is_locked = false      :: boolean(),
-          is_diagnosing = false  :: boolean(),
-          is_recovering = false  :: boolean(),
+          compact_cntl_pid :: pid(),
+          diagnosis_log_id :: atom(),
+          status = ?ST_IDLING :: compaction_state(),
+          is_locked = false :: boolean(),
+          is_diagnosing = false :: boolean(),
+          is_recovering = false :: boolean(),
           is_forced_suspending = false :: boolean(),
           %% interval_between_batch_procs:
-          interval = 0     :: non_neg_integer(),
+          interval = 0 :: non_neg_integer(),
           max_interval = 0 :: non_neg_integer(),
           %% batch-procs:
           count_procs = 0 :: non_neg_integer(),
-          num_of_batch_procs = 0     :: non_neg_integer(),
+          num_of_batch_procs = 0 :: non_neg_integer(),
           max_num_of_batch_procs = 0 :: non_neg_integer(),
           num_of_steps = ?DEF_COMPACTION_NUM_OF_STEPS :: pos_integer(),
           %% compaction-info:
           compaction_prms = #compaction_prms{} :: #compaction_prms{},
           start_datetime = 0 :: non_neg_integer(),
-          error_pos = 0      :: non_neg_integer(),
-          set_errors         :: set(),
-          acc_errors = []    :: [{pos_integer(), pos_integer()}],
+          error_pos = 0 :: non_neg_integer(),
+          set_errors :: set(),
+          acc_errors = [] :: [{pos_integer(), pos_integer()}],
           result :: compaction_ret()
          }).
 

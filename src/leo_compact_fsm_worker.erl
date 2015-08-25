@@ -104,9 +104,9 @@ run(Id, IsDiagnosing, IsRecovering) ->
 run(Id, ControllerPid, IsDiagnosing, IsRecovering, CallbackMod) ->
     gen_fsm:sync_send_event(Id, #compaction_event_info{event = ?EVENT_RUN,
                                                        controller_pid = ControllerPid,
-                                                       is_diagnosing  = IsDiagnosing,
-                                                       is_recovering  = IsRecovering,
-                                                       is_forced_run  = false,
+                                                       is_diagnosing = IsDiagnosing,
+                                                       is_recovering = IsRecovering,
+                                                       is_forced_run = false,
                                                        callback = CallbackMod}, ?DEF_TIMEOUT).
 
 -spec(forced_run(Id, IsDiagnosing, IsRecovering) ->
@@ -172,19 +172,19 @@ decrease(Id) ->
 init([Id, ObjStorageId, MetaDBId, LoggerId]) ->
     {ok, ?ST_IDLING, #compaction_worker_state{
                         id = Id,
-                        obj_storage_id     = ObjStorageId,
-                        meta_db_id         = MetaDBId,
-                        diagnosis_log_id   = LoggerId,
-                        interval       = ?env_compaction_interval_reg(),
-                        max_interval   = ?env_compaction_interval_max(),
-                        num_of_batch_procs        = ?env_compaction_num_of_batch_procs_reg(),
-                        max_num_of_batch_procs    = ?env_compaction_num_of_batch_procs_max(),
+                        obj_storage_id = ObjStorageId,
+                        meta_db_id = MetaDBId,
+                        diagnosis_log_id = LoggerId,
+                        interval = ?env_compaction_interval_reg(),
+                        max_interval = ?env_compaction_interval_max(),
+                        num_of_batch_procs = ?env_compaction_num_of_batch_procs_reg(),
+                        max_num_of_batch_procs = ?env_compaction_num_of_batch_procs_max(),
                         compaction_prms = #compaction_prms{
-                                             key_bin  = <<>>,
+                                             key_bin = <<>>,
                                              body_bin = <<>>,
                                              metadata = #?METADATA{},
                                              next_offset = 0,
-                                             num_of_active_objs  = 0,
+                                             num_of_active_objs = 0,
                                              size_of_active_objs = 0}}}.
 
 %% @doc Handle events
@@ -237,28 +237,28 @@ format_status(_Opt, [_PDict, State]) ->
                       State::#compaction_worker_state{}).
 idling(#compaction_event_info{event = ?EVENT_RUN,
                               controller_pid = ControllerPid,
-                              is_diagnosing  = IsDiagnosing,
-                              is_recovering  = IsRecovering,
-                              is_forced_run  = false,
+                              is_diagnosing = IsDiagnosing,
+                              is_recovering = IsRecovering,
+                              is_forced_run = false,
                               callback = CallbackMod}, From,
        #compaction_worker_state{id = Id,
                                 compaction_prms = CompactionPrms} = State) ->
     NextStatus = ?ST_RUNNING,
     State_1 = State#compaction_worker_state{
                 compact_cntl_pid = ControllerPid,
-                status        = NextStatus,
+                status = NextStatus,
                 is_diagnosing = IsDiagnosing,
                 is_recovering = IsRecovering,
-                error_pos     = 0,
-                set_errors    = sets:new(),
-                acc_errors    = [],
-                interval      = ?env_compaction_interval_reg(),
-                max_interval  = ?env_compaction_interval_max(),
-                num_of_batch_procs     = ?env_compaction_num_of_batch_procs_reg(),
+                error_pos = 0,
+                set_errors = sets:new(),
+                acc_errors = [],
+                interval = ?env_compaction_interval_reg(),
+                max_interval = ?env_compaction_interval_max(),
+                num_of_batch_procs = ?env_compaction_num_of_batch_procs_reg(),
                 max_num_of_batch_procs = ?env_compaction_num_of_batch_procs_max(),
                 compaction_prms =
                     CompactionPrms#compaction_prms{
-                      num_of_active_objs  = 0,
+                      num_of_active_objs = 0,
                       size_of_active_objs = 0,
                       next_offset = ?AVS_SUPER_BLOCK_LEN,
                       callback = CallbackMod
@@ -271,7 +271,7 @@ idling(#compaction_event_info{event = ?EVENT_RUN,
             {next_state, NextStatus, State_2};
         {{error, Cause}, #compaction_worker_state{obj_storage_info =
                                                       #backend_info{write_handler = WriteHandler,
-                                                                    read_handler  = ReadHandler}}} ->
+                                                                    read_handler = ReadHandler}}} ->
             catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
             gen_fsm:reply(From, {error, Cause}),
             {next_state, ?ST_IDLING, State_1}
@@ -311,9 +311,9 @@ running(#compaction_event_info{event = ?EVENT_RUN,
                                is_diagnosing = IsDiagnosing,
                                is_recovering = IsRecovering},
         #compaction_worker_state{id = Id,
-                                 obj_storage_id   = ObjStorageId,
+                                 obj_storage_id = ObjStorageId,
                                  compact_cntl_pid = CompactCntlPid,
-                                 interval  = Interval,
+                                 interval = Interval,
                                  count_procs = CountProcs,
                                  num_of_batch_procs = BatchProcs,
                                  compaction_prms =
@@ -419,7 +419,7 @@ running(#compaction_event_info{event = ?EVENT_INCREASE},
 running(#compaction_event_info{event = ?EVENT_DECREASE},
         #compaction_worker_state{num_of_batch_procs = BatchProcs,
                                  interval = Interval,
-                                 max_interval  = MaxInterval,
+                                 max_interval = MaxInterval,
                                  num_of_steps = NumOfSteps} = State) ->
     {ok, {StepBatchProcs, StepInterval}} =
         ?step_compaction_proc_values(?env_compaction_num_of_batch_procs_reg(),
@@ -541,7 +541,7 @@ calc_remain_disksize(MetaDBId, FilePath) ->
                             {error, Reason};
                         MetaSize ->
                             AvsSize = filelib:file_size(FilePath),
-                            Remain  = leo_file:file_get_remain_disk(MountPath),
+                            Remain = leo_file:file_get_remain_disk(MountPath),
                             {ok, erlang:round(Remain - (AvsSize + MetaSize))}
                     end;
                 _ ->
@@ -556,11 +556,11 @@ calc_remain_disksize(MetaDBId, FilePath) ->
 -spec(prepare(State) ->
              {ok, State} | {{error, any()}, State} when State::#compaction_worker_state{}).
 prepare(#compaction_worker_state{obj_storage_id = ObjStorageId,
-                                 meta_db_id  = MetaDBId} = State) ->
+                                 meta_db_id = MetaDBId} = State) ->
     %% Retrieve the current container's path
     {ok, #backend_info{
             linked_path = LinkedPath,
-            file_path   = FilePath}} = ?get_obj_storage_info(ObjStorageId),
+            file_path = FilePath}} = ?get_obj_storage_info(ObjStorageId),
 
     %% Retrieve the remain disk-size
     case calc_remain_disksize(MetaDBId, LinkedPath) of
@@ -580,21 +580,19 @@ prepare(#compaction_worker_state{obj_storage_id = ObjStorageId,
 
 prepare_1(LinkedPath, FilePath,
           #compaction_worker_state{compaction_prms = CompactionPrms,
-                                   is_diagnosing   = true} = State) ->
+                                   is_diagnosing = true} = State) ->
     case leo_object_storage_haystack:open(FilePath, read) of
         {ok, [_, ReadHandler, AVSVsnBinPrv]} ->
             FileSize = filelib:file_size(FilePath),
             ok = file:advise(ReadHandler,  0, FileSize, sequential),
             {ok, State#compaction_worker_state{
-                   obj_storage_info =
-                       #backend_info{
-                          avs_ver_cur   = <<>>,
-                          avs_ver_prv   = AVSVsnBinPrv,
-                          write_handler = undefined,
-                          read_handler  = ReadHandler,
-                          linked_path   = LinkedPath,
-                          file_path     = []
-                         },
+                   obj_storage_info = #backend_info{
+                                         avs_ver_cur = <<>>,
+                                         avs_ver_prv = AVSVsnBinPrv,
+                                         write_handler = undefined,
+                                         read_handler = ReadHandler,
+                                         linked_path = LinkedPath,
+                                         file_path = []},
                    compaction_prms =
                        CompactionPrms#compaction_prms{
                          start_lock_offset = FileSize
@@ -623,15 +621,13 @@ prepare_1(LinkedPath, FilePath,
                     case leo_backend_db_api:run_compaction(MetaDBId) of
                         ok ->
                             {ok, State#compaction_worker_state{
-                                   obj_storage_info =
-                                       #backend_info{
-                                          avs_ver_cur   = AVSVsnBinCur,
-                                          avs_ver_prv   = AVSVsnBinPrv,
-                                          write_handler = WriteHandler,
-                                          read_handler  = ReadHandler,
-                                          linked_path   = LinkedPath,
-                                          file_path     = NewFilePath
-                                         },
+                                   obj_storage_info = #backend_info{
+                                                         avs_ver_cur = AVSVsnBinCur,
+                                                         avs_ver_prv = AVSVsnBinPrv,
+                                                         write_handler = WriteHandler,
+                                                         read_handler = ReadHandler,
+                                                         linked_path = LinkedPath,
+                                                         file_path = NewFilePath},
                                    compaction_prms =
                                        CompactionPrms#compaction_prms{
                                          start_lock_offset = FileSize
@@ -653,28 +649,29 @@ prepare_1(LinkedPath, FilePath,
 %% @private
 -spec(execute(State) ->
              {ok, State} | {{error, any()}, State} when State::#compaction_worker_state{}).
-execute(#compaction_worker_state{meta_db_id       = MetaDBId,
+execute(#compaction_worker_state{meta_db_id = MetaDBId,
                                  diagnosis_log_id = LoggerId,
                                  obj_storage_info = StorageInfo,
-                                 is_diagnosing    = IsDiagnosing,
-                                 is_recovering    = IsRecovering,
-                                 compaction_prms  = CompactionPrms} = State) ->
+                                 is_diagnosing = IsDiagnosing,
+                                 is_recovering = IsRecovering,
+                                 compaction_prms = CompactionPrms} = State) ->
     %% Initialize set-error property
     State_1 = State#compaction_worker_state{set_errors = sets:new()},
-    Offset   = CompactionPrms#compaction_prms.next_offset,
+    Offset = CompactionPrms#compaction_prms.next_offset,
     Metadata = CompactionPrms#compaction_prms.metadata,
+    ?debugVal(Metadata),
 
     %% Execute compaction
     case (Offset == ?AVS_SUPER_BLOCK_LEN) of
         true ->
             execute_1(State_1);
         false ->
-            #compaction_prms{key_bin  = Key,
+            #compaction_prms{key_bin = Key,
                              body_bin = Body,
                              callback = CallbackMod,
-                             num_of_active_objs  = NumOfActiveObjs,
+                             num_of_active_objs = NumOfActiveObjs,
                              size_of_active_objs = ActiveSize,
-                             total_num_of_objs  = TotalObjs,
+                             total_num_of_objs = TotalObjs,
                              total_size_of_objs = TotaSize} = CompactionPrms,
             NumOfReplicas = Metadata#?METADATA.num_of_replicas,
             HasChargeOfNode = case (CallbackMod == undefined) of
@@ -715,9 +712,9 @@ execute(#compaction_worker_state{meta_db_id       = MetaDBId,
                                StorageInfo#backend_info.write_handler, Metadata, Key, Body) of
                             {ok, Offset_1} ->
                                 Metadata_1 = Metadata#?METADATA{offset = Offset_1},
-                                KeyOfMeta  = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
-                                                              Metadata#?METADATA.addr_id,
-                                                              Metadata#?METADATA.key),
+                                KeyOfMeta = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
+                                                             Metadata#?METADATA.addr_id,
+                                                             Metadata#?METADATA.key),
                                 Ret = leo_backend_db_api:put_value_to_new_db(
                                         MetaDBId, KeyOfMeta, term_to_binary(Metadata_1)),
 
@@ -743,8 +740,8 @@ execute(#compaction_worker_state{meta_db_id       = MetaDBId,
                     execute_1(Ret_1,
                               NewState#compaction_worker_state{
                                 compaction_prms = CompactionPrms_1#compaction_prms{
-                                                    total_num_of_objs  = TotalObjs + 1,
-                                                    total_size_of_objs = TotaSize  +
+                                                    total_num_of_objs = TotalObjs + 1,
+                                                    total_size_of_objs = TotaSize +
                                                         leo_object_storage_haystack:calc_obj_size(Metadata)
                                                    }})
             end
@@ -766,10 +763,10 @@ execute_1(Ret, State) ->
              {{error, any()}, State} when Ret::ok|{error,any()},
                                           State::#compaction_worker_state{},
                                           RetryTimes::non_neg_integer()).
-execute_1(ok = Ret, #compaction_worker_state{meta_db_id       = MetaDBId,
+execute_1(ok = Ret, #compaction_worker_state{meta_db_id = MetaDBId,
                                              obj_storage_info = StorageInfo,
-                                             compaction_prms  = CompactionPrms,
-                                             is_recovering    = IsRecovering} = State, RetryTimes) ->
+                                             compaction_prms = CompactionPrms,
+                                             is_recovering = IsRecovering} = State, RetryTimes) ->
     erlang:garbage_collect(self()),
     ReadHandler = StorageInfo#backend_info.read_handler,
     NextOffset  = CompactionPrms#compaction_prms.next_offset,
@@ -808,25 +805,24 @@ execute_1(ok = Ret, #compaction_worker_state{meta_db_id       = MetaDBId,
             {ok, {next, State_1#compaction_worker_state{
                           error_pos  = 0,
                           set_errors = sets:new(),
-                          compaction_prms =
-                              CompactionPrms#compaction_prms{
-                                key_bin     = NewKeyValue,
-                                body_bin    = NewBodyValue,
-                                metadata    = NewMetadata,
-                                next_offset = NewNextOffset}
+                          compaction_prms = CompactionPrms#compaction_prms{
+                                              key_bin = NewKeyValue,
+                                              body_bin = NewBodyValue,
+                                              metadata = NewMetadata,
+                                              next_offset = NewNextOffset}
                          }}};
 
         %% Reached tail of the object-container
         {error, eof = Cause} ->
             {ok, State_1} = output_accumulated_errors(State, NextOffset),
-            NumOfAcriveObjs  = CompactionPrms#compaction_prms.num_of_active_objs,
+            NumOfAcriveObjs = CompactionPrms#compaction_prms.num_of_active_objs,
             SizeOfActiveObjs = CompactionPrms#compaction_prms.size_of_active_objs,
             {ok, {Cause, State_1#compaction_worker_state{
-                           error_pos  = 0,
+                           error_pos = 0,
                            set_errors = sets:new(),
                            compaction_prms =
                                CompactionPrms#compaction_prms{
-                                 num_of_active_objs  = NumOfAcriveObjs,
+                                 num_of_active_objs = NumOfAcriveObjs,
                                  size_of_active_objs = SizeOfActiveObjs,
                                  next_offset = Cause}
                           }}};
@@ -859,7 +855,7 @@ execute_1(ok = Ret, #compaction_worker_state{meta_db_id       = MetaDBId,
                                          State#compaction_worker_state.set_errors),
             execute_1(ok,
                       State#compaction_worker_state{
-                        error_pos  = ErrorPosNew,
+                        error_pos = ErrorPosNew,
                         set_errors = SetErrors,
                         compaction_prms =
                             CompactionPrms#compaction_prms{
@@ -877,12 +873,12 @@ execute_2(Ret, CompactionPrms, Metadata, NumOfActiveObjs, ActiveSize, State) ->
      State#compaction_worker_state{
        compaction_prms = CompactionPrms#compaction_prms{
                            metadata = Metadata,
-                           num_of_active_objs  = NumOfActiveObjs + 1,
+                           num_of_active_objs = NumOfActiveObjs + 1,
                            size_of_active_objs = ActiveSize + ObjectSize}}}.
 
 
 %% @private
-finish(#compaction_worker_state{obj_storage_id   = ObjStorageId,
+finish(#compaction_worker_state{obj_storage_id = ObjStorageId,
                                 compact_cntl_pid = CntlPid} = State) ->
     %% Generate the compaction report
     {ok, Report} = gen_compaction_report(State),
@@ -893,7 +889,7 @@ finish(#compaction_worker_state{obj_storage_id   = ObjStorageId,
     %% Unlock handling request
     ok = leo_object_storage_server:unlock(ObjStorageId),
     {ok, State#compaction_worker_state{start_datetime = 0,
-                                       error_pos  = 0,
+                                       error_pos = 0,
                                        set_errors = sets:new(),
                                        acc_errors = [],
                                        obj_storage_info = #backend_info{},
@@ -901,8 +897,8 @@ finish(#compaction_worker_state{obj_storage_id   = ObjStorageId,
 
 %% @private
 after_execute(Ret, #compaction_worker_state{obj_storage_info = StorageInfo,
-                                            is_diagnosing    = IsDiagnosing,
-                                            is_recovering    = _IsRecovering,
+                                            is_diagnosing = IsDiagnosing,
+                                            is_recovering = _IsRecovering,
                                             diagnosis_log_id = LoggerId} = State) ->
     %% Close file handlers
     ReadHandler  = StorageInfo#backend_info.read_handler,
@@ -924,25 +920,19 @@ after_execute(Ret, #compaction_worker_state{obj_storage_info = StorageInfo,
 
 %% @doc Reduce objects from the object-container.
 %% @private
-after_execute_1({_, #compaction_worker_state{
-                       is_diagnosing = true,
-                       compaction_prms =
-                           #compaction_prms{
-                              num_of_active_objs  = _NumActiveObjs,
-                              size_of_active_objs = _SizeActiveObjs}}}) ->
+after_execute_1({_, #compaction_worker_state{is_diagnosing = true}}) ->
     ok;
 
 after_execute_1({ok, #compaction_worker_state{
-                        meta_db_id       = MetaDBId,
-                        obj_storage_id   = ObjStorageId,
+                        meta_db_id = MetaDBId,
+                        obj_storage_id = ObjStorageId,
                         obj_storage_info = StorageInfo,
-                        compaction_prms =
-                            #compaction_prms{
-                               num_of_active_objs  = NumActiveObjs,
-                               size_of_active_objs = SizeActiveObjs}}}) ->
+                        compaction_prms = #compaction_prms{
+                                             num_of_active_objs = NumActiveObjs,
+                                             size_of_active_objs = SizeActiveObjs}}}) ->
     %% Unlink the symbol
     LinkedPath = StorageInfo#backend_info.linked_path,
-    FilePath   = StorageInfo#backend_info.file_path,
+    FilePath = StorageInfo#backend_info.file_path,
     catch file:delete(LinkedPath),
 
     %% Migrate the filepath
@@ -959,9 +949,8 @@ after_execute_1({ok, #compaction_worker_state{
 
 %% @doc Rollback - delete the tmp-files
 %% @private
-after_execute_1({_Error, #compaction_worker_state{
-                            meta_db_id = MetaDBId,
-                            obj_storage_info = StorageInfo}}) ->
+after_execute_1({_Error, #compaction_worker_state{meta_db_id = MetaDBId,
+                                                  obj_storage_info = StorageInfo}}) ->
     %% must reopen the original file when handling at another process:
     catch file:delete(StorageInfo#backend_info.file_path),
     leo_backend_db_api:finish_compaction(MetaDBId, false),
@@ -981,11 +970,10 @@ output_diagnosis_log(LoggerId, Metadata) ->
 -spec(output_accumulated_errors(State, ErrorPosEnd) ->
              {ok, State} when State::#compaction_worker_state{},
                               ErrorPosEnd::non_neg_integer()).
-output_accumulated_errors(#compaction_worker_state{
-                             obj_storage_id = ObjStorageId,
-                             error_pos  = ErrorPosStart,
-                             set_errors = SetErrors,
-                             acc_errors = AccErrors} = State, ErrorPosEnd) ->
+output_accumulated_errors(#compaction_worker_state{obj_storage_id = ObjStorageId,
+                                                   error_pos = ErrorPosStart,
+                                                   set_errors = SetErrors,
+                                                   acc_errors = AccErrors} = State, ErrorPosEnd) ->
     case sets:size(SetErrors) of
         0 ->
             {ok, State};
@@ -1051,16 +1039,15 @@ is_removed_obj_1(_MetaDBId,_StorageInfo,_Meta_1,_Meta_2) ->
 %% @doc Generate compaction report
 %% @private
 gen_compaction_report(State) ->
-    #compaction_worker_state{obj_storage_id   = ObjStorageId,
-                             compaction_prms  = CompactionPrms,
-                             obj_storage_info = #backend_info{file_path   = FilePath,
+    #compaction_worker_state{obj_storage_id = ObjStorageId,
+                             compaction_prms = CompactionPrms,
+                             obj_storage_info = #backend_info{file_path = FilePath,
                                                               linked_path = LinkedPath,
                                                               avs_ver_prv = AVSVerPrev,
                                                               avs_ver_cur = AVSVerCur},
                              start_datetime = StartDateTime,
-                             is_diagnosing  = IsDiagnosing,
-                             is_recovering  = _IsRecovering,
-                             acc_errors     = AccErrors,
+                             is_diagnosing = IsDiagnosing,
+                             acc_errors = AccErrors,
                              result = Ret} = State,
 
     %% Append the compaction history
@@ -1070,14 +1057,14 @@ gen_compaction_report(State) ->
     EndDateTime_1   = lists:flatten(leo_date:date_format(EndDateTime)),
     ok = leo_object_storage_server:append_compaction_history(
            ObjStorageId, #compaction_hist{start_datetime = StartDateTime,
-                                          end_datetime   = EndDateTime,
-                                          duration       = Duration,
+                                          end_datetime = EndDateTime,
+                                          duration = Duration,
                                           result = Ret}),
     %% Generate a report of the results
     #compaction_prms{num_of_active_objs  = ActiveObjs,
                      size_of_active_objs = ActiveSize,
-                     total_num_of_objs   = TotalObjs,
-                     total_size_of_objs  = TotalSize} = CompactionPrms,
+                     total_num_of_objs = TotalObjs,
+                     total_size_of_objs = TotalSize} = CompactionPrms,
 
     CntnrVer  = case IsDiagnosing of
                     true  -> AVSVerPrev;
@@ -1097,16 +1084,16 @@ gen_compaction_report(State) ->
                   end,
     Report = #compaction_report{
                 file_path = CntnrPath,
-                avs_ver   = CntnrVer,
-                num_of_active_objs  = ActiveObjs,
+                avs_ver = CntnrVer,
+                num_of_active_objs = ActiveObjs,
                 size_of_active_objs = ActiveSize,
-                total_num_of_objs   = TotalObjs_1,
-                total_size_of_objs  = TotalSize_1,
+                total_num_of_objs = TotalObjs_1,
+                total_size_of_objs = TotalSize_1,
                 start_datetime = StartDateTime_1,
-                end_datetime   = EndDateTime_1,
-                errors   = lists:reverse(AccErrors),
+                end_datetime = EndDateTime_1,
+                errors = lists:reverse(AccErrors),
                 duration = Duration,
-                result   = Ret
+                result = Ret
                },
 
     case leo_object_storage_server:get_stats(ObjStorageId) of
@@ -1114,10 +1101,10 @@ gen_compaction_report(State) ->
             %% Update the storage-state
             ok = leo_object_storage_server:set_stats(ObjStorageId,
                                                      CurStats#storage_stats{
-                                                       total_sizes  = TotalSize_1,
+                                                       total_sizes = TotalSize_1,
                                                        active_sizes = ActiveSize,
-                                                       total_num    = TotalObjs_1,
-                                                       active_num   = ActiveObjs}),
+                                                       total_num = TotalObjs_1,
+                                                       active_num = ActiveObjs}),
             %% Output report of the storage-container
             Tokens = string:tokens(ObjDir, "/"),
             case (length(Tokens) > 2) of
