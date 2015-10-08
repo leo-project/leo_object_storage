@@ -258,8 +258,10 @@ fetch_by_key(Key, Fun, MaxKeys) ->
                             case ?SERVER_MODULE:fetch(Id, {0, Key}, Fun, MaxKeys) of
                                 {ok, Values} ->
                                     [Values|Acc];
-                                _ ->
-                                    Acc
+                                not_found ->
+                                    Acc;
+                                {_, Cause} ->
+                                    erlang:throw(Cause)
                             end
                     end, [], List),
             Res_1 = lists:reverse(lists:flatten(Res)),
