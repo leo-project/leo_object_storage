@@ -293,7 +293,6 @@ add_incorrect_data(StorageInfo, Data) ->
 -spec(add_incorrect_data(file:io_device(), integer(), binary()) ->
              ok | {error, any()}).
 add_incorrect_data(WriteHandler, Offset, Data) ->
-    ?debugVal(Offset),
     case file:pwrite(WriteHandler, Offset, Data) of
         ok ->
             ok;

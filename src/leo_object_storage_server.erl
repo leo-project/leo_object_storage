@@ -312,8 +312,8 @@ append_compaction_history(Id, History) ->
 %% @doc Retrieve the compaction worker
 %%
 -spec(get_compaction_worker(Id) ->
-              {ok, CompactionWorkerId} when Id::atom(),
-                                            CompactionWorkerId::atom()).
+             {ok, CompactionWorkerId} when Id::atom(),
+                                           CompactionWorkerId::atom()).
 get_compaction_worker(Id) ->
     gen_server:call(Id, get_compaction_worker, ?DEF_TIMEOUT).
 
@@ -474,9 +474,18 @@ handle_call({head, {AddrId, Key}},
 handle_call({fetch, {AddrId, Key}, Fun, MaxKeys},
             _From, #state{meta_db_id     = MetaDBId,
                           object_storage = StorageInfo} = State) ->
-    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
-                                  AddrId, Key),
-    Reply = leo_object_storage_haystack:fetch(MetaDBId, BackendKey, Fun, MaxKeys),
+    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur, AddrId, Key),
+    Reply = case catch leo_object_storage_haystack:fetch(
+                         MetaDBId, BackendKey, Fun, MaxKeys) of
+                {'EXIT', Cause} ->
+                    {error, Cause};
+                not_found = Ret ->
+                    Ret;
+                {ok, RetL} ->
+                    {ok, RetL};
+                Other ->
+                    {error, Other}
+            end,
     {reply, Reply, State};
 
 %% Store an object
@@ -580,14 +589,14 @@ handle_call({switch_container, FilePath,
     ok = file:delete(ObjectStorage#backend_info.file_path),
     State_1 = State#state{object_storage =
                               ObjectStorage#backend_info{
-                               file_path = FilePath},
+                                file_path = FilePath},
                           storage_stats =
                               StorageStats#storage_stats{
                                 total_sizes  = SizeOfActiveObjs,
                                 active_sizes = SizeOfActiveObjs,
                                 total_num    = NumOfActiveObjs,
                                 active_num   = NumOfActiveObjs
-                                }
+                               }
                          },
     %% Open the new container
     State_2 = open_container(State_1),
@@ -671,8 +680,8 @@ code_change(_OldVsn, State, _Extra) ->
 %% @doc Open the conatainer
 %% @private
 open_container(#state{object_storage =
-                           #backend_info{
-                              linked_path = FilePath}} = State) ->
+                          #backend_info{
+                             linked_path = FilePath}} = State) ->
     case leo_object_storage_haystack:open(FilePath) of
         {ok, [NewWriteHandler, NewReadHandler, AVSVsnBin]} ->
             BackendInfo = State#state.object_storage,
