@@ -254,21 +254,35 @@ fetch_by_key(Key, Fun, MaxKeys) ->
         [] ->
             not_found;
         List ->
-            Res = lists:foldl(
-                    fun(Id, Acc) ->
-                            case ?SERVER_MODULE:fetch(Id, {0, Key}, Fun, MaxKeys) of
-                                {ok, Values} ->
-                                    [Values|Acc];
-                                _ ->
-                                    Acc
-                            end
-                    end, [], List),
-            Res_1 = lists:reverse(lists:flatten(Res)),
-            case MaxKeys of
-                undefined ->
-                    {ok, Res_1};
-                _ ->
-                    {ok, lists:sublist(Res_1, MaxKeys)}
+            case catch lists:foldl(
+                         fun(Id, Acc) ->
+                                 case catch ?SERVER_MODULE:fetch(Id, {0, Key}, Fun, MaxKeys) of
+                                     {ok, Values} ->
+                                         [Values|Acc];
+                                     not_found ->
+                                         Acc;
+                                     {_, Cause} when is_tuple(Cause) ->
+                                         erlang:error(element(1, Cause));
+                                     {_, Cause} ->
+                                         erlang:error(Cause)
+                                 end
+                         end, [], List) of
+                {'EXIT', Cause} ->
+                    Cause_1 = case is_tuple(Cause) of
+                                  true ->
+                                      element(1, Cause);
+                                  false ->
+                                      Cause
+                              end,
+                    {error, Cause_1};
+                Ret ->
+                    Reply = lists:reverse(lists:flatten(Ret)),
+                    case MaxKeys of
+                        undefined ->
+                            {ok, Reply};
+                        _ ->
+                            {ok, lists:sublist(Reply, MaxKeys)}
+                    end
             end
     end.
 
