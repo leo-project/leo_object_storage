@@ -260,12 +260,20 @@ fetch_by_key(Key, Fun, MaxKeys) ->
                                          [Values|Acc];
                                      not_found ->
                                          Acc;
+                                     {_, Cause} when is_tuple(Cause) ->
+                                         erlang:error(element(1, Cause));
                                      {_, Cause} ->
                                          erlang:error(Cause)
                                  end
                          end, [], List) of
                 {'EXIT', Cause} ->
-                    {error, Cause};
+                    Cause_1 = case is_tuple(Cause) of
+                                  true ->
+                                      element(1, Cause);
+                                  false ->
+                                      Cause
+                              end,
+                    {error, Cause_1};
                 Ret ->
                     Reply = lists:reverse(lists:flatten(Ret)),
                     case MaxKeys of
