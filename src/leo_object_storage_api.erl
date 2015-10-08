@@ -253,24 +253,27 @@ fetch_by_key(Key, Fun, MaxKeys) ->
         [] ->
             not_found;
         List ->
-            Res = lists:foldl(
-                    fun(Id, Acc) ->
-                            case ?SERVER_MODULE:fetch(Id, {0, Key}, Fun, MaxKeys) of
-                                {ok, Values} ->
-                                    [Values|Acc];
-                                not_found ->
-                                    Acc;
-                                {_, Cause} ->
-                                    ?debugVal(Cause),
-                                    erlang:throw(Cause)
-                            end
-                    end, [], List),
-            Res_1 = lists:reverse(lists:flatten(Res)),
-            case MaxKeys of
-                undefined ->
-                    {ok, Res_1};
-                _ ->
-                    {ok, lists:sublist(Res_1, MaxKeys)}
+            case catch lists:foldl(
+                         fun(Id, Acc) ->
+                                 case catch ?SERVER_MODULE:fetch(Id, {0, Key}, Fun, MaxKeys) of
+                                     {ok, Values} ->
+                                         [Values|Acc];
+                                     not_found ->
+                                         Acc;
+                                     {_, Cause} ->
+                                         erlang:error(Cause)
+                                 end
+                         end, [], List) of
+                {'EXIT', Cause} ->
+                    {error, Cause};
+                Ret ->
+                    Reply = lists:reverse(lists:flatten(Ret)),
+                    case MaxKeys of
+                        undefined ->
+                            {ok, Reply};
+                        _ ->
+                            {ok, lists:sublist(Reply, MaxKeys)}
+                    end
             end
     end.
 
