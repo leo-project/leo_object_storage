@@ -474,9 +474,14 @@ handle_call({head, {AddrId, Key}},
 handle_call({fetch, {AddrId, Key}, Fun, MaxKeys},
             _From, #state{meta_db_id     = MetaDBId,
                           object_storage = StorageInfo} = State) ->
-    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
-                                  AddrId, Key),
-    Reply = leo_object_storage_haystack:fetch(MetaDBId, BackendKey, Fun, MaxKeys),
+    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur, AddrId, Key),
+    Reply = case catch leo_object_storage_haystack:fetch(
+                         MetaDBId, BackendKey, Fun, MaxKeys) of
+                {'EXIT', Cause} ->
+                    {error, Cause};
+                Ret ->
+                    Ret
+            end,
     {reply, Reply, State};
 
 %% Store an object

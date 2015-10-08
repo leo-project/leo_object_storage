@@ -261,6 +261,7 @@ fetch_by_key(Key, Fun, MaxKeys) ->
                                 not_found ->
                                     Acc;
                                 {_, Cause} ->
+                                    ?debugVal(Cause),
                                     erlang:throw(Cause)
                             end
                     end, [], List),
