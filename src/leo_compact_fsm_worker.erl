@@ -659,7 +659,6 @@ execute(#compaction_worker_state{meta_db_id = MetaDBId,
     State_1 = State#compaction_worker_state{set_errors = sets:new()},
     Offset = CompactionPrms#compaction_prms.next_offset,
     Metadata = CompactionPrms#compaction_prms.metadata,
-    ?debugVal(Metadata),
 
     %% Execute compaction
     case (Offset == ?AVS_SUPER_BLOCK_LEN) of
