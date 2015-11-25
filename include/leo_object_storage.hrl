@@ -444,7 +444,8 @@
           rep_method = ?REP_COPY :: rep_method(),  %% replication method: [copy|erasure-code]
           ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_erasure
           ec_params = undefined :: undefined|tuple(), %% erasure-code params: @DEPEND:leo_erasure
-          del = ?DEL_FALSE    :: del_flag() %% delete flag
+          fragments = [] :: [{non_neg_integer(), binary()}], %% encoded objects with id-list
+          del = ?DEL_FALSE :: del_flag() %% delete flag
          }).
 -define(OBJECT, 'object_2').
 
