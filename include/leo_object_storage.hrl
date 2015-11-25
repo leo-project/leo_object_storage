@@ -354,8 +354,8 @@
           %% erasure-coding elements:
           datatype = ?DATATYPE_COPY :: datatype(),    %% datatype of the object:[copy|fragment]
           rep_method = ?REP_COPY :: rep_method(),     %% replication method: [copy|erasure-code]
-          ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_jerasure
-          ec_params = undefined :: undefined|tuple(), %% erasure-code params: @DEPEND:leo_jerasure
+          ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_erasure
+          ec_params = undefined :: undefined|tuple(), %% erasure-code params: @DEPEND:leo_erasure
           del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
          }).
 -define(METADATA, 'metadata_2').
@@ -365,12 +365,12 @@
 %% - leofs-v1.0.0-pre3
 -record(object, { %% - leofs-v1.0.0-pre3
           method :: atom(),
-          key = <<>> :: binary(),   %% filename
+          key = <<>> :: binary(),   %% object-name
           addr_id = 0 :: integer(), %% ring-address id (MD5 > hex-to-integer)
-          data = <<>> :: binary(),  %% file
+          data = <<>> :: binary(),  %% object
           meta = <<>> :: binary(),  %% custom-metadata
-          ksize = 0 :: integer(),   %% filename size
-          dsize = 0 :: integer(),   %% data size
+          ksize = 0 :: integer(),   %% object-name length
+          dsize = 0 :: integer(),   %% object length
           msize = 0 :: integer(),   %% custom-metadata size
           %% large-size object elements:
           csize = 0 :: integer(),   %% * chunked data size    (for large-object)
@@ -389,12 +389,12 @@
 %% leofs-v1.0.0 - v1.2.12
 -record(object_1, {
           method :: atom(),
-          key = <<>> :: binary(),   %% filename
+          key = <<>> :: binary(),   %% object-name
           addr_id = 0 :: integer(), %% ring-address id (MD5 > hex-to-integer)
-          data = <<>> :: binary(),  %% file
+          data = <<>> :: binary(),  %% object
           meta = <<>> :: binary(),  %% custom-metadata
-          ksize = 0 :: integer(),   %% filename size
-          dsize = 0 :: integer(),   %% data size
+          ksize = 0 :: integer(),   %% object-name length
+          dsize = 0 :: integer(),   %% object length
           msize = 0 :: integer(),   %% custom-metadata size
           %% large-size object elements:
           csize = 0 :: integer(),   %% * chunked data size    (for large-object)
@@ -418,12 +418,12 @@
 -record(object_2, {
           %% common elements:
           method :: atom(),
-          key = <<>> :: binary(),   %% filename
+          key = <<>> :: binary(),   %% object-name
           addr_id = 0 :: integer(), %% ring-address id (MD5 > hex-to-integer)
-          data = <<>> :: binary(),  %% file
+          data = <<>> :: binary()|[{non_neg_integer(), binary()}], %% object
           meta = <<>> :: binary(),  %% custom-metadata
-          ksize = 0 :: integer(),   %% filename size
-          dsize = 0 :: integer(),   %% data size
+          ksize = 0 :: integer(),   %% object-name length
+          dsize = 0 :: integer(),   %% object length
           msize = 0 :: integer(),   %% custom-metadata size
           offset = 0 :: integer(),    %% object-container's offset
           clock = 0 :: integer(),     %% clock
@@ -442,8 +442,8 @@
           %% erasure-coding elements:
           datatype = ?DATATYPE_COPY :: datatype(), %% datatype of the object:[copy|fragment]
           rep_method = ?REP_COPY :: rep_method(),  %% replication method: [copy|erasure-code]
-          ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_jerasure
-          ec_params = undefined :: undefined|tuple(), %% erasure-code params: @DEPEND:leo_jerasure
+          ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_erasure
+          ec_params = undefined :: undefined|tuple(), %% erasure-code params: @DEPEND:leo_erasure
           del = ?DEL_FALSE    :: del_flag() %% delete flag
          }).
 -define(OBJECT, 'object_2').
