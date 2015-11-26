@@ -77,8 +77,8 @@
 -define(ST_IDLING, 'idling').
 -define(ST_RUNNING, 'running').
 -define(ST_SUSPENDING, 'suspending').
--type(compaction_state() :: ?ST_IDLING     |
-                            ?ST_RUNNING    |
+-type(compaction_state() :: ?ST_IDLING  |
+                            ?ST_RUNNING |
                             ?ST_SUSPENDING).
 
 
@@ -250,11 +250,6 @@
 -define(DEF_POS_START, -1).
 -define(DEF_POS_END,   -1).
 
--define(DATATYPE_COPY, 'copy').
--define(DATATYPE_FRAGMENT, 'fragment').
--type(datatype() :: ?DATATYPE_COPY |
-                    ?DATATYPE_FRAGMENT).
-
 -define(REP_COPY, 'copy').
 -define(REP_ERASURE_CODE, 'erasure_code').
 -type(rep_method() :: ?REP_COPY |
@@ -351,7 +346,6 @@
           num_of_replicas = 0 :: non_neg_integer(), %% # of replicas for the mdc-replication
           ver = 0 :: non_neg_integer(),             %% version number
           %% erasure-coding elements:
-          datatype = ?DATATYPE_COPY :: datatype(),    %% datatype of the object:[copy|fragment]
           rep_method = ?REP_COPY :: rep_method(),     %% replication method: [copy|erasure-code]
           fid = 0 :: non_neg_integer(),               %% fragment id:[1..$total_fragments]
           fsize = 0 :: non_neg_integer(),             %% fragment length
@@ -416,6 +410,10 @@
          }).
 
 %% leofs-v1.4.0 - current ver
+%% @doc
+%%      copy-obj: #object_2{rep_method = ?REP_COPY, ...}
+%%  fragment-obj: #object_2{rep_method = ?REP_COPY,
+%%                      ...}
 -record(object_2, {
           %% common elements:
           method :: atom(),
@@ -441,13 +439,11 @@
           num_of_replicas = 0 :: non_neg_integer(), %% # of replicas for the mdc-replication
           ver = 0 :: non_neg_integer(),             %% version number
           %% erasure-coding elements:
-          datatype = ?DATATYPE_COPY :: datatype(),    %% datatype of the object:[copy|fragment]
           rep_method = ?REP_COPY :: rep_method(),     %% replication method: [copy|erasure-code]
           fid = 0 :: non_neg_integer(),               %% fragment id:[1..$total_fragments]
           fsize = 0 :: non_neg_integer(),             %% fragment length
           ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_erasure
           ec_params = undefined :: undefined|tuple(), %% erasure-code params: @DEPEND:leo_erasure
-          fragments = [] :: [{non_neg_integer(), binary()}], %% encoded objects with id-list
           del = ?DEL_FALSE :: del_flag() %% delete flag
          }).
 -define(OBJECT, 'object_2').

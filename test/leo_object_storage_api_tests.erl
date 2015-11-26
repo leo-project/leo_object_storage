@@ -497,7 +497,6 @@ put_regular_bin_with_cmeta(Index, Counter) ->
     CMetaBin = leo_object_storage_transformer:list_to_cmeta_bin(
                  [{?PROP_CMETA_CLUSTER_ID, 'remote_cluster'},
                   {?PROP_CMETA_NUM_OF_REPLICAS, 3},
-                  {?PROP_CMETA_DATATYPE, ?DATATYPE_COPY},
                   {?PROP_CMETA_REP_METHOD, ?REP_COPY},
                   {?PROP_CMETA_EC_METHOD, 'undefined'},
                   {?PROP_CMETA_EC_PARAMS, 'undefined'}
