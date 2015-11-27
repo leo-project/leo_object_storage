@@ -351,7 +351,7 @@
           fsize = 0 :: non_neg_integer(),             %% fragment length
           ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_erasure
           ec_params = undefined :: undefined|tuple(), %% erasure-code params: @DEPEND:leo_erasure
-          del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
+          del = ?DEL_FALSE :: del_flag() %% [{0,not_deleted}, {1,deleted}]
          }).
 -define(METADATA, 'metadata_2').
 
@@ -362,23 +362,23 @@
           method :: atom(),
           key = <<>> :: binary(),
           addr_id = 0 :: non_neg_integer(), %% ring-address id (MD5 > hex-to-integer)
-          data = <<>> :: binary(),
-          meta = <<>> :: binary(),
+          data = <<>> :: binary(),          %% raw-data
+          meta = <<>> :: binary(),          %% user defined metadata
           ksize = 0 :: non_neg_integer(),   %% object-name length
           dsize = 0 :: non_neg_integer(),   %% object length
           msize = 0 :: non_neg_integer(),   %% custom-metadata size
           %% large-size object elements:
-          csize = 0 :: non_neg_integer(),   %% * chunked data size    (for large-object)
-          cnumber = 0 :: non_neg_integer(), %% * # of chunked objects (for large-object)
-          cindex = 0 :: non_neg_integer(),  %% * chunked object index (for large-object)
+          csize = 0 :: non_neg_integer(),   %% chunked data size    (for large-object)
+          cnumber = 0 :: non_neg_integer(), %% # of chunked objects (for large-object)
+          cindex = 0 :: non_neg_integer(),  %% chunked object index (for large-object)
           %% common elements:
-          offset = 0 :: non_neg_integer(), %% object-container's offset
-          clock = 0 :: non_neg_integer(),  %% clock
+          offset = 0 :: non_neg_integer(),    %% object-container's offset
+          clock = 0 :: non_neg_integer(),     %% clock
           timestamp = 0 :: non_neg_integer(), %% timestamp
           checksum = 0 :: non_neg_integer(),  %% checksum (MD5 > hex-to-integer)
           ring_hash = 0 :: non_neg_integer(), %% RING's Hash(CRC32) when write an object.
           req_id = 0 :: non_neg_integer(),    %% request id
-          del = ?DEL_FALSE    :: del_flag() %% delete flag
+          del = ?DEL_FALSE :: del_flag() %% delete flag
          }).
 
 %% leofs-v1.0.0 - v1.2.12
@@ -386,15 +386,15 @@
           method :: atom(),
           key = <<>> :: binary(),
           addr_id = 0 :: non_neg_integer(), %% ring-address id (MD5 > hex-to-integer)
-          data = <<>> :: binary(),
-          meta = <<>> :: binary(),
+          data = <<>> :: binary(),          %% raw-object
+          meta = <<>> :: binary(),          %% user defined metadata
           ksize = 0 :: non_neg_integer(),   %% object-name length
           dsize = 0 :: non_neg_integer(),   %% object length
           msize = 0 :: non_neg_integer(),   %% custom-metadata size
           %% large-size object elements:
-          csize = 0 :: non_neg_integer(),   %% * chunked data size    (for large-object)
-          cnumber = 0 :: non_neg_integer(), %% * # of chunked objects (for large-object)
-          cindex = 0 :: non_neg_integer(),  %% * chunked object index (for large-object)
+          csize = 0 :: non_neg_integer(),   %% chunked data size    (for large-object)
+          cnumber = 0 :: non_neg_integer(), %% # of chunked objects (for large-object)
+          cindex = 0 :: non_neg_integer(),  %% chunked object index (for large-object)
           %% common elements:
           offset = 0 :: non_neg_integer(),    %% object-container's offset
           clock = 0 :: non_neg_integer(),     %% clock
@@ -418,9 +418,9 @@
           %% common elements:
           method :: atom(),
           key = <<>> :: binary(),
-          addr_id = 0 :: non_neg_integer(), %% ring-address id (MD5 > hex-to-integer)
-          data = <<>> :: binary()|[{non_neg_integer(), binary()}],
-          meta = <<>> :: binary(),
+          addr_id = 0 :: non_neg_integer(),   %% ring-address id (MD5 > hex-to-integer)
+          data = <<>> :: binary(),            %% raw-object/encoded-object
+          meta = <<>> :: binary(),            %% usee defined metadata
           ksize = 0 :: non_neg_integer(),     %% object-name length
           dsize = 0 :: non_neg_integer(),     %% object length
           msize = 0 :: non_neg_integer(),     %% custom-metadata size
@@ -431,9 +431,9 @@
           ring_hash = 0 :: non_neg_integer(), %% RING's Hash(CRC32) when write an object.
           req_id = 0 :: non_neg_integer(),    %% request id
           %% large-size object elements:
-          csize = 0 :: non_neg_integer(),     %% * chunked data size    (for large-object)
-          cnumber = 0 :: non_neg_integer(),   %% * # of chunked objects (for large-object)
-          cindex = 0 :: non_neg_integer(),    %% * chunked object index (for large-object)
+          csize = 0 :: non_neg_integer(),     %% chunked data size    (for large-object)
+          cnumber = 0 :: non_neg_integer(),   %% # of chunked objects (for large-object)
+          cindex = 0 :: non_neg_integer(),    %% chunked object index (for large-object)
           %% multi-dc-replication elements:
           cluster_id = undefined :: atom(),         %% cluster-id for the mdc-replication
           num_of_replicas = 0 :: non_neg_integer(), %% # of replicas for the mdc-replication
