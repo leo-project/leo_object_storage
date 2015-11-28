@@ -347,8 +347,6 @@
           ver = 0 :: non_neg_integer(),             %% version number
           %% erasure-coding elements:
           rep_method = ?REP_COPY :: rep_method(),     %% replication method: [copy|erasure-code]
-          fid = 0 :: non_neg_integer(),               %% fragment id:[1..$total_fragments]
-          fsize = 0 :: non_neg_integer(),             %% fragment length
           ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_erasure
           ec_params = undefined :: undefined|tuple(), %% erasure-code params: @DEPEND:leo_erasure
           del = ?DEL_FALSE :: del_flag() %% [{0,not_deleted}, {1,deleted}]
@@ -440,8 +438,6 @@
           ver = 0 :: non_neg_integer(),             %% version number
           %% erasure-coding elements:
           rep_method = ?REP_COPY :: rep_method(),     %% replication method: [copy|erasure-code]
-          fid = 0 :: non_neg_integer(),               %% fragment id:[1..$total_fragments]
-          fsize = 0 :: non_neg_integer(),             %% fragment length
           ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_erasure
           ec_params = undefined :: undefined|tuple(), %% erasure-code params: @DEPEND:leo_erasure
           del = ?DEL_FALSE :: del_flag() %% delete flag
