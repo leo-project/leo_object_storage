@@ -250,17 +250,17 @@
 -define(DEF_POS_START, -1).
 -define(DEF_POS_END,   -1).
 
--define(REP_COPY, 'copy').
--define(REP_ERASURE_CODE, 'erasure_code').
--type(rep_method() :: ?REP_COPY |
-                      ?REP_ERASURE_CODE).
+-define(RED_COPY, 'copy').
+-define(RED_ERASURE_CODE, 'erasure_code').
+-type(redundancy_method() :: ?RED_COPY |
+                             ?RED_ERASURE_CODE).
 
 %% custom-metadata's items for MDC-replication and erasure-coding
 -define(PROP_CMETA_CLUSTER_ID, 'cluster_id').
 -define(PROP_CMETA_NUM_OF_REPLICAS, 'num_of_replicas').
 -define(PROP_CMETA_VER, 'ver').
 -define(PROP_CMETA_DATATYPE, 'datatype').
--define(PROP_CMETA_REP_METHOD, 'rep_method').
+-define(PROP_CMETA_RED_METHOD, 'redundancy_method').
 -define(PROP_CMETA_EC_METHOD, 'ec_method').
 -define(PROP_CMETA_EC_PARAMS, 'ec_params').
 
@@ -346,7 +346,7 @@
           num_of_replicas = 0 :: non_neg_integer(), %% # of replicas for the mdc-replication
           ver = 0 :: non_neg_integer(),             %% version number
           %% erasure-coding elements:
-          rep_method = ?REP_COPY :: rep_method(),     %% replication method: [copy|erasure-code]
+          redundancy_method = ?RED_COPY :: redundancy_method(),     %% replication method: [copy|erasure-code]
           ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_erasure
           ec_params = undefined :: undefined|tuple(), %% erasure-code params: @DEPEND:leo_erasure
           del = ?DEL_FALSE :: del_flag() %% [{0,not_deleted}, {1,deleted}]
@@ -409,8 +409,8 @@
 
 %% leofs-v1.4.0 - current ver
 %% @doc
-%%      copy-obj: #object_2{rep_method = ?REP_COPY, ...}
-%%  fragment-obj: #object_2{rep_method = ?REP_COPY,
+%%      copy-obj: #object_2{redundancy_method = ?RED_COPY, ...}
+%%  fragment-obj: #object_2{redundancy_method = ?RED_COPY,
 %%                      ...}
 -record(object_2, {
           %% common elements:
@@ -437,7 +437,7 @@
           num_of_replicas = 0 :: non_neg_integer(), %% # of replicas for the mdc-replication
           ver = 0 :: non_neg_integer(),             %% version number
           %% erasure-coding elements:
-          rep_method = ?REP_COPY :: rep_method(),     %% replication method: [copy|erasure-code]
+          redundancy_method = ?RED_COPY :: redundancy_method(), %% replication method: [copy|erasure-code]
           ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_erasure
           ec_params = undefined :: undefined|tuple(), %% erasure-code params: @DEPEND:leo_erasure
           del = ?DEL_FALSE :: del_flag() %% delete flag
