@@ -325,6 +325,20 @@
          }).
 
 %% leofs-v1.4.0 - current ver
+%% cp_params() :: {num_of_replicas,
+-type(num_of_replicas() :: pos_integer()).
+-type(num_of_successful_write() :: pos_integer()).
+-type(num_of_successful_read() :: pos_integer()).
+-type(num_of_successful_delete() :: pos_integer()).
+-type(cp_params() :: {num_of_replicas(),
+                      num_of_successful_write(),
+                      num_of_successful_read(),
+                      num_of_successful_delete()}).
+
+-type(ec_param_k() :: pos_integer()).
+-type(ec_param_m() :: pos_integer()).
+-type(ec_params() :: {ec_param_k(), ec_param_m()}).
+
 -record(metadata_2, {
           %% common elements:
           key = <<>> :: binary(),
@@ -345,10 +359,12 @@
           cluster_id = undefined :: atom(),         %% cluster-id for the mdc-replication
           num_of_replicas = 0 :: non_neg_integer(), %% # of replicas for the mdc-replication
           ver = 0 :: non_neg_integer(),             %% version number
+          %% replication elements:
+          cp_params = undefined :: undefined|cp_params(), %% replication params
           %% erasure-coding elements:
           redundancy_method = ?RED_COPY :: redundancy_method(),     %% replication method: [copy|erasure-code]
           ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_erasure
-          ec_params = undefined :: undefined|tuple(), %% erasure-code params: @DEPEND:leo_erasure
+          ec_params = undefined :: undefined|ec_params(), %% erasure-code params: @DEPEND:leo_erasure
           del = ?DEL_FALSE :: del_flag() %% [{0,not_deleted}, {1,deleted}]
          }).
 -define(METADATA, 'metadata_2').
@@ -436,10 +452,12 @@
           cluster_id = undefined :: atom(),         %% cluster-id for the mdc-replication
           num_of_replicas = 0 :: non_neg_integer(), %% # of replicas for the mdc-replication
           ver = 0 :: non_neg_integer(),             %% version number
+          %% replication elements:
+          cp_params = undefined :: undefined|cp_params(), %% replication params
           %% erasure-coding elements:
           redundancy_method = ?RED_COPY :: redundancy_method(), %% replication method: [copy|erasure-code]
           ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_erasure
-          ec_params = undefined :: undefined|tuple(), %% erasure-code params: @DEPEND:leo_erasure
+          ec_params = undefined :: undefined|ec_params(), %% erasure-code params: @DEPEND:leo_erasure
           del = ?DEL_FALSE :: del_flag() %% delete flag
          }).
 -define(OBJECT, 'object_2').
