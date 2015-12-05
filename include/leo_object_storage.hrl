@@ -424,10 +424,6 @@
          }).
 
 %% leofs-v1.4.0 - current ver
-%% @doc
-%%      copy-obj: #object_2{redundancy_method = ?RED_COPY, ...}
-%%  fragment-obj: #object_2{redundancy_method = ?RED_COPY,
-%%                      ...}
 -record(object_2, {
           %% common elements:
           method :: atom(),
