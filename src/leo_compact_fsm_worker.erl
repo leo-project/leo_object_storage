@@ -658,7 +658,8 @@ execute(#compaction_worker_state{meta_db_id = MetaDBId,
     %% Initialize set-error property
     State_1 = State#compaction_worker_state{set_errors = sets:new()},
     Offset = CompactionPrms#compaction_prms.next_offset,
-    Metadata = CompactionPrms#compaction_prms.metadata,
+    Metadata = leo_object_storage_transformer:transform_metadata(
+                 CompactionPrms#compaction_prms.metadata),
 
     %% Execute compaction
     case (Offset == ?AVS_SUPER_BLOCK_LEN) of
@@ -672,7 +673,13 @@ execute(#compaction_worker_state{meta_db_id = MetaDBId,
                              size_of_active_objs = ActiveSize,
                              total_num_of_objs = TotalObjs,
                              total_size_of_objs = TotaSize} = CompactionPrms,
-            NumOfReplicas = Metadata#?METADATA.num_of_replicas,
+            NumOfReplicas = case Metadata#?METADATA.cp_params of
+                                {RedNVal,_,_,_} when RedNVal /= undefined ->
+                                    RedNVal;
+                                _ ->
+                                    0
+                            end,
+            %% NumOfReplicas = 0,
             HasChargeOfNode = case (CallbackMod == undefined) of
                                   true ->
                                       true;

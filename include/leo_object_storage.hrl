@@ -261,6 +261,7 @@
 -define(PROP_CMETA_VER, 'ver').
 -define(PROP_CMETA_DATATYPE, 'datatype').
 -define(PROP_CMETA_RED_METHOD, 'redundancy_method').
+-define(PROP_CMETA_CP_PARAMS, 'cp_params').
 -define(PROP_CMETA_EC_METHOD, 'ec_method').
 -define(PROP_CMETA_EC_PARAMS, 'ec_params').
 
@@ -356,13 +357,11 @@
           cnumber = 0 :: non_neg_integer(),   %% # of chunked objects
           cindex = 0 :: non_neg_integer(),    %% chunked object index
           %% multi-dc-replication elements:
-          cluster_id = undefined :: atom(),         %% cluster-id for the mdc-replication
-          num_of_replicas = 0 :: non_neg_integer(), %% # of replicas for the mdc-replication
-          ver = 0 :: non_neg_integer(),             %% version number
-          %% replication elements:
+          cluster_id = undefined :: atom(),   %% cluster-id for the mdc-replication
+          ver = 0 :: non_neg_integer(),       %% version number
+          %% object-replication and erasure-coding elements:
+          redundancy_method = ?RED_COPY :: redundancy_method(), %% replication method: [copy|erasure-code]
           cp_params = undefined :: undefined|cp_params(), %% replication params
-          %% erasure-coding elements:
-          redundancy_method = ?RED_COPY :: redundancy_method(),     %% replication method: [copy|erasure-code]
           ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_erasure
           ec_params = undefined :: undefined|ec_params(), %% erasure-code params: @DEPEND:leo_erasure
           del = ?DEL_FALSE :: del_flag() %% [{0,not_deleted}, {1,deleted}]
@@ -446,12 +445,10 @@
           cindex = 0 :: non_neg_integer(),    %% chunked object index (for large-object)
           %% multi-dc-replication elements:
           cluster_id = undefined :: atom(),         %% cluster-id for the mdc-replication
-          num_of_replicas = 0 :: non_neg_integer(), %% # of replicas for the mdc-replication
           ver = 0 :: non_neg_integer(),             %% version number
-          %% replication elements:
-          cp_params = undefined :: undefined|cp_params(), %% replication params
-          %% erasure-coding elements:
+          %% object-replication and erasure-coding elements:
           redundancy_method = ?RED_COPY :: redundancy_method(), %% replication method: [copy|erasure-code]
+          cp_params = undefined :: undefined|cp_params(), %% replication params
           ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_erasure
           ec_params = undefined :: undefined|ec_params(), %% erasure-code params: @DEPEND:leo_erasure
           del = ?DEL_FALSE :: del_flag() %% delete flag

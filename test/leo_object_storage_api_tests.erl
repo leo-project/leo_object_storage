@@ -722,7 +722,7 @@ operate_([Path1, Path2]) ->
 
     %% 8. Put with custom-metadata
     ClusterId = "cluster_id",
-    NumOfReplicas = 1,
+    NumOfReplicas = 2,
     Ver = 1,
     Obj2 = #?OBJECT{method    = put,
                     addr_id   = AddrId,
@@ -733,19 +733,17 @@ operate_([Path1, Path2]) ->
                     checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
                     timestamp = leo_date:now(),
                     clock     = leo_date:clock(),
-
                     cluster_id = ClusterId,
-                    num_of_replicas = NumOfReplicas,
+                    cp_params = {NumOfReplicas,2,1,2},
                     ver = Ver
                    },
     {ok,_} = leo_object_storage_api:put({AddrId, Key}, Obj2),
     {ok, Res6, Res7} = leo_object_storage_api:get({AddrId, Key}),
     ?assertEqual(ClusterId,     Res6#?METADATA.cluster_id),
-    ?assertEqual(NumOfReplicas, Res6#?METADATA.num_of_replicas),
     ?assertEqual(Ver,           Res6#?METADATA.ver),
     ?assertEqual(ClusterId,     Res7#?OBJECT.cluster_id),
-    ?assertEqual(NumOfReplicas, Res7#?OBJECT.num_of_replicas),
     ?assertEqual(Ver,           Res7#?OBJECT.ver),
+    ?assertEqual({NumOfReplicas,2,1,2}, Res7#?OBJECT.cp_params),
 
     application:stop(leo_backend_db),
     application:stop(bitcask),

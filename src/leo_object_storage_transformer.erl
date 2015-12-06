@@ -105,8 +105,8 @@ metadata_to_object(#metadata_1{} = Metadata) ->
              checksum = Checksum,
              ring_hash = RingHash,
              cluster_id = ClusterId,
-             num_of_replicas = NumOfReplicas,
              ver = Ver,
+             cp_params = {NumOfReplicas,0,0,0},
              del = Del};
 metadata_to_object(#?METADATA{} = Metadata) ->
     #?METADATA{key = Key,
@@ -117,17 +117,18 @@ metadata_to_object(#?METADATA{} = Metadata) ->
                csize = CSize,
                cnumber = CNum,
                cindex = CIndex,
-               redundancy_method = RedMethod,
-               ec_method = ECMethod,
-               ec_params = ECParams,
                offset = Offset,
                clock = Clock,
                timestamp = Timestamp,
                checksum = Checksum,
                ring_hash = RingHash,
                cluster_id = ClusterId,
-               num_of_replicas = NumOfReplicas,
                ver = Ver,
+               redundancy_method = RedMethod,
+               cp_params = CPParams,
+               ec_method = ECMethod,
+               ec_params = ECParams,
+
                del = Del} = Metadata,
     #?OBJECT{key = Key,
              addr_id = AddrId,
@@ -143,9 +144,9 @@ metadata_to_object(#?METADATA{} = Metadata) ->
              checksum = Checksum,
              ring_hash = RingHash,
              cluster_id = ClusterId,
-             num_of_replicas = NumOfReplicas,
              ver = Ver,
              redundancy_method = RedMethod,
+             cp_params = CPParams,
              ec_method = ECMethod,
              ec_params = ECParams,
              del = Del};
@@ -234,8 +235,8 @@ object_to_metadata(#object_1{key = Key,
                checksum = Checksum,
                ring_hash = RingHash,
                cluster_id = ClusterId,
-               num_of_replicas = NumOfReplicas,
                ver = Ver,
+               cp_params = {NumOfReplicas,0,0,0},
                del = Del};
 object_to_metadata(#?OBJECT{key = Key,
                             addr_id = AddrId,
@@ -251,9 +252,9 @@ object_to_metadata(#?OBJECT{key = Key,
                             checksum = Checksum,
                             ring_hash = RingHash,
                             cluster_id = ClusterId,
-                            num_of_replicas = NumOfReplicas,
                             ver = Ver,
                             redundancy_method = RedMethod,
+                            cp_params = CPMethod,
                             ec_method = ECMethod,
                             ec_params = ECParams,
                             del = Del}) ->
@@ -265,17 +266,17 @@ object_to_metadata(#?OBJECT{key = Key,
                csize = CSize,
                cnumber = CNum,
                cindex = CIndex,
-               redundancy_method = RedMethod,
-               ec_method = ECMethod,
-               ec_params = ECParams,
                offset = Offset,
                clock = Clock,
                timestamp = Timestamp,
                checksum = Checksum,
                ring_hash = RingHash,
                cluster_id = ClusterId,
-               num_of_replicas = NumOfReplicas,
                ver = Ver,
+               redundancy_method = RedMethod,
+               cp_params = CPMethod,
+               ec_method = ECMethod,
+               ec_params = ECParams,
                del = Del};
 object_to_metadata(_) ->
     {error, invaid_record}.
@@ -357,8 +358,8 @@ transform_object(#object_1{method = Method,
        ring_hash = RingHash,
        req_id = ReqId,
        cluster_id = ClusterId,
-       num_of_replicas = NumOfReplicas,
        ver = Ver,
+       cp_params = {NumOfReplicas,0,0,0},
        del = Del};
 transform_object(#object_2{} = Object) ->
     Object.
@@ -427,8 +428,8 @@ transform_metadata(#metadata_1{key = Key,
                checksum = Checksum,
                ring_hash = RingHash,
                cluster_id = ClusterId,
-               num_of_replicas = NumOfReplicas,
                ver = Ver,
+               cp_params = {NumOfReplicas,0,0,0},
                del = Del};
 transform_metadata(#?METADATA{} = Metadata) ->
     Metadata;
@@ -501,16 +502,24 @@ cmeta_bin_into_metadata(<<>>, Metadata) ->
 cmeta_bin_into_metadata(CustomMetaBin, Metadata) ->
     try
         CustomMeta = binary_to_term(CustomMetaBin),
-        ClusterId     = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID,      CustomMeta, []),
+        ClusterId = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID, CustomMeta, []),
         NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomMeta, 0),
-        Version       = leo_misc:get_value(?PROP_CMETA_VER,             CustomMeta, 0),
-        RedMethod     = leo_misc:get_value(?PROP_CMETA_RED_METHOD,      CustomMeta, ?RED_COPY),
-        ECMethod      = leo_misc:get_value(?PROP_CMETA_EC_METHOD,       CustomMeta, undefined),
-        ECParams      = leo_misc:get_value(?PROP_CMETA_EC_PARAMS,       CustomMeta, undefined),
+        Version = leo_misc:get_value(?PROP_CMETA_VER, CustomMeta, 0),
+        RedMethod = leo_misc:get_value(?PROP_CMETA_RED_METHOD, CustomMeta, ?RED_COPY),
+        CPParams = leo_misc:get_value(?PROP_CMETA_CP_PARAMS, CustomMeta, undefined),
+        ECMethod = leo_misc:get_value(?PROP_CMETA_EC_METHOD, CustomMeta, undefined),
+        ECParams = leo_misc:get_value(?PROP_CMETA_EC_PARAMS, CustomMeta, undefined),
+
+        CPParams_1 = case (NumOfReplicas > 0) of
+                         true when ECParams == undefined ->
+                             {NumOfReplicas,0,0,0};
+                         _ ->
+                             CPParams
+                     end,
         Metadata#?METADATA{cluster_id = ClusterId,
-                           num_of_replicas = NumOfReplicas,
                            ver = Version,
                            redundancy_method = RedMethod,
+                           cp_params = CPParams_1,
                            ec_method = ECMethod,
                            ec_params = ECParams}
     catch
@@ -522,16 +531,24 @@ cmeta_bin_into_metadata(CustomMetaBin, Metadata) ->
 -spec(list_to_cmeta_bin(CustomMeta) ->
              binary() when CustomMeta::[{atom(), any()}]).
 list_to_cmeta_bin(CustomMeta) ->
-    ClusterId     = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID,      CustomMeta, []),
+    ClusterId = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID, CustomMeta, []),
     NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomMeta, 0),
-    Version       = leo_misc:get_value(?PROP_CMETA_VER,             CustomMeta, 0),
-    RedMethod     = leo_misc:get_value(?PROP_CMETA_RED_METHOD,      CustomMeta, ?RED_COPY),
-    ECMethod      = leo_misc:get_value(?PROP_CMETA_EC_METHOD,       CustomMeta, undefined),
-    ECParams      = leo_misc:get_value(?PROP_CMETA_EC_PARAMS,       CustomMeta, undefined),
+    Version = leo_misc:get_value(?PROP_CMETA_VER, CustomMeta, 0),
+    RedMethod = leo_misc:get_value(?PROP_CMETA_RED_METHOD, CustomMeta, ?RED_COPY),
+    CPParams = leo_misc:get_value(?PROP_CMETA_CP_PARAMS, CustomMeta, undefined),
+    ECMethod = leo_misc:get_value(?PROP_CMETA_EC_METHOD, CustomMeta, undefined),
+    ECParams = leo_misc:get_value(?PROP_CMETA_EC_PARAMS, CustomMeta, undefined),
+
+    CPParams_1 = case (NumOfReplicas > 0) of
+                     true when CPParams == undefined ->
+                         {NumOfReplicas,0,0,0};
+                     _ ->
+                         CPParams
+                 end,
     term_to_binary([{?PROP_CMETA_CLUSTER_ID, ClusterId},
-                    {?PROP_CMETA_NUM_OF_REPLICAS, NumOfReplicas},
                     {?PROP_CMETA_VER, Version},
                     {?PROP_CMETA_RED_METHOD, RedMethod},
+                    {?PROP_CMETA_CP_PARAMS, CPParams_1},
                     {?PROP_CMETA_EC_METHOD, ECMethod},
                     {?PROP_CMETA_EC_PARAMS, ECParams}
                    ]).
