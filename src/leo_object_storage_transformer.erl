@@ -361,6 +361,10 @@ transform_object(#object_1{method = Method,
        ver = Ver,
        cp_params = {NumOfReplicas,0,0,0},
        del = Del};
+transform_object(#object_2{redundancy_method = 0} = Object) ->
+    Object#object_2{redundancy_method = ?RED_COPY};
+transform_object(#object_2{redundancy_method = undefined} = Object) ->
+    Object#object_2{redundancy_method = ?RED_COPY};
 transform_object(#object_2{} = Object) ->
     Object.
 
