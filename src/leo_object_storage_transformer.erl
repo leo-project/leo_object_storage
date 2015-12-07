@@ -317,6 +317,7 @@ transform_object(#object{method = Method,
               checksum = Checksum,
               ring_hash = RingHash,
               req_id = ReqId,
+              redundancy_method = ?RED_COPY,
               del = Del};
 transform_object(#object_1{method = Method,
                            key = Key,
@@ -359,14 +360,15 @@ transform_object(#object_1{method = Method,
        req_id = ReqId,
        cluster_id = ClusterId,
        ver = Ver,
+       redundancy_method = ?RED_COPY,
        cp_params = {NumOfReplicas,0,0,0},
        del = Del};
-transform_object(#object_2{redundancy_method = 0} = Object) ->
-    Object#object_2{redundancy_method = ?RED_COPY};
-transform_object(#object_2{redundancy_method = undefined} = Object) ->
-    Object#object_2{redundancy_method = ?RED_COPY};
+transform_object(#object_2{redundancy_method = ?RED_COPY} = Object) ->
+    Object;
+transform_object(#object_2{redundancy_method = ?RED_ERASURE_CODE} = Object) ->
+    Object;
 transform_object(#object_2{} = Object) ->
-    Object.
+    Object#object_2{redundancy_method = ?RED_COPY}.
 
 
 %% @doc Transform old-type metadata to current-type
