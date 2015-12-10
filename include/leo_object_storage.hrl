@@ -360,6 +360,7 @@
           cluster_id = undefined :: atom(),   %% cluster-id for the mdc-replication
           ver = 0 :: non_neg_integer(),       %% version number
           %% object-replication and erasure-coding elements:
+          has_object = true :: boolean(), %% for large-size object
           redundancy_method = ?RED_COPY :: redundancy_method(), %% replication method: [copy|erasure-code]
           cp_params = undefined :: undefined|cp_params(), %% replication params
           ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_erasure
@@ -447,6 +448,7 @@
           cluster_id = undefined :: atom(),         %% cluster-id for the mdc-replication
           ver = 0 :: non_neg_integer(),             %% version number
           %% object-replication and erasure-coding elements:
+          has_object = true :: boolean(), %% for large-size object
           redundancy_method = ?RED_COPY :: redundancy_method(), %% replication method: [copy|erasure-code]
           cp_params = undefined :: undefined|cp_params(), %% replication params
           ec_method = undefined :: undefined|atom(),  %% erasure-code method: @DEPEND:leo_erasure
