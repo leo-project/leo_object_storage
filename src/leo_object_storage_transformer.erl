@@ -127,7 +127,7 @@ metadata_to_object(#?METADATA{} = Metadata) ->
                has_children = HasChildren,
                redundancy_method = RedMethod,
                cp_params = CPParams,
-               ec_method = ECMethod,
+               ec_lib = ECMethod,
                ec_params = ECParams,
 
                del = Del} = Metadata,
@@ -149,7 +149,7 @@ metadata_to_object(#?METADATA{} = Metadata) ->
              has_children = HasChildren,
              redundancy_method = RedMethod,
              cp_params = CPParams,
-             ec_method = ECMethod,
+             ec_lib = ECMethod,
              ec_params = ECParams,
              del = Del};
 metadata_to_object(_M) ->
@@ -258,7 +258,7 @@ object_to_metadata(#?OBJECT{key = Key,
                             has_children = HasChildren,
                             redundancy_method = RedMethod,
                             cp_params = CPMethod,
-                            ec_method = ECMethod,
+                            ec_lib = ECMethod,
                             ec_params = ECParams,
                             del = Del}) ->
     #?METADATA{key = Key,
@@ -279,7 +279,7 @@ object_to_metadata(#?OBJECT{key = Key,
                has_children = HasChildren,
                redundancy_method = RedMethod,
                cp_params = CPMethod,
-               ec_method = ECMethod,
+               ec_lib = ECMethod,
                ec_params = ECParams,
                del = Del};
 object_to_metadata(_) ->
@@ -523,7 +523,7 @@ cmeta_bin_into_metadata(CustomMetaBin, Metadata) ->
         Version = leo_misc:get_value(?PROP_CMETA_VER, CustomMeta, 0),
         RedMethod = leo_misc:get_value(?PROP_CMETA_RED_METHOD, CustomMeta, ?RED_COPY),
         CPParams = leo_misc:get_value(?PROP_CMETA_CP_PARAMS, CustomMeta, undefined),
-        ECMethod = leo_misc:get_value(?PROP_CMETA_EC_METHOD, CustomMeta, undefined),
+        ECMethod = leo_misc:get_value(?PROP_CMETA_EC_LIB, CustomMeta, undefined),
         ECParams = leo_misc:get_value(?PROP_CMETA_EC_PARAMS, CustomMeta, undefined),
 
         CPParams_1 = case (NumOfReplicas > 0) of
@@ -536,7 +536,7 @@ cmeta_bin_into_metadata(CustomMetaBin, Metadata) ->
                            ver = Version,
                            redundancy_method = RedMethod,
                            cp_params = CPParams_1,
-                           ec_method = ECMethod,
+                           ec_lib = ECMethod,
                            ec_params = ECParams}
     catch
         _:_Cause ->
@@ -552,7 +552,7 @@ list_to_cmeta_bin(CustomMeta) ->
     Version = leo_misc:get_value(?PROP_CMETA_VER, CustomMeta, 0),
     RedMethod = leo_misc:get_value(?PROP_CMETA_RED_METHOD, CustomMeta, ?RED_COPY),
     CPParams = leo_misc:get_value(?PROP_CMETA_CP_PARAMS, CustomMeta, undefined),
-    ECMethod = leo_misc:get_value(?PROP_CMETA_EC_METHOD, CustomMeta, undefined),
+    ECMethod = leo_misc:get_value(?PROP_CMETA_EC_LIB, CustomMeta, undefined),
     ECParams = leo_misc:get_value(?PROP_CMETA_EC_PARAMS, CustomMeta, undefined),
 
     CPParams_1 = case (NumOfReplicas > 0) of
@@ -565,6 +565,6 @@ list_to_cmeta_bin(CustomMeta) ->
                     {?PROP_CMETA_VER, Version},
                     {?PROP_CMETA_RED_METHOD, RedMethod},
                     {?PROP_CMETA_CP_PARAMS, CPParams_1},
-                    {?PROP_CMETA_EC_METHOD, ECMethod},
+                    {?PROP_CMETA_EC_LIB, ECMethod},
                     {?PROP_CMETA_EC_PARAMS, ECParams}
                    ]).

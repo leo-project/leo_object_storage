@@ -498,7 +498,7 @@ put_regular_bin_with_cmeta(Index, Counter) ->
                  [{?PROP_CMETA_CLUSTER_ID, 'remote_cluster'},
                   {?PROP_CMETA_NUM_OF_REPLICAS, 3},
                   {?PROP_CMETA_RED_METHOD, ?RED_COPY},
-                  {?PROP_CMETA_EC_METHOD, 'undefined'},
+                  {?PROP_CMETA_EC_LIB, 'undefined'},
                   {?PROP_CMETA_EC_PARAMS, 'undefined'}
                  ]),
     Object = #?OBJECT{method    = put,
