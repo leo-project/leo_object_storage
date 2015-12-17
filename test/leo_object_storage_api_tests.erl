@@ -34,8 +34,8 @@
          update_metadata/3]).
 -export([notify/4]).
 
-has_charge_of_node(_Key,_NumOfReplicas) ->
-    ?debugVal({_Key, _NumOfReplicas}),
+has_charge_of_node(_Metadata,_NumOfReplicas) ->
+    ?debugVal({_Metadata, _NumOfReplicas}),
     true.
 
 update_metadata(_Method,_Key,_Metadata) ->

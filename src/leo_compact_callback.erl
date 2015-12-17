@@ -27,7 +27,7 @@
 -include("leo_object_storage.hrl").
 
 %% @doc Check the owner of the object by key
--callback(has_charge_of_node(Key::binary(), NumOfReplicas::pos_integer()) ->
+-callback(has_charge_of_node(Metadata::#?METADATA{}, NumOfReplicas::pos_integer()) ->
                  boolean()).
 
 %% @doc Update a metadata (during the data-compaction processing)

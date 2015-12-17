@@ -685,7 +685,7 @@ execute(#compaction_worker_state{meta_db_id = MetaDBId,
                                       true;
                                   false ->
                                       case catch erlang:apply(CallbackMod, has_charge_of_node,
-                                                              [Key, NumOfReplicas]) of
+                                                              [Metadata, NumOfReplicas]) of
                                           {_,_} ->
                                               false;
                                           RetHasChargeOfNode ->
@@ -769,10 +769,11 @@ execute_1(Ret, State) ->
              {{error, any()}, State} when Ret::ok|{error,any()},
                                           State::#compaction_worker_state{},
                                           RetryTimes::non_neg_integer()).
-execute_1(ok = Ret, #compaction_worker_state{meta_db_id = MetaDBId,
-                                             obj_storage_info = StorageInfo,
-                                             compaction_prms = CompactionPrms,
-                                             is_recovering = IsRecovering} = State, RetryTimes) ->
+execute_1(ok = Ret, #compaction_worker_state{
+                       meta_db_id = MetaDBId,
+                       obj_storage_info = StorageInfo,
+                       compaction_prms = CompactionPrms,
+                       is_recovering = IsRecovering} = State, RetryTimes) ->
     erlang:garbage_collect(self()),
     ReadHandler = StorageInfo#backend_info.read_handler,
     NextOffset  = CompactionPrms#compaction_prms.next_offset,
