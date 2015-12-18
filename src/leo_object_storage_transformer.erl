@@ -23,7 +23,6 @@
 %% @end
 %%======================================================================
 -module(leo_object_storage_transformer).
--author('Yosuke Hara').
 
 -include("leo_object_storage.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -520,12 +519,12 @@ cmeta_bin_into_metadata(CustomMetaBin, Metadata) ->
         CustomMeta = binary_to_term(CustomMetaBin),
         ClusterId = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID, CustomMeta, []),
         NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomMeta, 0),
+        HasChildren = leo_misc:get_value(?PROP_CMETA_HAS_CHILDREN, CustomMeta, false),
         Version = leo_misc:get_value(?PROP_CMETA_VER, CustomMeta, 0),
         RedMethod = leo_misc:get_value(?PROP_CMETA_RED_METHOD, CustomMeta, ?RED_COPY),
-        CPParams = leo_misc:get_value(?PROP_CMETA_CP_PARAMS, CustomMeta, undefined),
-        ECMethod = leo_misc:get_value(?PROP_CMETA_EC_LIB, CustomMeta, undefined),
+        ECLib = leo_misc:get_value(?PROP_CMETA_EC_LIB, CustomMeta, undefined),
         ECParams = leo_misc:get_value(?PROP_CMETA_EC_PARAMS, CustomMeta, undefined),
-
+        CPParams = leo_misc:get_value(?PROP_CMETA_CP_PARAMS, CustomMeta, undefined),
         CPParams_1 = case (NumOfReplicas > 0) of
                          true when ECParams == undefined ->
                              {NumOfReplicas,0,0,0};
@@ -534,9 +533,10 @@ cmeta_bin_into_metadata(CustomMetaBin, Metadata) ->
                      end,
         Metadata#?METADATA{cluster_id = ClusterId,
                            ver = Version,
+                           has_children = HasChildren,
                            redundancy_method = RedMethod,
                            cp_params = CPParams_1,
-                           ec_lib = ECMethod,
+                           ec_lib = ECLib,
                            ec_params = ECParams}
     catch
         _:_Cause ->
@@ -549,12 +549,12 @@ cmeta_bin_into_metadata(CustomMetaBin, Metadata) ->
 list_to_cmeta_bin(CustomMeta) ->
     ClusterId = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID, CustomMeta, []),
     NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomMeta, 0),
+    HasChildren = leo_misc:get_value(?PROP_CMETA_HAS_CHILDREN, CustomMeta, false),
     Version = leo_misc:get_value(?PROP_CMETA_VER, CustomMeta, 0),
     RedMethod = leo_misc:get_value(?PROP_CMETA_RED_METHOD, CustomMeta, ?RED_COPY),
-    CPParams = leo_misc:get_value(?PROP_CMETA_CP_PARAMS, CustomMeta, undefined),
-    ECMethod = leo_misc:get_value(?PROP_CMETA_EC_LIB, CustomMeta, undefined),
+    ECLib = leo_misc:get_value(?PROP_CMETA_EC_LIB, CustomMeta, undefined),
     ECParams = leo_misc:get_value(?PROP_CMETA_EC_PARAMS, CustomMeta, undefined),
-
+    CPParams = leo_misc:get_value(?PROP_CMETA_CP_PARAMS, CustomMeta, undefined),
     CPParams_1 = case (NumOfReplicas > 0) of
                      true when CPParams == undefined ->
                          {NumOfReplicas,0,0,0};
@@ -562,9 +562,10 @@ list_to_cmeta_bin(CustomMeta) ->
                          CPParams
                  end,
     term_to_binary([{?PROP_CMETA_CLUSTER_ID, ClusterId},
+                    {?PROP_CMETA_HAS_CHILDREN, HasChildren},
                     {?PROP_CMETA_VER, Version},
                     {?PROP_CMETA_RED_METHOD, RedMethod},
                     {?PROP_CMETA_CP_PARAMS, CPParams_1},
-                    {?PROP_CMETA_EC_LIB, ECMethod},
+                    {?PROP_CMETA_EC_LIB, ECLib},
                     {?PROP_CMETA_EC_PARAMS, ECParams}
                    ]).

@@ -27,9 +27,6 @@
 %%======================================================================
 -module(leo_object_storage_haystack).
 
--author('Yosuke Hara').
--author('Yoshiyuki Kanno').
-
 -include("leo_object_storage.hrl").
 -include_lib("kernel/include/file.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -535,8 +532,10 @@ create_needle(#?OBJECT{addr_id = AddrId,
         calendar:gregorian_seconds_to_datetime(Timestamp),
     Padding = <<0:64>>,
     DataBin = case (MSize < 1) of
-                  true  -> << Key/binary, Body/binary, Padding/binary >>;
-                  false -> << Key/binary, Body/binary, MBin/binary, Padding/binary >>
+                  true ->
+                      << Key/binary, Body/binary, Padding/binary >>;
+                  false ->
+                      << Key/binary, Body/binary, MBin/binary, Padding/binary >>
               end,
     Needle  = << Checksum:?BLEN_CHKSUM,
                  KSize:?BLEN_KSIZE,
@@ -562,12 +561,28 @@ create_needle(#?OBJECT{addr_id = AddrId,
 
 %% @doc Insert an object into the object-storage
 %% @private
-put_fun_1(MetaDBId, StorageInfo, Object) ->
+put_fun_1(MetaDBId, StorageInfo, #?OBJECT{cluster_id = ClusterId,
+                                          ver = LeoFSVer,
+                                          redundancy_method = RedMethod,
+                                          has_children = HasChildren,
+                                          cp_params = CPParams,
+                                          ec_lib = ECLib,
+                                          ec_params = ECParams} = Object) ->
     #backend_info{write_handler = ObjectStorageWriteHandler} = StorageInfo,
 
     case file:position(ObjectStorageWriteHandler, eof) of
         {ok, Offset} ->
-            put_fun_2(MetaDBId, StorageInfo, Object#?OBJECT{offset = Offset});
+            CMetaBin = leo_object_storage_transformer:list_to_cmeta_bin(
+                         [{?PROP_CMETA_CLUSTER_ID, ClusterId},
+                          {?PROP_CMETA_HAS_CHILDREN, HasChildren},
+                          {?PROP_CMETA_VER, LeoFSVer},
+                          {?PROP_CMETA_RED_METHOD, RedMethod},
+                          {?PROP_CMETA_CP_PARAMS, CPParams},
+                          {?PROP_CMETA_EC_LIB, ECLib},
+                          {?PROP_CMETA_EC_PARAMS, ECParams}]),
+            put_fun_2(MetaDBId, StorageInfo, Object#?OBJECT{offset = Offset,
+                                                            meta = CMetaBin,
+                                                            msize = byte_size(CMetaBin)});
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
@@ -655,9 +670,26 @@ put_obj_to_new_cntnr(WriteHandler, Metadata, KeyBin, BodyBin) ->
     case file:position(WriteHandler, eof) of
         {ok, Offset} ->
             Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
+            #?METADATA{cluster_id = ClusterId,
+                       ver = LeoFSVer,
+                       redundancy_method = RedMethod,
+                       has_children = HasChildren,
+                       cp_params = CPParams,
+                       ec_lib = ECLib,
+                       ec_params = ECParams} = Metadata_1,
             Object = leo_object_storage_transformer:metadata_to_object(Metadata_1),
+            CMetaBin = leo_object_storage_transformer:list_to_cmeta_bin(
+                         [{?PROP_CMETA_CLUSTER_ID, ClusterId},
+                          {?PROP_CMETA_HAS_CHILDREN, HasChildren},
+                          {?PROP_CMETA_VER, LeoFSVer},
+                          {?PROP_CMETA_RED_METHOD, RedMethod},
+                          {?PROP_CMETA_CP_PARAMS, CPParams},
+                          {?PROP_CMETA_EC_LIB, ECLib},
+                          {?PROP_CMETA_EC_PARAMS, ECParams}]),
             Needle = create_needle(Object#?OBJECT{key = KeyBin,
                                                   data = BodyBin,
+                                                  meta = CMetaBin,
+                                                  msize = byte_size(CMetaBin),
                                                   offset = Offset}),
             case catch file:pwrite(WriteHandler, Offset, Needle) of
                 ok ->
@@ -799,7 +831,6 @@ get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, Total
                         Metadata#?METADATA.cindex   == 0 andalso
                         Metadata#?METADATA.del      == 0 andalso
                         Checksum_1 == ?MD5_EMPTY_BIN),
-
     %% check a checksum of the object
     %% and then retrieve data - metadata, key, body and footer of the object
     case (Checksum == Checksum_1 orelse
@@ -810,11 +841,18 @@ get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, Total
                        ksize = KSize,
                        dsize = DSize,
                        msize = MSize} = Metadata,
+            DSize_1 = case IsLargeObjParent of
+                          true ->
+                              0;
+                          false ->
+                              DSize
+                      end,
 
             case (?MAX_DATABLOCK_SIZE > MSize andalso
                   MSize > 0) of
                 true ->
-                    MPos = Offset + HeaderSize + KSize + DSize,
+                    MPos = Offset + HeaderSize + KSize + DSize_1,
+
                     case leo_file:pread(ReadHandler, MPos, MSize) of
                         {ok, CMetaBin} ->
                             case leo_object_storage_transformer:cmeta_bin_into_metadata(
@@ -826,7 +864,7 @@ get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, Total
                                     {ok, Metadata_2,
                                      [HeaderBin, KeyBin, BodyBin,
                                       Offset + HeaderSize + KSize
-                                      + DSize + MSize + ?LEN_PADDING]}
+                                      + DSize_1 + MSize + ?LEN_PADDING]}
                             end;
                         eof = Cause ->
                             {error, Cause};

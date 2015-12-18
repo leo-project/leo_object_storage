@@ -505,13 +505,13 @@ suite() ->
 
     %% cmeta_bin_into_metadata/2
     ListMeta = [{?PROP_CMETA_CLUSTER_ID, ClusterId},
+                {?PROP_CMETA_HAS_CHILDREN, false},
                 {?PROP_CMETA_VER, Ver},
                 {?PROP_CMETA_RED_METHOD, RedMethod},
                 {?PROP_CMETA_CP_PARAMS, {NumOfReplicas,2,1,2}},
                 {?PROP_CMETA_EC_LIB, ECMethod},
                 {?PROP_CMETA_EC_PARAMS, ECParams}
                ],
-
     CustomMetaBin = term_to_binary(ListMeta),
     #?METADATA{key = ?KEY_1,
                addr_id = 1,
@@ -528,6 +528,7 @@ suite() ->
                ring_hash = 1,
                cluster_id = ClusterId,
                ver = Ver,
+               has_children = false,
                redundancy_method = RedMethod,
                ec_lib = ECMethod,
                ec_params = ECParams,

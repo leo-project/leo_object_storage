@@ -257,6 +257,7 @@
 
 %% custom-metadata's items for MDC-replication and erasure-coding
 -define(PROP_CMETA_CLUSTER_ID, 'cluster_id').
+-define(PROP_CMETA_HAS_CHILDREN, 'has_children').
 -define(PROP_CMETA_NUM_OF_REPLICAS, 'num_of_replicas').
 -define(PROP_CMETA_VER, 'ver').
 -define(PROP_CMETA_DATATYPE, 'datatype').
