@@ -24,8 +24,6 @@
 %%======================================================================
 -module(leo_compact_fsm_worker).
 
--author('Yosuke Hara').
-
 -behaviour(gen_fsm).
 
 -include("leo_object_storage.hrl").

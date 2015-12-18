@@ -25,8 +25,6 @@
 %%====================================================================
 -module(leo_object_storage_api_prop).
 
--author('Yosuke Hara').
-
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include("leo_object_storage.hrl").

@@ -27,11 +27,6 @@
 %%======================================================================
 -module(leo_object_storage_server).
 
--author('Yosuke Hara').
--author('Yoshiyuki Kanno').
-
--behaviour(gen_server).
-
 -include("leo_object_storage.hrl").
 -include_lib("eunit/include/eunit.hrl").
 

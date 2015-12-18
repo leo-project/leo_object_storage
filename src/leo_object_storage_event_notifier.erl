@@ -27,8 +27,6 @@
 %%======================================================================
 -module(leo_object_storage_event_notifier).
 
--author('Yosuke Hara').
-
 -behaviour(gen_server).
 
 -include_lib("eunit/include/eunit.hrl").

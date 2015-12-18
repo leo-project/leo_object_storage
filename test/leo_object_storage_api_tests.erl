@@ -25,7 +25,6 @@
 %% @end
 %%====================================================================
 -module(leo_object_storage_api_tests).
--author('yosuke hara').
 
 -include_lib("eunit/include/eunit.hrl").
 -include("leo_object_storage.hrl").

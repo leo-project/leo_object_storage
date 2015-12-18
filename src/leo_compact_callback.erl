@@ -22,7 +22,6 @@
 %% @end
 %%======================================================================
 -module(leo_compact_callback).
--author('Yosuke Hara').
 
 -include("leo_object_storage.hrl").
 
