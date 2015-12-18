@@ -584,14 +584,13 @@ object_to_cmetadata_bin(#?OBJECT{cluster_id = ClusterId,
                                  cp_params = CPParams,
                                  ec_lib = ECLib,
                                  ec_params = ECParams}) ->
-    leo_object_storage_transformer:list_to_cmeta_bin(
-      [{?PROP_CMETA_CLUSTER_ID, ClusterId},
-       {?PROP_CMETA_VER, LeoFSVer},
-       {?PROP_CMETA_RED_METHOD, RedMethod},
-       {?PROP_CMETA_HAS_CHILDREN, HasChildren},
-       {?PROP_CMETA_CP_PARAMS, CPParams},
-       {?PROP_CMETA_EC_LIB, ECLib},
-       {?PROP_CMETA_EC_PARAMS, ECParams}]).
+    list_to_cmeta_bin([{?PROP_CMETA_CLUSTER_ID, ClusterId},
+                       {?PROP_CMETA_VER, LeoFSVer},
+                       {?PROP_CMETA_RED_METHOD, RedMethod},
+                       {?PROP_CMETA_HAS_CHILDREN, HasChildren},
+                       {?PROP_CMETA_CP_PARAMS, CPParams},
+                       {?PROP_CMETA_EC_LIB, ECLib},
+                       {?PROP_CMETA_EC_PARAMS, ECParams}]).
 
 
 %% @doc Metadata to custom-metadata-bin
@@ -605,11 +604,10 @@ metadata_to_cmetadata_bin(#?METADATA{cluster_id = ClusterId,
                                      cp_params = CPParams,
                                      ec_lib = ECLib,
                                      ec_params = ECParams}) ->
-    leo_object_storage_transformer:list_to_cmeta_bin(
-      [{?PROP_CMETA_CLUSTER_ID, ClusterId},
-       {?PROP_CMETA_VER, LeoFSVer},
-       {?PROP_CMETA_RED_METHOD, RedMethod},
-       {?PROP_CMETA_HAS_CHILDREN, HasChildren},
-       {?PROP_CMETA_CP_PARAMS, CPParams},
-       {?PROP_CMETA_EC_LIB, ECLib},
-       {?PROP_CMETA_EC_PARAMS, ECParams}]).
+    list_to_cmeta_bin([{?PROP_CMETA_CLUSTER_ID, ClusterId},
+                       {?PROP_CMETA_VER, LeoFSVer},
+                       {?PROP_CMETA_RED_METHOD, RedMethod},
+                       {?PROP_CMETA_HAS_CHILDREN, HasChildren},
+                       {?PROP_CMETA_CP_PARAMS, CPParams},
+                       {?PROP_CMETA_EC_LIB, ECLib},
+                       {?PROP_CMETA_EC_PARAMS, ECParams}]).
