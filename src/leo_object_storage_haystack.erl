@@ -561,25 +561,12 @@ create_needle(#?OBJECT{addr_id = AddrId,
 
 %% @doc Insert an object into the object-storage
 %% @private
-put_fun_1(MetaDBId, StorageInfo, #?OBJECT{cluster_id = ClusterId,
-                                          ver = LeoFSVer,
-                                          redundancy_method = RedMethod,
-                                          has_children = HasChildren,
-                                          cp_params = CPParams,
-                                          ec_lib = ECLib,
-                                          ec_params = ECParams} = Object) ->
+put_fun_1(MetaDBId, StorageInfo, Object) ->
     #backend_info{write_handler = ObjectStorageWriteHandler} = StorageInfo,
 
     case file:position(ObjectStorageWriteHandler, eof) of
         {ok, Offset} ->
-            CMetaBin = leo_object_storage_transformer:list_to_cmeta_bin(
-                         [{?PROP_CMETA_CLUSTER_ID, ClusterId},
-                          {?PROP_CMETA_HAS_CHILDREN, HasChildren},
-                          {?PROP_CMETA_VER, LeoFSVer},
-                          {?PROP_CMETA_RED_METHOD, RedMethod},
-                          {?PROP_CMETA_CP_PARAMS, CPParams},
-                          {?PROP_CMETA_EC_LIB, ECLib},
-                          {?PROP_CMETA_EC_PARAMS, ECParams}]),
+            CMetaBin = leo_object_storage_transformer:object_to_cmetadata_bin(Object),
             put_fun_2(MetaDBId, StorageInfo, Object#?OBJECT{offset = Offset,
                                                             meta = CMetaBin,
                                                             msize = byte_size(CMetaBin)});
@@ -670,22 +657,8 @@ put_obj_to_new_cntnr(WriteHandler, Metadata, KeyBin, BodyBin) ->
     case file:position(WriteHandler, eof) of
         {ok, Offset} ->
             Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
-            #?METADATA{cluster_id = ClusterId,
-                       ver = LeoFSVer,
-                       redundancy_method = RedMethod,
-                       has_children = HasChildren,
-                       cp_params = CPParams,
-                       ec_lib = ECLib,
-                       ec_params = ECParams} = Metadata_1,
             Object = leo_object_storage_transformer:metadata_to_object(Metadata_1),
-            CMetaBin = leo_object_storage_transformer:list_to_cmeta_bin(
-                         [{?PROP_CMETA_CLUSTER_ID, ClusterId},
-                          {?PROP_CMETA_HAS_CHILDREN, HasChildren},
-                          {?PROP_CMETA_VER, LeoFSVer},
-                          {?PROP_CMETA_RED_METHOD, RedMethod},
-                          {?PROP_CMETA_CP_PARAMS, CPParams},
-                          {?PROP_CMETA_EC_LIB, ECLib},
-                          {?PROP_CMETA_EC_PARAMS, ECParams}]),
+            CMetaBin = leo_object_storage_transformer:metadata_to_cmetadata_bin(Metadata_1),
             Needle = create_needle(Object#?OBJECT{key = KeyBin,
                                                   data = BodyBin,
                                                   meta = CMetaBin,

@@ -34,7 +34,9 @@
          transform_metadata/1,
          header_bin_to_metadata/1,
          cmeta_bin_into_metadata/2,
-         list_to_cmeta_bin/1
+         list_to_cmeta_bin/1,
+         object_to_cmetadata_bin/1,
+         metadata_to_cmetadata_bin/1
         ]).
 
 
@@ -569,3 +571,45 @@ list_to_cmeta_bin(CustomMeta) ->
                     {?PROP_CMETA_EC_LIB, ECLib},
                     {?PROP_CMETA_EC_PARAMS, ECParams}
                    ]).
+
+
+%% @doc Object to custom-metadata-bin
+-spec(object_to_cmetadata_bin(Object) ->
+             CMetaBin when Object::#?OBJECT{},
+                           CMetaBin::binary()).
+object_to_cmetadata_bin(#?OBJECT{cluster_id = ClusterId,
+                                 ver = LeoFSVer,
+                                 redundancy_method = RedMethod,
+                                 has_children = HasChildren,
+                                 cp_params = CPParams,
+                                 ec_lib = ECLib,
+                                 ec_params = ECParams}) ->
+    leo_object_storage_transformer:list_to_cmeta_bin(
+      [{?PROP_CMETA_CLUSTER_ID, ClusterId},
+       {?PROP_CMETA_VER, LeoFSVer},
+       {?PROP_CMETA_RED_METHOD, RedMethod},
+       {?PROP_CMETA_HAS_CHILDREN, HasChildren},
+       {?PROP_CMETA_CP_PARAMS, CPParams},
+       {?PROP_CMETA_EC_LIB, ECLib},
+       {?PROP_CMETA_EC_PARAMS, ECParams}]).
+
+
+%% @doc Metadata to custom-metadata-bin
+-spec(metadata_to_cmetadata_bin(Object) ->
+             CMetaBin when Object::#?METADATA{},
+                           CMetaBin::binary()).
+metadata_to_cmetadata_bin(#?METADATA{cluster_id = ClusterId,
+                                     ver = LeoFSVer,
+                                     redundancy_method = RedMethod,
+                                     has_children = HasChildren,
+                                     cp_params = CPParams,
+                                     ec_lib = ECLib,
+                                     ec_params = ECParams}) ->
+    leo_object_storage_transformer:list_to_cmeta_bin(
+      [{?PROP_CMETA_CLUSTER_ID, ClusterId},
+       {?PROP_CMETA_VER, LeoFSVer},
+       {?PROP_CMETA_RED_METHOD, RedMethod},
+       {?PROP_CMETA_HAS_CHILDREN, HasChildren},
+       {?PROP_CMETA_CP_PARAMS, CPParams},
+       {?PROP_CMETA_EC_LIB, ECLib},
+       {?PROP_CMETA_EC_PARAMS, ECParams}]).
