@@ -774,7 +774,7 @@ execute_1(ok = Ret, #compaction_worker_state{
                        is_recovering = IsRecovering} = State, RetryTimes) ->
     erlang:garbage_collect(self()),
     ReadHandler = StorageInfo#backend_info.read_handler,
-    NextOffset  = CompactionPrms#compaction_prms.next_offset,
+    NextOffset = CompactionPrms#compaction_prms.next_offset,
     CallbackMod = CompactionPrms#compaction_prms.callback,
 
     case leo_object_storage_haystack:get_obj_for_new_cntnr(

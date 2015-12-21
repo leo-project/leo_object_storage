@@ -573,7 +573,7 @@ put_fun_1(MetaDBId, StorageInfo, Object) ->
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
-                                    {function, "put_fun_1/1"},
+                                    {function, "put_fun_1/3"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
@@ -585,8 +585,10 @@ put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key = Key,
                                           timestamp = Timestamp,
                                           del = DelFlag} = Object) ->
     Checksum_1 = case Checksum of
-                     0 -> leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin));
-                     _ -> Checksum
+                     0 ->
+                         leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin));
+                     _ ->
+                         Checksum
                  end,
     Object_1 = Object#?OBJECT{ksize = byte_size(Key),
                               checksum = Checksum_1},
@@ -737,13 +739,18 @@ get_obj_for_new_cntnr(ReadHandler, Offset, HeaderSize, HeaderBin) ->
 %% @private
 get_obj_for_new_cntnr(#?METADATA{ksize = KSize,
                                  dsize = DSize,
+                                 msize = MSize,
                                  cnumber = CNum} = Metadata, ReadHandler,
                       Offset, HeaderSize, HeaderBin) ->
     DSize4Read = case (CNum > 0) of
-                     true  -> 0;
-                     false -> DSize
+                     true ->
+                         0;
+                     false ->
+                         DSize
                  end,
-    RemainSize = (KSize + DSize4Read + ?LEN_PADDING),
+    RemainSize = (KSize
+                  + DSize4Read
+                  + MSize + ?LEN_PADDING),
 
     case (RemainSize > ?MAX_DATABLOCK_SIZE) of
         true ->
@@ -783,10 +790,12 @@ get_obj_for_new_cntnr(#?METADATA{ksize = KSize,
 get_obj_for_new_cntnr_1(_ReadHandler,_HeaderBin,
                         #?METADATA{ksize = 0},_DSize,_Bin,_TotalSize) ->
     {error, {?LINE, ?ERROR_DATA_SIZE_DID_NOT_MATCH}};
-get_obj_for_new_cntnr_1(ReadHandler, HeaderBin, #?METADATA{ksize = KSize} = Metadata,
+get_obj_for_new_cntnr_1(ReadHandler, HeaderBin, #?METADATA{ksize = KSize,
+                                                           msize = MSize} = Metadata,
                         DSize, Bin, TotalSize) ->
     << KeyBin:KSize/binary,
        BodyBin:DSize/binary,
+       _MetaBin:MSize/binary,
        _Footer/binary>> = Bin,
     get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata,
                             KeyBin, BodyBin, TotalSize).
