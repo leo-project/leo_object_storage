@@ -487,7 +487,7 @@ header_bin_to_metadata(Bin) ->
            _:?BLEN_BUF >> = Bin,
         Timestamp = case catch calendar:datetime_to_gregorian_seconds(
                                  {{Year, Month, Day}, {Hour, Min, Second}}) of
-                        {'EXIT',_} ->
+                        {'EXIT',_Cause} ->
                             0;
                         Val when Val < 63113904000;
                                  Val > 66301199999 ->
@@ -513,8 +513,8 @@ header_bin_to_metadata(Bin) ->
                 {error, {invalid_format, unexpected_time_format}}
         end
     catch
-        _:_Cause ->
-            {error, {invalid_format,_Cause}}
+        _:_Reason ->
+            {error, {invalid_format,_Reason}}
     end.
 
 

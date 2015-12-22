@@ -225,6 +225,33 @@ compaction_1_test_() ->
      ]}.
 
 
+compaction_comb_test_() ->
+    {setup,
+     fun ( ) ->
+             ?debugVal("### COMPACTION.START #1 ###"),
+             os:cmd("rm -rf " ++ ?AVS_DIR_FOR_COMPACTION),
+             application:start(sasl),
+             application:start(os_mon),
+             application:start(crypto),
+             application:start(leo_object_storage),
+             ok
+     end,
+     fun (_) ->
+             application:stop(crypto),
+             application:stop(os_mon),
+             application:stop(sasl),
+             timer:sleep(timer:seconds(1)),
+             application:stop(leo_object_storage),
+             timer:sleep(timer:seconds(1)),
+             ?debugVal("### COMPACTION.END #2 ###"),
+             ok
+     end,
+     [
+      {"test compaction",
+       {timeout, 6000, fun compact_comb/0}}
+     ]}.
+
+
 diagnose() ->
     %% Launch object-storage
     leo_object_storage_api:start([{1, ?AVS_DIR_FOR_COMPACTION}]),
@@ -412,6 +439,30 @@ compact_1() ->
     ?assertEqual(TotalNum, ActiveNum),
     ok.
 
+compact_comb() ->
+    %% Launch object-storage
+    leo_object_storage_api:start([{1, ?AVS_DIR_FOR_COMPACTION}], ?MODULE),
+    %% put, delete and put one object to check the data-compaction
+    ok = put_delete_and_put(),
+    timer:sleep(timer:seconds(1)),
+
+    %% Execute compaction
+    timer:sleep(timer:seconds(3)),
+    TargetPids = leo_object_storage_api:get_object_storage_pid(all),
+    ok = leo_compact_fsm_controller:run(TargetPids, 1, ?MODULE),
+
+    %% Change waiting-time of the procs
+    [leo_compact_fsm_controller:decrease() || _Num <- lists:seq(1, 30)],
+    timer:sleep(timer:seconds(3)),
+
+    %% Check comaction status
+    ok = check_status(),
+
+    %% Check # of active objects and total of objects
+    timer:sleep(timer:seconds(1)),
+    Stats = leo_object_storage_api:stats(),
+    ?debugVal(Stats),
+    ok.
 
 check_status() ->
     timer:sleep(100),
@@ -529,6 +580,29 @@ put_irregular_bin() ->
     ?debugVal(Len),
     Bin = crypto:rand_bytes(Len),
     _ = leo_object_storage_api:add_incorrect_data(Bin),
+    ok.
+
+
+%% @doc Put, delete and put combination
+%% @private
+put_delete_and_put() ->
+    Index = 1,
+    AddrId = 1,
+    Key = list_to_binary(lists:append(["TEST_", integer_to_list(Index)])),
+    Bin = crypto:rand_bytes(erlang:phash2(leo_date:clock(), (64))),
+    Object = #?OBJECT{method    = put,
+                      addr_id   = AddrId,
+                      key       = Key,
+                      ksize     = byte_size(Key),
+                      data      = Bin,
+                      dsize     = byte_size(Bin),
+                      checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
+                      timestamp = leo_date:now(),
+                      clock     = leo_date:clock()
+                     },
+    {ok,_} = leo_object_storage_api:put({AddrId, Key}, Object),
+    ok = leo_object_storage_api:delete({AddrId, Key}, Object),
+    {ok,_} = leo_object_storage_api:put({AddrId, Key}, Object),
     ok.
 
 

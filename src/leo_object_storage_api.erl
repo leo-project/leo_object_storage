@@ -172,7 +172,10 @@ get(AddrIdAndKey, StartPos, EndPos, IsForcedCheck) ->
              ok | {error, any()} when AddrIdAndKey::addrid_and_key(),
                                       Object::#?OBJECT{}).
 delete(AddrIdAndKey, Object) ->
-    do_request(delete, [AddrIdAndKey, Object]).
+    do_request(delete, [AddrIdAndKey, Object#?OBJECT{dsize = 0,
+                                                     data = <<>>,
+                                                     checksum = ?MD5_EMPTY_BIN,
+                                                     del = ?DEL_TRUE}]).
 
 
 %% @doc Retrieve a metadata from the object-storage
