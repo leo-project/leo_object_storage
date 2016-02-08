@@ -314,17 +314,17 @@ add_incorrect_data(WriteHandler, Offset, Data) ->
 create_file(FilePath) ->
     case catch file:open(FilePath, [raw, write,  binary, append]) of
         {ok, PutFileHandler} ->
-            case file:position(PutFileHandler, eof) of
-                {ok, Offset} when Offset == 0 ->
-                    put_super_block(PutFileHandler);
-                {ok,_Offset} ->
-                    {ok, PutFileHandler};
-                {error, Cause} ->
+            case catch filelib:file_size(FilePath) of
+                {'EXIT', Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING},
                                             {function, "create_file/1"},
                                             {line, ?LINE}, {body, Cause}]),
-                    {error, Cause}
+                    {error, Cause};
+                0 ->
+                    put_super_block(PutFileHandler);
+                _FileSize ->
+                    {ok, PutFileHandler}
             end;
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
