@@ -137,7 +137,7 @@ start_child_1() ->
         undefined ->
             ChildSpec0 = {leo_backend_db_sup,
                           {leo_backend_db_sup, start_link, []},
-                          permanent, 2000, worker, [leo_backend_db_sup]},
+                          permanent, 2000, supervisor, [leo_backend_db_sup]},
             case supervisor:start_child(?MODULE, ChildSpec0) of
                 {ok, Pid} ->
                     Pid;
