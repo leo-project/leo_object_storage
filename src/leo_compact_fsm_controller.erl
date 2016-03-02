@@ -127,7 +127,8 @@ run(NumOfConcurrency) ->
              term() when NumOfConcurrency::pos_integer(),
                          CallbackFun::function()|undefined).
 run(NumOfConcurrency, CallbackFun) ->
-    TargetPids = leo_object_storage_api:get_object_storage_pid('all'),
+    TargetPids = [Id || {Id,_} <-
+                            leo_object_storage_api:get_object_storage_pid('all')],
     run(TargetPids, NumOfConcurrency, CallbackFun).
 
 -spec(run(TargetPids, NumOfConcurrency, CallbackFun) ->
@@ -148,7 +149,8 @@ run(TargetPids, NumOfConcurrency, CallbackFun) ->
 -spec(diagnose() ->
              term()).
 diagnose() ->
-    TargetPids = leo_object_storage_api:get_object_storage_pid('all'),
+    TargetPids = [Id || {Id,_} <-
+                            leo_object_storage_api:get_object_storage_pid('all')],
     gen_fsm:sync_send_event(
       ?MODULE, #event_info{event = ?EVENT_RUN,
                            target_pids = TargetPids,
@@ -175,7 +177,8 @@ diagnose(TargetContainers) ->
 -spec(recover_metadata() ->
              term()).
 recover_metadata() ->
-    TargetPids = leo_object_storage_api:get_object_storage_pid('all'),
+    TargetPids = [Id || {Id,_} <-
+                            leo_object_storage_api:get_object_storage_pid('all')],
     gen_fsm:sync_send_event(
       ?MODULE, #event_info{event = ?EVENT_RUN,
                            target_pids = TargetPids,
@@ -297,12 +300,13 @@ decrease() ->
              {ok, ?ST_IDLING, State} when Option::[any()],
                                           State::#state{}).
 init([ServerPairL]) ->
-    AllTargets = leo_object_storage_api:get_object_storage_pid('all'),
-    TotalNumOfTargets = erlang:length(AllTargets),
+    TargetPids = [Id || {Id,_} <-
+                            leo_object_storage_api:get_object_storage_pid('all')],
+    TotalNumOfTargets = erlang:length(TargetPids),
     {ok, ?ST_IDLING, #state{status = ?ST_IDLING,
                             server_pairs = ServerPairL,
                             total_num_of_targets = TotalNumOfTargets,
-                            pending_targets      = AllTargets}}.
+                            pending_targets = TargetPids}}.
 
 
 %% @doc State of 'idle'
@@ -318,7 +322,8 @@ idling(#event_info{event = ?EVENT_RUN,
                    is_diagnosing = IsDiagnose,
                    is_recovering = IsRecovering,
                    callback      = Callback}, From, #state{server_pairs = ServerPairs} = State) ->
-    AllTargets      = leo_object_storage_api:get_object_storage_pid('all'),
+    AllTargets = [Id || {Id,_} <-
+                            leo_object_storage_api:get_object_storage_pid('all')],
     PendingTargets  = State#state.pending_targets,
     ReservedTargets = case (length(TargetPids) == length(AllTargets)) of
                           true  ->
@@ -787,6 +792,7 @@ resume(WorkerId, RetryTimes) ->
 %% @doc Retrieve pending targets
 %% @private
 pending_targets([]) ->
-    leo_object_storage_api:get_object_storage_pid('all');
+    [Id || {Id,_} <-
+               leo_object_storage_api:get_object_storage_pid('all')];
 pending_targets(ReservedTargets) ->
     ReservedTargets.

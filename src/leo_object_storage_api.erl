@@ -45,9 +45,9 @@
          du_and_compaction_stats/0
         ]).
 
--export([get_object_storage_pid/1,
-         get_object_storage_pid_first/0,
-         get_object_storage_pid_by_container_id/1
+-export([get_object_storage_pid/1
+         %% get_object_storage_pid_first/0,
+         %% get_object_storage_pid_by_container_id/1
         ]).
 
 -export([compact_data/0, compact_data/1,
@@ -213,7 +213,8 @@ fetch_by_addr_id(AddrId, Fun, MaxKeys) ->
         [] ->
             not_found;
         List ->
-            case fetch_by_addr_id_1(List, AddrId, Fun, MaxKeys, []) of
+            List_1 = [_Pid || {_Pid,_} <- List],
+            case fetch_by_addr_id_1(List_1, AddrId, Fun, MaxKeys, []) of
                 Res ->
                     case MaxKeys of
                         undefined ->
@@ -253,6 +254,7 @@ fetch_by_key(Key, Fun, MaxKeys) ->
         [] ->
             not_found;
         List ->
+            List_1 = [_Pid || {_Pid,_} <- List],
             case catch lists:foldl(
                          fun(Id, Acc) ->
                                  case catch ?SERVER_MODULE:fetch(Id, {0, Key}, Fun, MaxKeys) of
@@ -265,7 +267,7 @@ fetch_by_key(Key, Fun, MaxKeys) ->
                                      {_, Cause} ->
                                          erlang:error(Cause)
                                  end
-                         end, [], List) of
+                         end, [], List_1) of
                 {'EXIT', Cause} ->
                     Cause_1 = case is_tuple(Cause) of
                                   true ->
@@ -304,9 +306,10 @@ stats() ->
         [] ->
             not_found;
         List ->
+            List_1 = [_Pid || {_Pid,_} <- List],
             {ok, [Stat ||
                      {ok, Stat} <-
-                          [?SERVER_MODULE:get_stats(Id) || Id <- List]]}
+                         [?SERVER_MODULE:get_stats(Id) || Id <- List_1]]}
     end.
 
 
@@ -316,11 +319,11 @@ stats() ->
              {ok, [#storage_stats{}]} | not_found).
 du_and_compaction_stats() ->
     DUState = case stats() of
-                   not_found ->
-                       [];
-                   {ok, RetL} ->
-                       RetL
-               end,
+                  not_found ->
+                      [];
+                  {ok, RetL} ->
+                      RetL
+              end,
     {ok, CompactionState} = compact_state(),
     {ok, [{du, DUState},
           {compaction, CompactionState}
@@ -338,40 +341,18 @@ get_object_storage_pid(Arg) ->
 -spec(get_object_storage_pid(List, Arg) ->
              [atom()] when List::[{_,_}],
                            Arg::all | any()).
-get_object_storage_pid([], _) ->
+get_object_storage_pid([],_) ->
     [];
 get_object_storage_pid(List, all) ->
     lists:map(fun({_, Value}) ->
-                      leo_misc:get_value(obj_storage, Value)
+                      {leo_misc:get_value(obj_storage, Value),
+                       leo_misc:get_value(obj_storage_read, Value)}
               end, List);
 get_object_storage_pid(List, Arg) ->
     Index = (erlang:crc32(Arg) rem erlang:length(List)) + 1,
     {_, Value} = lists:nth(Index, List),
-    Id = leo_misc:get_value(obj_storage, Value),
-    [Id].
-
-
-%% @doc Retrieve the first record of object-storage pids
--spec(get_object_storage_pid_first() ->
-             Id when Id::atom()).
-get_object_storage_pid_first() ->
-    Key = ets:first(?ETS_CONTAINERS_TABLE),
-    [{Key, First}|_] = ets:lookup(?ETS_CONTAINERS_TABLE, Key),
-    Id = leo_misc:get_value(obj_storage, First),
-    Id.
-
-%% @doc Retrieve object-storage-pid by container-id
--spec(get_object_storage_pid_by_container_id(ContainerId) ->
-             Id when Id::atom(),
-                     ContainerId::non_neg_integer()).
-get_object_storage_pid_by_container_id(ContainerId) ->
-    case ets:lookup(leo_object_storage_containers, ContainerId) of
-        [] ->
-            not_found;
-        [{_, Value}|_] ->
-            Id = leo_misc:get_value(obj_storage, Value),
-            Id
-    end.
+    [{leo_misc:get_value(obj_storage, Value),
+      leo_misc:get_value(obj_storage_read, Value)}].
 
 
 -ifdef(TEST).
@@ -380,7 +361,7 @@ get_object_storage_pid_by_container_id(ContainerId) ->
 -spec(add_incorrect_data(binary()) ->
              ok | {error, any()}).
 add_incorrect_data(Bin) ->
-    [Pid|_] = get_object_storage_pid(Bin),
+    [{Pid,_}|_] = get_object_storage_pid(Bin),
     ?SERVER_MODULE:add_incorrect_data(Pid, Bin).
 -endif.
 
@@ -542,7 +523,7 @@ start_app() ->
 do_request(get, [{AddrId, Key}, StartPos, EndPos, IsForcedCheck]) ->
     KeyBin = term_to_binary({AddrId, Key}),
     case get_object_storage_pid(KeyBin) of
-        [Pid|_] ->
+        [{Pid,_}|_] ->
             ?SERVER_MODULE:get(Pid, {AddrId, Key}, StartPos, EndPos, IsForcedCheck);
         _ ->
             {error, ?ERROR_PROCESS_NOT_FOUND}
@@ -550,9 +531,9 @@ do_request(get, [{AddrId, Key}, StartPos, EndPos, IsForcedCheck]) ->
 do_request(store, [Metadata, Bin]) ->
     Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
     #?METADATA{addr_id = AddrId,
-               key     = Key} = Metadata_1,
+               key = Key} = Metadata_1,
     case get_object_storage_pid(term_to_binary({AddrId, Key})) of
-        [Pid|_] ->
+        [{Pid,_}|_] ->
             ?SERVER_MODULE:store(Pid, Metadata_1, Bin);
         _ ->
             {error, ?ERROR_PROCESS_NOT_FOUND}
@@ -560,7 +541,7 @@ do_request(store, [Metadata, Bin]) ->
 do_request(put, [Key, Object]) ->
     KeyBin = term_to_binary(Key),
     case get_object_storage_pid(KeyBin) of
-        [Pid|_] ->
+        [{Pid,_}|_] ->
             ?SERVER_MODULE:put(Pid, Object);
         _ ->
             {error, ?ERROR_PROCESS_NOT_FOUND}
@@ -568,7 +549,7 @@ do_request(put, [Key, Object]) ->
 do_request(delete, [Key, Object]) ->
     KeyBin = term_to_binary(Key),
     case get_object_storage_pid(KeyBin) of
-        [Pid|_] ->
+        [{Pid,_}|_] ->
             ?SERVER_MODULE:delete(Pid, Object);
         _ ->
             {error, ?ERROR_PROCESS_NOT_FOUND}
@@ -576,7 +557,7 @@ do_request(delete, [Key, Object]) ->
 do_request(head, [{AddrId, Key}]) ->
     KeyBin = term_to_binary({AddrId, Key}),
     case get_object_storage_pid(KeyBin) of
-        [Pid|_] ->
+        [{Pid,_}|_] ->
             ?SERVER_MODULE:head(Pid, {AddrId, Key});
         _ ->
             {error, ?ERROR_PROCESS_NOT_FOUND}
@@ -584,7 +565,7 @@ do_request(head, [{AddrId, Key}]) ->
 do_request(head_with_calc_md5, [{AddrId, Key}, MD5Context]) ->
     KeyBin = term_to_binary({AddrId, Key}),
     case get_object_storage_pid(KeyBin) of
-        [Pid|_] ->
+        [{Pid,_}|_] ->
             ?SERVER_MODULE:head_with_calc_md5(
                Pid, {AddrId, Key}, MD5Context);
         _ ->

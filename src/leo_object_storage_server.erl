@@ -36,7 +36,8 @@
 -include_lib("eunit/include/eunit.hrl").
 
 %% API
--export([start_link/6, start_link/7, stop/1]).
+-export([start_link/1,
+         stop/1]).
 -export([put/2, get/5, delete/2, head/2, fetch/4, store/3,
          get_stats/1, set_stats/2,
          get_avs_version_bin/1,
@@ -63,21 +64,7 @@
 -export([add_incorrect_data/2]).
 -endif.
 
--record(state, {
-          id :: atom(),
-          meta_db_id :: atom(),
-          compaction_worker_id :: atom(),
-          object_storage = #backend_info{}  :: #backend_info{},
-          storage_stats  = #storage_stats{} :: #storage_stats{},
-          state_filepath :: string(),
-          is_strict_check = false :: boolean(),
-          is_locked = false       :: boolean(),
-          is_del_blocked = false  :: boolean(),
-          threshold_slow_processing = ?DEF_THRESHOLD_SLOW_PROC :: non_neg_integer()
-         }).
-
--define(DEF_TIMEOUT, 30000).
-
+-define(DEF_TIMEOUT, timer:seconds(30)).
 
 -ifdef(TEST).
 -define(add_incorrect_data(_StorageInfo,_Bin),
@@ -90,37 +77,12 @@
 %%====================================================================
 %% API
 %%====================================================================
-%% @doc Starts the server
-%%
--spec(start_link(Id, SeqNo, MetaDBId,
-                 CompactionWorkerId, DiagnosisLogId, RootPath) ->
-             {ok, pid()} | {error, any()} when Id::atom(),
-                                               SeqNo::non_neg_integer(),
-                                               MetaDBId::atom(),
-                                               CompactionWorkerId::atom(),
-                                               DiagnosisLogId::atom(),
-                                               RootPath::string()).
-start_link(Id, SeqNo, MetaDBId,
-           CompactionWorkerId, DiagnosisLogId, RootPath) ->
-    start_link(Id, SeqNo, MetaDBId,
-               CompactionWorkerId, DiagnosisLogId, RootPath, false).
-
 %% @doc Starts the server with strict-check
 %%
--spec(start_link(Id, SeqNo, MetaDBId,
-                 CompactionWorkerId, DiagnosisLogId, RootPath, IsStrictCheck) ->
-             {ok, pid()} | {error, any()} when Id::atom(),
-                                               SeqNo::non_neg_integer(),
-                                               MetaDBId::atom(),
-                                               CompactionWorkerId::atom(),
-                                               DiagnosisLogId::atom(),
-                                               RootPath::string(),
-                                               IsStrictCheck::boolean()).
-start_link(Id, SeqNo, MetaDBId,
-           CompactionWorkerId, DiagnosisLogId, RootPath, IsStrictCheck) ->
-    gen_server:start_link({local, Id}, ?MODULE,
-                          [Id, SeqNo, MetaDBId, CompactionWorkerId,
-                           DiagnosisLogId, RootPath, IsStrictCheck], []).
+-spec(start_link(ObjServerState) ->
+             {ok, pid()} | {error, any()} when ObjServerState::#obj_server_state{}).
+start_link(#obj_server_state{id = Id} = ObjServerState) ->
+    gen_server:start_link({local, Id}, ?MODULE, [ObjServerState], []).
 
 
 %% @doc Stop this server
@@ -332,20 +294,26 @@ add_incorrect_data(Id, Bin) ->
 %% GEN_SERVER CALLBACKS
 %%====================================================================
 %% @doc Initiates the server
-init([Id, SeqNo, MetaDBId, CompactionWorkerId, DiagnosisLogId, RootPath, IsStrictCheck]) ->
-    ObjectStorageDir  = lists:append([RootPath, ?DEF_OBJECT_STORAGE_SUB_DIR]),
+init([ObjServerState]) ->
+    #obj_server_state{id = Id,
+                      seq_num = SeqNo,
+                      privilege = Privilege,
+                      diagnosis_logger_id = DiagnosisLogId,
+                      root_path = RootPath} = ObjServerState,
+
+    ObjectStorageDir = lists:append([RootPath, ?DEF_OBJECT_STORAGE_SUB_DIR]),
     ObjectStoragePath = lists:append([ObjectStorageDir, integer_to_list(SeqNo), ?AVS_FILE_EXT]),
-    StateFilePath     = lists:append([RootPath, ?DEF_STATE_SUB_DIR, atom_to_list(Id)]),
-    LogFilePath       = lists:append([RootPath, ?DEF_LOG_SUB_DIR]),
+    StateFilePath = lists:append([RootPath, ?DEF_STATE_SUB_DIR, atom_to_list(Id)]),
+    LogFilePath = lists:append([RootPath, ?DEF_LOG_SUB_DIR]),
     StorageStats =
         case file:consult(StateFilePath) of
             {ok, Props} ->
                 #storage_stats{
                    file_path = ObjectStoragePath,
-                   total_sizes     = leo_misc:get_value('total_sizes',     Props, 0),
-                   active_sizes    = leo_misc:get_value('active_sizes',    Props, 0),
-                   total_num       = leo_misc:get_value('total_num',       Props, 0),
-                   active_num      = leo_misc:get_value('active_num',      Props, 0),
+                   total_sizes = leo_misc:get_value('total_sizes', Props, 0),
+                   active_sizes = leo_misc:get_value('active_sizes', Props, 0),
+                   total_num = leo_misc:get_value('total_num', Props, 0),
+                   active_num = leo_misc:get_value('active_num', Props, 0),
                    compaction_hist = leo_misc:get_value('compaction_hist', Props, [])
                   };
             _ ->
@@ -355,14 +323,16 @@ init([Id, SeqNo, MetaDBId, CompactionWorkerId, DiagnosisLogId, RootPath, IsStric
     %% open object-storage.
     case get_raw_path(object, ObjectStorageDir, ObjectStoragePath) of
         {ok, ObjectStorageRawPath} ->
-            case leo_object_storage_haystack:open(ObjectStorageRawPath) of
+            ?debugVal(Privilege),
+            case leo_object_storage_haystack:open(
+                   ObjectStorageRawPath, Privilege) of
                 {ok, [ObjectWriteHandler, ObjectReadHandler, AVSVsnBin]} ->
                     StorageInfo = #backend_info{
-                                     linked_path   = ObjectStoragePath,
-                                     file_path     = ObjectStorageRawPath,
+                                     linked_path = ObjectStoragePath,
+                                     file_path = ObjectStorageRawPath,
                                      write_handler = ObjectWriteHandler,
-                                     read_handler  = ObjectReadHandler,
-                                     avs_ver_cur   = AVSVsnBin},
+                                     read_handler = ObjectReadHandler,
+                                     avs_ver_cur = AVSVsnBin},
 
                     %% Launch the diagnosis logger
                     case ?env_enable_diagnosis_log() of
@@ -375,16 +345,13 @@ init([Id, SeqNo, MetaDBId, CompactionWorkerId, DiagnosisLogId, RootPath, IsStric
                         _ ->
                             void
                     end,
-                    {ok, #state{id = Id,
-                                meta_db_id           = MetaDBId,
-                                compaction_worker_id = CompactionWorkerId,
-                                object_storage       = StorageInfo,
-                                storage_stats        = StorageStats,
-                                state_filepath       = StateFilePath,
-                                is_strict_check      = IsStrictCheck,
-                                is_locked = false,
-                                threshold_slow_processing = ?env_threshold_slow_processing()
-                               }};
+                    {ok, ObjServerState#obj_server_state{
+                           object_storage = StorageInfo,
+                           storage_stats = StorageStats,
+                           state_filepath = StateFilePath,
+                           is_locked = false,
+                           threshold_slow_processing = ?env_threshold_slow_processing()
+                          }};
                 {error, Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING}, {function, "init/4"},
@@ -407,12 +374,14 @@ handle_call(stop, _From, State) ->
 
 
 %% Insert an object
-handle_call({put, _}, _From, #state{is_locked = true} = State) ->
+handle_call({put,_}, _From, #obj_server_state{is_locked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
+handle_call({put,_}, _From, #obj_server_state{privilege = ?OBJ_PRV_READ_ONLY} = State) ->
+    {reply, {error, ?ERROR_NOT_ALLOWED_ACCESS}, State};
 handle_call({put, #?OBJECT{addr_id = AddrId,
                            key = Key} = Object}, _From,
-            #state{object_storage = StorageInfo,
-                   threshold_slow_processing = ThresholdSlowProcessing} = State) ->
+            #obj_server_state{object_storage = StorageInfo,
+                              threshold_slow_processing = ThresholdSlowProcessing} = State) ->
     Fun = fun() ->
                   Key_1 = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                            AddrId, Key),
@@ -424,10 +393,10 @@ handle_call({put, #?OBJECT{addr_id = AddrId,
 
 %% Retrieve an object
 handle_call({get, {AddrId, Key}, StartPos, EndPos, IsForcedCheck},
-            _From, #state{meta_db_id      = MetaDBId,
-                          object_storage  = StorageInfo,
-                          is_strict_check = IsStrictCheck,
-                          threshold_slow_processing = ThresholdSlowProcessing} = State) ->
+            _From, #obj_server_state{meta_db_id      = MetaDBId,
+                                     object_storage  = StorageInfo,
+                                     is_strict_check = IsStrictCheck,
+                                     threshold_slow_processing = ThresholdSlowProcessing} = State) ->
     IsStrictCheck_1 = case IsForcedCheck of
                           true  -> IsForcedCheck;
                           false -> IsStrictCheck
@@ -445,14 +414,16 @@ handle_call({get, {AddrId, Key}, StartPos, EndPos, IsForcedCheck},
     {reply, Reply_1, State_2};
 
 %% Remove an object
-handle_call({delete, _}, _From, #state{is_locked = true} = State) ->
+handle_call({delete,_}, _From, #obj_server_state{is_locked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
-handle_call({delete, _}, _From, #state{is_del_blocked = true} = State) ->
+handle_call({delete,_}, _From, #obj_server_state{is_del_blocked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
+handle_call({delete, _}, _From, #obj_server_state{privilege = ?OBJ_PRV_READ_ONLY} = State) ->
+    {reply, {error, ?ERROR_NOT_ALLOWED_ACCESS}, State};
 handle_call({delete, #?OBJECT{addr_id = AddrId,
                               key = Key} = Object}, _From,
-            #state{object_storage = StorageInfo,
-                   threshold_slow_processing = ThresholdSlowProcessing} = State) ->
+            #obj_server_state{object_storage = StorageInfo,
+                              threshold_slow_processing = ThresholdSlowProcessing} = State) ->
     Fun = fun() ->
                   Key_1 = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                            AddrId, Key),
@@ -463,8 +434,8 @@ handle_call({delete, #?OBJECT{addr_id = AddrId,
 
 %% Head an object
 handle_call({head, {AddrId, Key}},
-            _From, #state{meta_db_id = MetaDBId,
-                          object_storage = StorageInfo} = State) ->
+            _From, #obj_server_state{meta_db_id = MetaDBId,
+                                     object_storage = StorageInfo} = State) ->
     BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                   AddrId, Key),
     Reply = leo_object_storage_haystack:head(MetaDBId, BackendKey),
@@ -472,8 +443,8 @@ handle_call({head, {AddrId, Key}},
 
 %% Fetch objects with address-id and key to maximum numbers of keys
 handle_call({fetch, {AddrId, Key}, Fun, MaxKeys},
-            _From, #state{meta_db_id     = MetaDBId,
-                          object_storage = StorageInfo} = State) ->
+            _From, #obj_server_state{meta_db_id     = MetaDBId,
+                                     object_storage = StorageInfo} = State) ->
     BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur, AddrId, Key),
     Reply = case catch leo_object_storage_haystack:fetch(
                          MetaDBId, BackendKey, Fun, MaxKeys) of
@@ -489,10 +460,12 @@ handle_call({fetch, {AddrId, Key}, Fun, MaxKeys},
     {reply, Reply, State};
 
 %% Store an object
-handle_call({store, _,_}, _From, #state{is_locked = true} = State) ->
+handle_call({store,_,_}, _From, #obj_server_state{is_locked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
-handle_call({store, Metadata, Bin}, _From, #state{object_storage = StorageInfo,
-                                                  is_del_blocked = IsDelBlocked} = State) ->
+handle_call({store,_,_}, _From, #obj_server_state{privilege = ?OBJ_PRV_READ_ONLY} = State) ->
+    {reply, {error, ?ERROR_NOT_ALLOWED_ACCESS}, State};
+handle_call({store, Metadata, Bin}, _From, #obj_server_state{object_storage = StorageInfo,
+                                                             is_del_blocked = IsDelBlocked} = State) ->
     Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
     Key = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                            Metadata_1#?METADATA.addr_id,
@@ -519,22 +492,22 @@ handle_call({store, Metadata, Bin}, _From, #state{object_storage = StorageInfo,
     {reply, Reply_1, State_1};
 
 %% Retrieve the current status
-handle_call(get_stats, _From, #state{storage_stats = StorageStats} = State) ->
+handle_call(get_stats, _From, #obj_server_state{storage_stats = StorageStats} = State) ->
     {reply, {ok, StorageStats}, State};
 
 %% Set the current status
 handle_call({set_stats, StorageStats}, _From, State) ->
-    {reply, ok, State#state{storage_stats = StorageStats}};
+    {reply, ok, State#obj_server_state{storage_stats = StorageStats}};
 
 %% Retrieve the avs version
-handle_call(get_avs_version_bin, _From, #state{object_storage = StorageInfo} = State) ->
+handle_call(get_avs_version_bin, _From, #obj_server_state{object_storage = StorageInfo} = State) ->
     Reply = {ok, StorageInfo#backend_info.avs_ver_cur},
     {reply, Reply, State};
 
 %% Retrieve hash of the object with head-verb
 handle_call({head_with_calc_md5, {AddrId, Key}, MD5Context},
-            _From, #state{meta_db_id      = MetaDBId,
-                          object_storage  = StorageInfo} = State) ->
+            _From, #obj_server_state{meta_db_id      = MetaDBId,
+                                     object_storage  = StorageInfo} = State) ->
     BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                   AddrId, Key),
     Reply = leo_object_storage_haystack:head_with_calc_md5(
@@ -546,39 +519,39 @@ handle_call({head_with_calc_md5, {AddrId, Key}, MD5Context},
 
 %% Close the object-container
 handle_call(close, _From,
-            #state{id = Id,
-                   meta_db_id = MetaDBId,
-                   state_filepath = StateFilePath,
-                   storage_stats  = StorageStats,
-                   object_storage = #backend_info{write_handler = WriteHandler,
-                                                  read_handler  = ReadHandler}} = State) ->
+            #obj_server_state{id = Id,
+                              meta_db_id = MetaDBId,
+                              state_filepath = StateFilePath,
+                              storage_stats  = StorageStats,
+                              object_storage = #backend_info{write_handler = WriteHandler,
+                                                             read_handler  = ReadHandler}} = State) ->
     ok = close_storage(Id, MetaDBId, StateFilePath,
                        StorageStats, WriteHandler, ReadHandler),
     {reply, ok, State};
 
 %% Retrieve the backend info/configuration
 handle_call({get_backend_info, ?SERVER_OBJ_STORAGE}, _From,
-            #state{object_storage = ObjectStorage} = State) ->
+            #obj_server_state{object_storage = ObjectStorage} = State) ->
     {reply, {ok, ObjectStorage}, State};
 
 %% Lock the object-container
 handle_call(lock, _From, State) ->
-    {reply, ok, State#state{is_locked = true}};
+    {reply, ok, State#obj_server_state{is_locked = true}};
 
 %% Lock the object-container
 handle_call(block_del, _From, State) ->
-    {reply, ok, State#state{is_del_blocked = true}};
+    {reply, ok, State#obj_server_state{is_del_blocked = true}};
 
 %% Unlock the object-container
 handle_call(unlock, _From, State) ->
-    {reply, ok, State#state{is_locked = false,
-                            is_del_blocked = false}};
+    {reply, ok, State#obj_server_state{is_locked = false,
+                                       is_del_blocked = false}};
 
 %% Open the object-container
 handle_call({switch_container, FilePath,
              NumOfActiveObjs, SizeOfActiveObjs}, _From,
-            #state{object_storage = ObjectStorage,
-                   storage_stats  = StorageStats} = State) ->
+            #obj_server_state{object_storage = ObjectStorage,
+                              storage_stats  = StorageStats} = State) ->
     %% Close the handlers
     #backend_info{
        write_handler = WriteHandler,
@@ -587,24 +560,24 @@ handle_call({switch_container, FilePath,
 
     %% Delete the old container
     ok = file:delete(ObjectStorage#backend_info.file_path),
-    State_1 = State#state{object_storage =
-                              ObjectStorage#backend_info{
-                                file_path = FilePath},
-                          storage_stats =
-                              StorageStats#storage_stats{
-                                total_sizes  = SizeOfActiveObjs,
-                                active_sizes = SizeOfActiveObjs,
-                                total_num    = NumOfActiveObjs,
-                                active_num   = NumOfActiveObjs
-                               }
-                         },
+    State_1 = State#obj_server_state{object_storage =
+                                         ObjectStorage#backend_info{
+                                           file_path = FilePath},
+                                     storage_stats =
+                                         StorageStats#storage_stats{
+                                           total_sizes  = SizeOfActiveObjs,
+                                           active_sizes = SizeOfActiveObjs,
+                                           total_num    = NumOfActiveObjs,
+                                           active_num   = NumOfActiveObjs
+                                          }
+                                    },
     %% Open the new container
     State_2 = open_container(State_1),
     {reply, ok, State_2};
 
 %% Append the history in the state
 handle_call({append_compaction_history, History}, _From,
-            #state{storage_stats = StorageStats} = State) ->
+            #obj_server_state{storage_stats = StorageStats} = State) ->
     %% Retrieve the current compaciton-histories
     CurHist = StorageStats#storage_stats.compaction_hist,
     Len = length(CurHist),
@@ -617,7 +590,7 @@ handle_call({append_compaction_history, History}, _From,
                   _ ->
                       [History|CurHist]
               end,
-    {reply, ok, State#state{
+    {reply, ok, State#obj_server_state{
                   storage_stats =
                       StorageStats#storage_stats{
                         compaction_hist = NewHist}
@@ -625,12 +598,12 @@ handle_call({append_compaction_history, History}, _From,
 
 %% Retrieve the compaction worker
 handle_call(get_compaction_worker, _From,
-            #state{compaction_worker_id = CompactionWorkerId} = State) ->
+            #obj_server_state{compaction_worker_id = CompactionWorkerId} = State) ->
     {reply, {ok, CompactionWorkerId}, State};
 
 %% Put incorrect data for the unit-test
 handle_call({add_incorrect_data,_Bin},
-            _From, #state{object_storage =_StorageInfo} = State) ->
+            _From, #obj_server_state{object_storage =_StorageInfo} = State) ->
     ?add_incorrect_data(_StorageInfo,_Bin),
     {reply, ok, State}.
 
@@ -653,12 +626,12 @@ handle_info(_Info, State) ->
 %% @doc This function is called by a gen_server when it is about to
 %%      terminate. It should be the opposite of Module:init/1 and do any necessary
 %%      cleaning up. When it returns, the gen_server terminates with Reason.
-terminate(_Reason, #state{id = Id,
-                          meta_db_id = MetaDBId,
-                          state_filepath = StateFilePath,
-                          storage_stats  = StorageStats,
-                          object_storage = #backend_info{write_handler = WriteHandler,
-                                                         read_handler  = ReadHandler}}) ->
+terminate(_Reason, #obj_server_state{id = Id,
+                                     meta_db_id = MetaDBId,
+                                     state_filepath = StateFilePath,
+                                     storage_stats  = StorageStats,
+                                     object_storage = #backend_info{write_handler = WriteHandler,
+                                                                    read_handler  = ReadHandler}}) ->
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "terminate/2"},
                            {line, ?LINE}, {body, Id}]),
@@ -679,13 +652,13 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% @doc Open the conatainer
 %% @private
-open_container(#state{object_storage =
-                          #backend_info{
-                             linked_path = FilePath}} = State) ->
+open_container(#obj_server_state{object_storage =
+                                     #backend_info{
+                                        linked_path = FilePath}} = State) ->
     case leo_object_storage_haystack:open(FilePath) of
         {ok, [NewWriteHandler, NewReadHandler, AVSVsnBin]} ->
-            BackendInfo = State#state.object_storage,
-            State#state{
+            BackendInfo = State#obj_server_state.object_storage,
+            State#obj_server_state{
               object_storage =
                   BackendInfo#backend_info{
                     avs_ver_cur   = AVSVsnBin,
@@ -700,10 +673,10 @@ open_container(#state{object_storage =
 %% @doc Execute the function - put/get/delete
 %% @private
 -spec(execute(Method, Key, Fun, ThresholdSlowProcessing) ->
-             {any(), #state{}} when Method::put|get|delete,
-                                    Key::binary(),
-                                    Fun::fun(),
-                                    ThresholdSlowProcessing::non_neg_integer()).
+             {any(), #obj_server_state{}} when Method::put|get|delete,
+                                               Key::binary(),
+                                               Fun::fun(),
+                                               ThresholdSlowProcessing::non_neg_integer()).
 execute(Method, Key, Fun, ThresholdSlowProcessing) ->
     %% Execute the function
     _ = erlang:statistics(wall_clock),
@@ -734,9 +707,9 @@ after_proc(Ret, State) ->
 
 %% @doc Put an object
 %% @private
-put_1(Key, Object, #state{meta_db_id     = MetaDBId,
-                          object_storage = StorageInfo,
-                          storage_stats  = StorageStats} = State) ->
+put_1(Key, Object, #obj_server_state{meta_db_id     = MetaDBId,
+                                     object_storage = StorageInfo,
+                                     storage_stats  = StorageStats} = State) ->
     {Ret, DiffRec, OldSize} =
         case leo_object_storage_haystack:head(MetaDBId, Key) of
             not_found ->
@@ -759,7 +732,7 @@ put_1(Key, Object, #state{meta_db_id     = MetaDBId,
             NewSize = leo_object_storage_haystack:calc_obj_size(Object),
             Reply   = leo_object_storage_haystack:put(MetaDBId, StorageInfo, Object),
             State_1 = after_proc(Reply, State),
-            {Reply, State_1#state{
+            {Reply, State_1#obj_server_state{
                       storage_stats = StorageStats#storage_stats{
                                         total_sizes  = StorageStats#storage_stats.total_sizes  + NewSize,
                                         active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - OldSize),
@@ -772,9 +745,9 @@ put_1(Key, Object, #state{meta_db_id     = MetaDBId,
 
 %% @doc Remove an object
 %% @private
-delete_1(Key, Object, #state{meta_db_id     = MetaDBId,
-                             object_storage = StorageInfo,
-                             storage_stats  = StorageStats} = State) ->
+delete_1(Key, Object, #obj_server_state{meta_db_id     = MetaDBId,
+                                        object_storage = StorageInfo,
+                                        storage_stats  = StorageStats} = State) ->
     {Reply, DiffRec, OldSize, State_1} =
         case leo_object_storage_haystack:head(
                MetaDBId, Key) of
@@ -808,7 +781,7 @@ delete_1(Key, Object, #state{meta_db_id     = MetaDBId,
                   active_sizes = StorageStats#storage_stats.active_sizes - OldSize,
                   total_num    = StorageStats#storage_stats.total_num,
                   active_num   = StorageStats#storage_stats.active_num - DiffRec},
-            {Reply, State_1#state{storage_stats = NewStorageStats}};
+            {Reply, State_1#obj_server_state{storage_stats = NewStorageStats}};
         _ ->
             {Reply, State_1}
     end.

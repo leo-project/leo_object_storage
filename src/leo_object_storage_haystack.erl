@@ -88,13 +88,14 @@ calc_obj_size(KSize, DSize) ->
 -spec(open(FilePath) ->
              {ok, port(), port(), binary()} | {error, any()} when FilePath::string()).
 open(FilePath) ->
-    open(FilePath, read_and_write).
+    %% open(FilePath, read_and_write).
+    open(FilePath, ?OBJ_PRV_READ_WRITE).
 
 -spec(open(FilePath, Option) ->
              {ok, port(), port(), binary()} |
              {error, any()} when FilePath::string(),
                                  Option::read_and_write|read|write).
-open(FilePath, read_and_write) ->
+open(FilePath, ?OBJ_PRV_READ_WRITE) ->
     case create_file(FilePath) of
         {ok, WriteHandler} ->
             case open_read_handler(FilePath) of
@@ -106,14 +107,14 @@ open(FilePath, read_and_write) ->
         Error ->
             Error
     end;
-open(FilePath, read) ->
+open(FilePath, ?OBJ_PRV_READ_ONLY) ->
     case open_read_handler(FilePath) of
         {ok, [ReadHandler, Bin]} ->
             {ok, [undefined, ReadHandler, Bin]};
         Error ->
             Error
     end;
-open(FilePath, write) ->
+open(FilePath, ?OBJ_PRV_WRITE_ONLY) ->
     case create_file(FilePath) of
         {ok, WriteHandler} ->
             case open_read_handler(FilePath) of
