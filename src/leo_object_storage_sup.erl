@@ -304,27 +304,31 @@ get_path(Path0) ->
                                  Props::[{atom(), any()}],
                                  ServerPair::{atom(), atom()}).
 add_container(BackendDBSupPid, Id, Props) ->
-    ObjStorageId    = gen_id(obj_storage,     Id),
-    MetaDBId        = gen_id(metadata,        Id),
-    LoggerId        = gen_id(diagnosis_logger,Id),
-    CompactWorkerId = gen_id(compact_worker,  Id),
+    ObjStorageId = gen_id(obj_storage, Id),
+    ObjStorageIdRead = gen_id(obj_storage_read, Id),
+    MetaDBId = gen_id(metadata, Id),
+    LoggerId = gen_id(diagnosis_logger,Id),
+    CompactWorkerId = gen_id(compact_worker, Id),
 
     %% %% Launch metadata-db
     MetadataDB = leo_misc:get_value('metadata_db', Props),
-    Path       = leo_misc:get_value('path', Props),
+    Path = leo_misc:get_value('path', Props),
     ok = leo_backend_db_sup:start_child(
            BackendDBSupPid, MetaDBId, 1, MetadataDB,
            lists:append([Path, ?DEF_METADATA_STORAGE_SUB_DIR, integer_to_list(Id)])),
 
     %% %% Launch compact_fsm_worker
     Ret = case add_container_1(leo_compact_fsm_worker,
-                               CompactWorkerId, ObjStorageId, MetaDBId, LoggerId) of
+                               CompactWorkerId, ObjStorageId, ObjStorageIdRead,
+                               MetaDBId, LoggerId) of
               ok ->
                   %% Launch object-storage
-                  add_container_1(leo_object_storage_server, Id, ObjStorageId,
+                  add_container_1(leo_object_storage_server,
+                                  Id, ObjStorageId,
                                   MetaDBId, CompactWorkerId, LoggerId, Props);
               {error,{already_started,_Pid}} ->
-                  add_container_1(leo_object_storage_server, Id, ObjStorageId,
+                  add_container_1(leo_object_storage_server,
+                                  Id, ObjStorageId,
                                   MetaDBId, CompactWorkerId, LoggerId, Props);
               {error, Cause} ->
                   {error, Cause}
@@ -338,10 +342,10 @@ add_container(BackendDBSupPid, Id, Props) ->
 
 %% @private
 add_container_1(leo_compact_fsm_worker = Mod,
-                Id, ObjStorageId, MetaDBId, LoggerId) ->
+                Id, ObjStorageId, ObjStorageIdRead, MetaDBId, LoggerId) ->
     ChildSpec = {Id,
                  {Mod, start_link,
-                  [Id, ObjStorageId, MetaDBId, LoggerId]},
+                  [Id, ObjStorageId, ObjStorageIdRead, MetaDBId, LoggerId]},
                  permanent, 2000, worker, [Mod]},
     case supervisor:start_child(?MODULE, ChildSpec) of
         {ok,_} ->
@@ -355,30 +359,60 @@ add_container_1(leo_compact_fsm_worker = Mod,
             {error, Cause}
     end.
 
+%% @TODO
 add_container_1(leo_object_storage_server = Mod, BaseId,
                 ObjStorageId, MetaDBId, CompactWorkerId, LoggerId, Props) ->
-    Path          = leo_misc:get_value('path',            Props),
+    Path = leo_misc:get_value('path', Props),
     IsStrictCheck = leo_misc:get_value('is_strict_check', Props),
 
-    Args = [ObjStorageId, BaseId,
-            MetaDBId, CompactWorkerId, LoggerId, Path, IsStrictCheck],
-    ChildSpec = {ObjStorageId,
-                 {Mod, start_link, Args},
-                 permanent, 2000, worker, [Mod]},
-
-    case supervisor:start_child(?MODULE, ChildSpec) of
+    %% For WRITE and DELETE
+    ObjServerState = #obj_server_state{id = ObjStorageId,
+                                       seq_num = BaseId,
+                                       privilege = ?OBJ_PRV_READ_WRITE,
+                                       meta_db_id = MetaDBId,
+                                       compaction_worker_id = CompactWorkerId,
+                                       diagnosis_logger_id = LoggerId,
+                                       root_path = Path,
+                                       is_strict_check = IsStrictCheck},
+    ChildSpec_1 = {ObjStorageId,
+                   {Mod, start_link, [ObjServerState]},
+                   permanent, 2000, worker, [Mod]},
+    case supervisor:start_child(?MODULE, ChildSpec_1) of
         {ok,_} ->
-            true = ets:insert(?ETS_CONTAINERS_TABLE, {BaseId, [{obj_storage,    ObjStorageId},
-                                                               {metadata,       MetaDBId},
-                                                               {compact_worker, CompactWorkerId}]}),
-            ok = leo_misc:set_env(?APP_NAME, {?ENV_COMPACTION_STATUS, ObjStorageId}, ?STATE_ACTIVE),
-            ok;
+            %% For GET and HEAD
+            ObjStorageId_R = gen_id(obj_storage_read, BaseId),
+            ChildSpec_2 = {ObjStorageId_R,
+                           {Mod, start_link,
+                            [ObjServerState#obj_server_state{id = ObjStorageId_R,
+                                                             privilege = ?OBJ_PRV_READ_ONLY}]},
+                           permanent, 2000, worker, [Mod]},
+            case supervisor:start_child(?MODULE, ChildSpec_2) of
+                {ok,_} ->
+                    true = ets:insert(?ETS_CONTAINERS_TABLE,
+                                      {BaseId, [{obj_storage, ObjStorageId},
+                                                {obj_storage_read, ObjStorageId_R},
+                                                {metadata, MetaDBId},
+                                                {compact_worker, CompactWorkerId}]}),
+                    ok = leo_misc:set_env(?APP_NAME,
+                                          {?ENV_COMPACTION_STATUS, ObjStorageId},
+                                          ?STATE_ACTIVE),
+                    ok;
+                {error,{already_started,_Pid}} ->
+                    ok;
+                {error, Cause} ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING},
+                                            {function, "add_container_1/6"},
+                                            {line, ?LINE},
+                                            {body, Cause}]),
+                    {error, Cause}
+            end;
         {error,{already_started,_Pid}} ->
             ok;
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
-                                    {function, "add_container/3"},
+                                    {function, "add_container_1/6"},
                                     {line, ?LINE},
                                     {body, Cause}]),
             {error, Cause}
@@ -392,6 +426,10 @@ add_container_1(leo_object_storage_server = Mod, BaseId,
 gen_id(obj_storage, Id) ->
     list_to_atom(lists:append([atom_to_list(?APP_NAME),
                                "_",
+                               integer_to_list(Id)]));
+gen_id(obj_storage_read, Id) ->
+    list_to_atom(lists:append([atom_to_list(?APP_NAME),
+                               "_read_",
                                integer_to_list(Id)]));
 gen_id(metadata, Id) ->
     list_to_atom(lists:append(["leo_metadata_",
