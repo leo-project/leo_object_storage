@@ -305,6 +305,7 @@ get_path(Path0) ->
                                  ServerPair::{atom(), atom()}).
 add_container(BackendDBSupPid, Id, Props) ->
     ObjStorageId = gen_id(obj_storage, Id),
+    ObjStorageIdRead = gen_id(obj_storage_read, Id),
     MetaDBId = gen_id(metadata, Id),
     LoggerId = gen_id(diagnosis_logger,Id),
     CompactWorkerId = gen_id(compact_worker, Id),
@@ -318,7 +319,8 @@ add_container(BackendDBSupPid, Id, Props) ->
 
     %% %% Launch compact_fsm_worker
     Ret = case add_container_1(leo_compact_fsm_worker,
-                               CompactWorkerId, ObjStorageId, MetaDBId, LoggerId) of
+                               CompactWorkerId, ObjStorageId, ObjStorageIdRead,
+                               MetaDBId, LoggerId) of
               ok ->
                   %% Launch object-storage
                   add_container_1(leo_object_storage_server,
@@ -340,10 +342,10 @@ add_container(BackendDBSupPid, Id, Props) ->
 
 %% @private
 add_container_1(leo_compact_fsm_worker = Mod,
-                Id, ObjStorageId, MetaDBId, LoggerId) ->
+                Id, ObjStorageId, ObjStorageIdRead, MetaDBId, LoggerId) ->
     ChildSpec = {Id,
                  {Mod, start_link,
-                  [Id, ObjStorageId, MetaDBId, LoggerId]},
+                  [Id, ObjStorageId, ObjStorageIdRead, MetaDBId, LoggerId]},
                  permanent, 2000, worker, [Mod]},
     case supervisor:start_child(?MODULE, ChildSpec) of
         {ok,_} ->
@@ -365,7 +367,7 @@ add_container_1(leo_object_storage_server = Mod, BaseId,
 
     %% For WRITE and DELETE
     ObjServerState = #obj_server_state{id = ObjStorageId,
-                                       seq_num = BaseId,                                       
+                                       seq_num = BaseId,
                                        privilege = ?OBJ_PRV_READ_WRITE,
                                        meta_db_id = MetaDBId,
                                        compaction_worker_id = CompactWorkerId,

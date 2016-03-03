@@ -585,29 +585,30 @@
 -record(compaction_worker_state, {
           id :: atom(),
           obj_storage_id :: atom(),
-          meta_db_id     :: atom(),
+          obj_storage_id_read :: atom(),
+          meta_db_id :: atom(),
           obj_storage_info = #backend_info{} :: #backend_info{},
-          compact_cntl_pid       :: pid(),
-          diagnosis_log_id       :: atom(),
-          status = ?ST_IDLING    :: compaction_state(),
-          is_locked = false      :: boolean(),
-          is_diagnosing = false  :: boolean(),
-          is_recovering = false  :: boolean(),
+          compact_cntl_pid :: pid(),
+          diagnosis_log_id :: atom(),
+          status = ?ST_IDLING :: compaction_state(),
+          is_locked = false :: boolean(),
+          is_diagnosing = false :: boolean(),
+          is_recovering = false :: boolean(),
           is_forced_suspending = false :: boolean(),
           %% interval_between_batch_procs:
-          interval = 0     :: non_neg_integer(),
+          interval = 0 :: non_neg_integer(),
           max_interval = 0 :: non_neg_integer(),
           %% batch-procs:
           count_procs = 0 :: non_neg_integer(),
-          num_of_batch_procs = 0     :: non_neg_integer(),
+          num_of_batch_procs = 0 :: non_neg_integer(),
           max_num_of_batch_procs = 0 :: non_neg_integer(),
           num_of_steps = ?DEF_COMPACTION_NUM_OF_STEPS :: pos_integer(),
           %% compaction-info:
           compaction_prms = #compaction_prms{} :: #compaction_prms{},
           start_datetime = 0 :: non_neg_integer(),
-          error_pos = 0      :: non_neg_integer(),
-          set_errors         :: set(),
-          acc_errors = []    :: [{pos_integer(), pos_integer()}],
+          error_pos = 0 :: non_neg_integer(),
+          set_errors :: set(),
+          acc_errors = [] :: [{pos_integer(), pos_integer()}],
           result :: compaction_ret()
          }).
 

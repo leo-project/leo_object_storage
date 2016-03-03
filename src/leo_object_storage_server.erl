@@ -323,7 +323,6 @@ init([ObjServerState]) ->
     %% open object-storage.
     case get_raw_path(object, ObjectStorageDir, ObjectStoragePath) of
         {ok, ObjectStorageRawPath} ->
-            ?debugVal(Privilege),
             case leo_object_storage_haystack:open(
                    ObjectStorageRawPath, Privilege) of
                 {ok, [ObjectWriteHandler, ObjectReadHandler, AVSVsnBin]} ->
@@ -559,7 +558,16 @@ handle_call({switch_container, FilePath,
     catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
 
     %% Delete the old container
-    ok = file:delete(ObjectStorage#backend_info.file_path),
+    case file:delete(ObjectStorage#backend_info.file_path) of
+        ok ->
+            ok;
+        {error, enoent} ->
+            ok;
+        {error, Cause} ->
+            error_logger:info_msg("~p,~p,~p,~p~n",
+                                  [{module, ?MODULE_STRING}, {function, "handle_call/3"},
+                                   {line, ?LINE}, {body, Cause}])
+    end,
     State_1 = State#obj_server_state{object_storage =
                                          ObjectStorage#backend_info{
                                            file_path = FilePath},
@@ -652,10 +660,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% @doc Open the conatainer
 %% @private
-open_container(#obj_server_state{object_storage =
+open_container(#obj_server_state{privilege = Privilege,
+                                 object_storage =
                                      #backend_info{
                                         linked_path = FilePath}} = State) ->
-    case leo_object_storage_haystack:open(FilePath) of
+    case leo_object_storage_haystack:open(FilePath, Privilege) of
         {ok, [NewWriteHandler, NewReadHandler, AVSVsnBin]} ->
             BackendInfo = State#obj_server_state.object_storage,
             State#obj_server_state{

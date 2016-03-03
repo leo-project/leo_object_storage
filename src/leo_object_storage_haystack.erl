@@ -151,7 +151,8 @@ open_read_handler(FilePath) ->
                      ReadHandler::port()|any()).
 close(WriteHandler, ReadHandler) ->
     case WriteHandler of
-        undefined -> void;
+        undefined ->
+            void;
         _ ->
             catch file:close(WriteHandler)
     end,
