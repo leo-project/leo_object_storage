@@ -31,7 +31,8 @@
 -include_lib("eunit/include/eunit.hrl").
 
 %% API
--export([start_link/4, stop/1]).
+-export([start_link/5,
+         stop/1]).
 -export([run/3, run/5,
          forced_run/3,
          suspend/1,
@@ -60,14 +61,16 @@
 %% API
 %%====================================================================
 %% @doc Creates a gen_fsm process as part of a supervision tree
--spec(start_link(Id, ObjStorageId, MetaDBId, LoggerId) ->
+-spec(start_link(Id, ObjStorageId, ObjStorageIdRead, MetaDBId, LoggerId) ->
              {ok, pid()} | {error, any()} when Id::atom(),
                                                ObjStorageId::atom(),
+                                               ObjStorageIdRead::atom(),
                                                MetaDBId::atom(),
                                                LoggerId::atom()).
-start_link(Id, ObjStorageId, MetaDBId, LoggerId) ->
+start_link(Id, ObjStorageId, ObjStorageIdRead, MetaDBId, LoggerId) ->
     gen_fsm:start_link({local, Id}, ?MODULE,
-                       [Id, ObjStorageId, MetaDBId, LoggerId], []).
+                       [Id, ObjStorageId, ObjStorageIdRead,
+                        MetaDBId, LoggerId], []).
 
 
 %% @doc Stop this server
@@ -167,10 +170,12 @@ decrease(Id) ->
 %%====================================================================
 %% @doc Initiates the server
 %%
-init([Id, ObjStorageId, MetaDBId, LoggerId]) ->
+init([Id, ObjStorageId, ObjStorageIdRead,
+      MetaDBId, LoggerId]) ->
     {ok, ?ST_IDLING, #compaction_worker_state{
                         id = Id,
                         obj_storage_id = ObjStorageId,
+                        obj_storage_id_read = ObjStorageIdRead,
                         meta_db_id = MetaDBId,
                         diagnosis_log_id = LoggerId,
                         interval = ?env_compaction_interval_reg(),
@@ -931,10 +936,12 @@ after_execute_1({_, #compaction_worker_state{is_diagnosing = true}}) ->
 after_execute_1({ok, #compaction_worker_state{
                         meta_db_id = MetaDBId,
                         obj_storage_id = ObjStorageId,
+                        obj_storage_id_read = ObjStorageId_R,
                         obj_storage_info = StorageInfo,
-                        compaction_prms = #compaction_prms{
-                                             num_of_active_objs = NumActiveObjs,
-                                             size_of_active_objs = SizeActiveObjs}}}) ->
+                        compaction_prms =
+                            #compaction_prms{
+                               num_of_active_objs = NumActiveObjs,
+                               size_of_active_objs = SizeActiveObjs}}}) ->
     %% Unlink the symbol
     LinkedPath = StorageInfo#backend_info.linked_path,
     FilePath = StorageInfo#backend_info.file_path,
@@ -945,6 +952,8 @@ after_execute_1({ok, #compaction_worker_state{
         ok ->
             ok = leo_object_storage_server:switch_container(
                    ObjStorageId, FilePath, NumActiveObjs, SizeActiveObjs),
+            ok = leo_object_storage_server:switch_container(
+                   ObjStorageId_R, FilePath, NumActiveObjs, SizeActiveObjs),
             ok = leo_backend_db_api:finish_compaction(MetaDBId, true),
             ok;
         {error,_Cause} ->

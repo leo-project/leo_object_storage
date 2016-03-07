@@ -156,6 +156,7 @@
           acc_reports = [] :: [#compaction_report{}]
          }).
 
+
 %% Error Constants
 %%
 -define(ERROR_FD_CLOSED, "already closed file-descriptor").
@@ -167,6 +168,7 @@
 -define(ERROR_PROCESS_NOT_FOUND, "server process not found").
 -define(ERROR_COULD_NOT_GET_MOUNT_PATH, "could not get mout path").
 -define(ERROR_LOCKED_CONTAINER, "locked obj-conatainer").
+-define(ERROR_NOT_ALLOWED_ACCESS, "not allowed access").
 -define(ERROR_COULD_NOT_START_WORKER, "could NOT start worker processes").
 
 -define(ERROR_MSG_SLOW_OPERATION, 'slow_operation').
@@ -467,6 +469,30 @@
           compaction_hist = [] :: [#compaction_hist{}]
          }).
 
+
+-define(OBJ_PRV_READ_WRITE, 'read_and_write').
+-define(OBJ_PRV_READ_ONLY, 'read').
+-define(OBJ_PRV_WRITE_ONLY, 'write').
+-type(obj_privilege() :: ?OBJ_PRV_READ_WRITE |
+                         ?OBJ_PRV_READ_ONLY |
+                         ?OBJ_PRV_WRITE_ONLY).
+-record(obj_server_state, {
+          id :: atom(),
+          seq_num = 0 :: non_neg_integer(),
+          privilege = ?OBJ_PRV_READ_WRITE :: obj_privilege(),
+          meta_db_id :: atom(),
+          compaction_worker_id :: atom(),
+          diagnosis_logger_id :: atom(),
+          root_path = [] :: string(),
+          object_storage = #backend_info{}  :: #backend_info{},
+          storage_stats  = #storage_stats{} :: #storage_stats{},
+          state_filepath :: string(),
+          is_strict_check = false :: boolean(),
+          is_locked = false :: boolean(),
+          is_del_blocked = false  :: boolean(),
+          threshold_slow_processing = ?DEF_THRESHOLD_SLOW_PROC :: non_neg_integer()
+         }).
+
 %% apllication-env
 -define(env_metadata_db(),
         case application:get_env(?APP_NAME, metadata_storage) of
@@ -661,6 +687,7 @@
 -record(compaction_worker_state, {
           id :: atom(),
           obj_storage_id :: atom(),
+          obj_storage_id_read :: atom(),
           meta_db_id :: atom(),
           obj_storage_info = #backend_info{} :: #backend_info{},
           compact_cntl_pid :: pid(),
