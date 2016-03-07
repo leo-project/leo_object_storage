@@ -45,9 +45,8 @@
          du_and_compaction_stats/0
         ]).
 
--export([get_object_storage_pid/1
-         %% get_object_storage_pid_first/0,
-         %% get_object_storage_pid_by_container_id/1
+-export([get_object_storage_pid/1,
+         get_object_storage_pid_by_container_id/1
         ]).
 
 -export([compact_data/0, compact_data/1,
@@ -353,6 +352,20 @@ get_object_storage_pid(List, Arg) ->
     {_, Value} = lists:nth(Index, List),
     [{leo_misc:get_value(obj_storage, Value),
       leo_misc:get_value(obj_storage_read, Value)}].
+
+
+%% @doc Retrieve object-storage-pid by container-id
+-spec(get_object_storage_pid_by_container_id(ContainerId) ->
+             Id when Id::atom(),
+                     ContainerId::non_neg_integer()).
+get_object_storage_pid_by_container_id(ContainerId) ->
+    case ets:lookup(leo_object_storage_containers, ContainerId) of
+        [] ->
+            not_found;
+        [{_, Value}|_] ->
+            [{leo_misc:get_value(obj_storage, Value),
+              leo_misc:get_value(obj_storage_read, Value)}]
+    end.
 
 
 -ifdef(TEST).
