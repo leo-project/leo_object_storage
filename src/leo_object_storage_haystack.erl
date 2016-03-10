@@ -88,13 +88,14 @@ calc_obj_size(KSize, DSize) ->
 -spec(open(FilePath) ->
              {ok, port(), port(), binary()} | {error, any()} when FilePath::string()).
 open(FilePath) ->
-    open(FilePath, read_and_write).
+    %% open(FilePath, read_and_write).
+    open(FilePath, ?OBJ_PRV_READ_WRITE).
 
 -spec(open(FilePath, Option) ->
              {ok, port(), port(), binary()} |
              {error, any()} when FilePath::string(),
                                  Option::read_and_write|read|write).
-open(FilePath, read_and_write) ->
+open(FilePath, ?OBJ_PRV_READ_WRITE) ->
     case create_file(FilePath) of
         {ok, WriteHandler} ->
             case open_read_handler(FilePath) of
@@ -106,14 +107,14 @@ open(FilePath, read_and_write) ->
         Error ->
             Error
     end;
-open(FilePath, read) ->
+open(FilePath, ?OBJ_PRV_READ_ONLY) ->
     case open_read_handler(FilePath) of
         {ok, [ReadHandler, Bin]} ->
             {ok, [undefined, ReadHandler, Bin]};
         Error ->
             Error
     end;
-open(FilePath, write) ->
+open(FilePath, ?OBJ_PRV_WRITE_ONLY) ->
     case create_file(FilePath) of
         {ok, WriteHandler} ->
             case open_read_handler(FilePath) of
@@ -150,7 +151,8 @@ open_read_handler(FilePath) ->
                      ReadHandler::port()|any()).
 close(WriteHandler, ReadHandler) ->
     case WriteHandler of
-        undefined -> void;
+        undefined ->
+            void;
         _ ->
             catch file:close(WriteHandler)
     end,
@@ -314,17 +316,17 @@ add_incorrect_data(WriteHandler, Offset, Data) ->
 create_file(FilePath) ->
     case catch file:open(FilePath, [raw, write,  binary, append]) of
         {ok, PutFileHandler} ->
-            case file:position(PutFileHandler, eof) of
-                {ok, Offset} when Offset == 0 ->
-                    put_super_block(PutFileHandler);
-                {ok,_Offset} ->
-                    {ok, PutFileHandler};
-                {error, Cause} ->
+            case catch filelib:file_size(FilePath) of
+                {'EXIT', Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING},
                                             {function, "create_file/1"},
                                             {line, ?LINE}, {body, Cause}]),
-                    {error, Cause}
+                    {error, Cause};
+                0 ->
+                    put_super_block(PutFileHandler);
+                _FileSize ->
+                    {ok, PutFileHandler}
             end;
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
