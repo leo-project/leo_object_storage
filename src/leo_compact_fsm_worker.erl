@@ -952,8 +952,11 @@ after_execute_1({ok, #compaction_worker_state{
         ok ->
             ok = leo_object_storage_server:switch_container(
                    ObjStorageId, FilePath, NumActiveObjs, SizeActiveObjs),
-            ok = leo_object_storage_server:switch_container(
-                   ObjStorageId_R, FilePath, NumActiveObjs, SizeActiveObjs),
+            %% @TODO
+            NumOfObjStorageReadProcs = ?env_num_of_obj_storage_read_procs(),
+            ok = after_execute_2(NumOfObjStorageReadProcs, ObjStorageId_R,
+                                 FilePath, NumActiveObjs, SizeActiveObjs),
+
             ok = leo_backend_db_api:finish_compaction(MetaDBId, true),
             ok;
         {error,_Cause} ->
@@ -970,6 +973,23 @@ after_execute_1({_Error, #compaction_worker_state{
     catch file:delete(StorageInfo#backend_info.file_path),
     leo_backend_db_api:finish_compaction(MetaDBId, false),
     ok.
+
+
+%% @doc Switch an avs container for obj-storage-read
+%% @private
+after_execute_2(0,_,_,_,_) ->
+    ok;
+after_execute_2(ChildIndex, ObjStorageId_R,
+                FilePath, NumActiveObjs, SizeActiveObjs) ->
+    ObjStorageId_R_Child = list_to_atom(
+                             lists:append([atom_to_list(ObjStorageId_R),
+                                           "_",
+                                           integer_to_list(ChildIndex)
+                                          ])),
+    ok = leo_object_storage_server:switch_container(
+           ObjStorageId_R_Child, FilePath, NumActiveObjs, SizeActiveObjs),
+    after_execute_2(ChildIndex - 1, ObjStorageId_R,
+                    FilePath, NumActiveObjs, SizeActiveObjs).
 
 
 %% @doc Output the diagnosis log
