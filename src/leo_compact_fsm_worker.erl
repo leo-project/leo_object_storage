@@ -884,7 +884,8 @@ execute_2(Ret, CompactionPrms, Metadata, NumOfActiveObjs, ActiveSize, State) ->
 
 %% @private
 finish(#compaction_worker_state{obj_storage_id   = ObjStorageId,
-                                compact_cntl_pid = CntlPid} = State) ->
+                                compact_cntl_pid = CntlPid,
+                                compaction_prms = CompactionPrms} = State) ->
     %% Generate the compaction report
     {ok, Report} = gen_compaction_report(State),
 
@@ -898,6 +899,16 @@ finish(#compaction_worker_state{obj_storage_id   = ObjStorageId,
                                        set_errors = sets:new(),
                                        acc_errors = [],
                                        obj_storage_info = #backend_info{},
+                                       compaction_prms = CompactionPrms#compaction_prms{
+                                                           key_bin = <<>>,
+                                                           body_bin = <<>>,
+                                                           metadata = #?METADATA{},
+                                                           next_offset = 0,
+                                                           start_lock_offset = 0,
+                                                           num_of_active_objs = 0,
+                                                           size_of_active_objs = 0,
+                                                           total_num_of_objs = 0,
+                                                           total_size_of_objs = 0},
                                        result = undefined}}.
 
 %% @private
