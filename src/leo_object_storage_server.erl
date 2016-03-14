@@ -300,7 +300,6 @@ init([ObjServerState]) ->
                       privilege = Privilege,
                       diagnosis_logger_id = DiagnosisLogId,
                       root_path = RootPath} = ObjServerState,
-
     ObjectStorageDir = lists:append([RootPath, ?DEF_OBJECT_STORAGE_SUB_DIR]),
     ObjectStoragePath = lists:append([ObjectStorageDir, integer_to_list(SeqNo), ?AVS_FILE_EXT]),
     StateFilePath = lists:append([RootPath, ?DEF_STATE_SUB_DIR, atom_to_list(Id)]),
@@ -334,13 +333,15 @@ init([ObjServerState]) ->
                                      avs_ver_cur = AVSVsnBin},
 
                     %% Launch the diagnosis logger
-                    case ?env_enable_diagnosis_log() of
+                    case (Privilege == ?OBJ_PRV_READ_WRITE andalso
+                          ?env_enable_diagnosis_log()) of
                         true ->
                             _ = filelib:ensure_dir(LogFilePath),
-                            ok = leo_logger_client_base:new(?LOG_GROUP_ID_DIAGNOSIS,
-                                                            DiagnosisLogId,
-                                                            LogFilePath,
-                                                            ?LOG_FILENAME_DIAGNOSIS ++ integer_to_list(SeqNo));
+                            ok = leo_logger_client_base:new(
+                                   ?LOG_GROUP_ID_DIAGNOSIS,
+                                   DiagnosisLogId,
+                                   LogFilePath,
+                                   ?LOG_FILENAME_DIAGNOSIS ++ integer_to_list(SeqNo));
                         _ ->
                             void
                     end,

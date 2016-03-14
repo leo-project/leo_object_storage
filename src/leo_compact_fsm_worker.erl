@@ -952,9 +952,8 @@ after_execute_1({ok, #compaction_worker_state{
         ok ->
             ok = leo_object_storage_server:switch_container(
                    ObjStorageId, FilePath, NumActiveObjs, SizeActiveObjs),
-            %% @TODO
             NumOfObjStorageReadProcs = ?env_num_of_obj_storage_read_procs(),
-            ok = after_execute_2(NumOfObjStorageReadProcs, ObjStorageId_R,
+            ok = after_execute_2(NumOfObjStorageReadProcs - 1, ObjStorageId_R,
                                  FilePath, NumActiveObjs, SizeActiveObjs),
 
             ok = leo_backend_db_api:finish_compaction(MetaDBId, true),
@@ -977,7 +976,7 @@ after_execute_1({_Error, #compaction_worker_state{
 
 %% @doc Switch an avs container for obj-storage-read
 %% @private
-after_execute_2(0,_,_,_,_) ->
+after_execute_2(-1,_,_,_,_) ->
     ok;
 after_execute_2(ChildIndex, ObjStorageId_R,
                 FilePath, NumActiveObjs, SizeActiveObjs) ->

@@ -380,7 +380,7 @@ add_container_1(leo_object_storage_server = Mod, BaseId,
         {ok,_} ->
             %% For GET and HEAD
             NumOfObjStorageReadProcs = ?env_num_of_obj_storage_read_procs(),
-            add_container_2(NumOfObjStorageReadProcs, Mod, BaseId,
+            add_container_2(NumOfObjStorageReadProcs - 1, Mod, BaseId,
                             ObjStorageId, MetaDBId,
                             CompactWorkerId, ObjServerState, []);
         {error,{already_started,_Pid}} ->
@@ -397,7 +397,7 @@ add_container_1(leo_object_storage_server = Mod, BaseId,
 
 %% @doc Make obj_storage_read's processes for GET and HEAD operation
 %% @private
-add_container_2(0,_Mod, BaseId,
+add_container_2(-1,_Mod, BaseId,
                 ObjStorageId, MetaDBId, CompactWorkerId,_ObjServerState, Acc) ->
     true = ets:insert(?ETS_CONTAINERS_TABLE,
                       {BaseId, [{obj_storage, ObjStorageId},
