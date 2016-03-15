@@ -619,11 +619,6 @@
         end).
 
 
-%% custom-metadata's items for MDC-replication:
--define(PROP_CMETA_CLUSTER_ID, 'cluster_id').
--define(PROP_CMETA_NUM_OF_REPLICAS, 'num_of_replicas').
--define(PROP_CMETA_VER, 'ver').
-
 %% @doc Generate a raw file path
 -define(gen_raw_file_path(_FilePath),
         lists:append([_FilePath, "_", integer_to_list(leo_date:now())])).
