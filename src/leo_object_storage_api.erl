@@ -538,7 +538,8 @@ start_app() ->
 do_request(get, [{AddrId, Key}, StartPos, EndPos, IsForcedCheck]) ->
     KeyBin = term_to_binary({AddrId, Key}),
     case get_object_storage_pid(KeyBin) of
-        [{_,Pid}|_] ->
+        [{_,PidL}|_] ->
+            Pid = ?get_obj_storage_read_proc(PidL, AddrId),
             ?SERVER_MODULE:get(Pid, {AddrId, Key}, StartPos, EndPos, IsForcedCheck);
         _ ->
             {error, ?ERROR_PROCESS_NOT_FOUND}
@@ -572,7 +573,8 @@ do_request(delete, [Key, Object]) ->
 do_request(head, [{AddrId, Key}]) ->
     KeyBin = term_to_binary({AddrId, Key}),
     case get_object_storage_pid(KeyBin) of
-        [{_,Pid}|_] ->
+        [{_,PidL}|_] ->
+            Pid = ?get_obj_storage_read_proc(PidL, AddrId),
             ?SERVER_MODULE:head(Pid, {AddrId, Key});
         _ ->
             {error, ?ERROR_PROCESS_NOT_FOUND}
@@ -580,7 +582,8 @@ do_request(head, [{AddrId, Key}]) ->
 do_request(head_with_calc_md5, [{AddrId, Key}, MD5Context]) ->
     KeyBin = term_to_binary({AddrId, Key}),
     case get_object_storage_pid(KeyBin) of
-        [{_,Pid}|_] ->
+        [{_,PidL}|_] ->
+            Pid = ?get_obj_storage_read_proc(PidL, AddrId),
             ?SERVER_MODULE:head_with_calc_md5(
                Pid, {AddrId, Key}, MD5Context);
         _ ->

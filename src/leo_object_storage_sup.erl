@@ -357,7 +357,6 @@ add_container_1(leo_compact_fsm_worker = Mod,
             {error, Cause}
     end.
 
-%% @TODO
 add_container_1(leo_object_storage_server = Mod, BaseId,
                 ObjStorageId, MetaDBId, CompactWorkerId, LoggerId, Props) ->
     Path = leo_misc:get_value('path', Props),
@@ -378,33 +377,10 @@ add_container_1(leo_object_storage_server = Mod, BaseId,
     case supervisor:start_child(?MODULE, ChildSpec_1) of
         {ok,_} ->
             %% For GET and HEAD
-            ObjStorageId_R = gen_id(obj_storage_read, BaseId),
-            ChildSpec_2 = {ObjStorageId_R,
-                           {Mod, start_link,
-                            [ObjServerState#obj_server_state{id = ObjStorageId_R,
-                                                             privilege = ?OBJ_PRV_READ_ONLY}]},
-                           permanent, 2000, worker, [Mod]},
-            case supervisor:start_child(?MODULE, ChildSpec_2) of
-                {ok,_} ->
-                    true = ets:insert(?ETS_CONTAINERS_TABLE,
-                                      {BaseId, [{obj_storage, ObjStorageId},
-                                                {obj_storage_read, ObjStorageId_R},
-                                                {metadata, MetaDBId},
-                                                {compact_worker, CompactWorkerId}]}),
-                    ok = leo_misc:set_env(?APP_NAME,
-                                          {?ENV_COMPACTION_STATUS, ObjStorageId},
-                                          ?STATE_ACTIVE),
-                    ok;
-                {error,{already_started,_Pid}} ->
-                    ok;
-                {error, Cause} ->
-                    error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING},
-                                            {function, "add_container_1/6"},
-                                            {line, ?LINE},
-                                            {body, Cause}]),
-                    {error, Cause}
-            end;
+            NumOfObjStorageReadProcs = ?env_num_of_obj_storage_read_procs(),
+            add_container_2(NumOfObjStorageReadProcs - 1, Mod, BaseId,
+                            ObjStorageId, MetaDBId,
+                            CompactWorkerId, ObjServerState, []);
         {error,{already_started,_Pid}} ->
             ok;
         {error, Cause} ->
@@ -414,6 +390,50 @@ add_container_1(leo_object_storage_server = Mod, BaseId,
                                     {line, ?LINE},
                                     {body, Cause}]),
             {error, Cause}
+    end.
+
+
+%% @doc Make obj_storage_read's processes for GET and HEAD operation
+%% @private
+add_container_2(-1,_Mod, BaseId,
+                ObjStorageId, MetaDBId, CompactWorkerId,_ObjServerState, Acc) ->
+    true = ets:insert(?ETS_CONTAINERS_TABLE,
+                      {BaseId, [{obj_storage, ObjStorageId},
+                                {obj_storage_read, Acc},
+                                {metadata, MetaDBId},
+                                {compact_worker, CompactWorkerId}]}),
+    ok = leo_misc:set_env(?APP_NAME,
+                          {?ENV_COMPACTION_STATUS, ObjStorageId},
+                          ?STATE_ACTIVE),
+    ok;
+add_container_2(ChildIndex, Mod, BaseId,
+                ObjStorageId, MetaDBId, CompactWorkerId, ObjServerState, Acc) ->
+    ObjStorageId_R = gen_id(obj_storage_read, BaseId, ChildIndex),
+    ChildSpec = {ObjStorageId_R,
+                   {Mod, start_link,
+                    [ObjServerState#obj_server_state{id = ObjStorageId_R,
+                                                     privilege = ?OBJ_PRV_READ_ONLY}]},
+                   permanent, 2000, worker, [Mod]},
+    Ret = case supervisor:start_child(?MODULE, ChildSpec) of
+              {ok,_} ->
+                  ok;
+              {error,{already_started,_Pid}} ->
+                  ok;
+              {error, Cause} ->
+                  error_logger:error_msg("~p,~p,~p,~p~n",
+                                         [{module, ?MODULE_STRING},
+                                          {function, "add_container_2/8"},
+                                          {line, ?LINE},
+                                          {body, Cause}]),
+                  {error, Cause}
+          end,
+    case Ret of
+        ok ->
+            add_container_2(ChildIndex - 1, Mod, BaseId,
+                            ObjStorageId, MetaDBId, CompactWorkerId,
+                            ObjServerState, [ObjStorageId_R|Acc]);
+        Other ->
+            Other
     end.
 
 
@@ -428,7 +448,8 @@ gen_id(obj_storage, Id) ->
 gen_id(obj_storage_read, Id) ->
     list_to_atom(lists:append([atom_to_list(?APP_NAME),
                                "_read_",
-                               integer_to_list(Id)]));
+                               integer_to_list(Id)
+                              ]));
 gen_id(metadata, Id) ->
     list_to_atom(lists:append(["leo_metadata_",
                                integer_to_list(Id)]));
@@ -438,3 +459,11 @@ gen_id(diagnosis_logger, Id) ->
 gen_id(compact_worker, Id) ->
     list_to_atom(lists:append(["leo_compact_worker_",
                                integer_to_list(Id)])).
+
+gen_id(obj_storage_read, Id, ChildIndex) ->
+    list_to_atom(lists:append([atom_to_list(?APP_NAME),
+                               "_read_",
+                               integer_to_list(Id),
+                               "_",
+                               integer_to_list(ChildIndex)
+                              ])).

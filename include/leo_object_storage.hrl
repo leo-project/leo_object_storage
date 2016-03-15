@@ -35,6 +35,8 @@
 -define(SERVER_OBJ_STORAGE, 'object_storage').
 -define(SERVER_METADATA_DB, 'metadata_db').
 
+-define(DEF_NUM_OF_OBJ_STORAGE_READ_PROCS, 3).
+
 %% ETS-Table
 -define(ETS_CONTAINERS_TABLE, 'leo_object_storage_containers').
 -define(ETS_INFO_TABLE, 'leo_object_storage_info').
@@ -190,6 +192,7 @@
 
 -define(MD5_EMPTY_BIN, 281949768489412648962353822266799178366).
 -define(MAX_KEY_SIZE, 1024 * 4).
+
 
 %%--------------------------------------------------------------------
 %% AVS-Related
@@ -496,8 +499,10 @@
 %% apllication-env
 -define(env_metadata_db(),
         case application:get_env(?APP_NAME, metadata_storage) of
-            {ok, EnvMetadataDB} -> EnvMetadataDB;
-            _ -> ?DEF_METADATA_DB
+            {ok, EnvMetadataDB} ->
+                EnvMetadataDB;
+            _ ->
+                ?DEF_METADATA_DB
         end).
 
 -ifdef(TEST).
@@ -505,13 +510,15 @@
 -else.
 -define(env_strict_check(),
         case application:get_env(?APP_NAME, strict_check) of
-            {ok, EnvStrictCheck} -> EnvStrictCheck;
-            _ -> false
+            {ok, EnvStrictCheck} ->
+                EnvStrictCheck;
+            _ ->
+                false
         end).
 -endif.
 
 -define(env_enable_diagnosis_log(),
-        case application:get_env(leo_object_storage,
+        case application:get_env(?APP_NAME,
                                  is_enable_diagnosis_log) of
             {ok, true} ->
                 true;
@@ -519,8 +526,23 @@
                 false
         end).
 
+-define(env_num_of_obj_storage_read_procs(),
+        case application:get_env(?APP_NAME,
+                                 num_of_obj_storage_read_procs) of
+            {ok, EnvNumOfObjStorageReadProcs} ->
+                EnvNumOfObjStorageReadProcs;
+            _ ->
+                ?DEF_NUM_OF_OBJ_STORAGE_READ_PROCS
+        end).
+
+-define(get_obj_storage_read_proc(_PidL,_AddrId),
+        begin
+            lists:nth((_AddrId rem erlang:length(_PidL)) + 1,_PidL)
+        end).
+
+
 -define(env_limit_num_of_compaction_procs(),
-        case application:get_env(leo_object_storage,
+        case application:get_env(?APP_NAME,
                                  limit_num_of_compaction_procs) of
             {ok, EnvLimitCompactionProcs} when is_integer(EnvLimitCompactionProcs) ->
                 EnvLimitCompactionProcs;
@@ -529,7 +551,7 @@
         end).
 
 -define(env_threshold_slow_processing(),
-        case application:get_env(leo_object_storage,
+        case application:get_env(?APP_NAME,
                                  threshold_slow_processing) of
             {ok, EnvThresholdSlowProc} when is_integer(EnvThresholdSlowProc) ->
                 EnvThresholdSlowProc;
@@ -539,7 +561,7 @@
 
 %% [Interval between batch processes]
 -define(env_compaction_interval_reg(),
-        case application:get_env(leo_object_storage,
+        case application:get_env(?APP_NAME,
                                  compaction_waiting_time_regular) of
             {ok, EnvRegCompactionWT} when is_integer(EnvRegCompactionWT) ->
                 EnvRegCompactionWT;
@@ -548,7 +570,7 @@
         end).
 
 -define(env_compaction_interval_max(),
-        case application:get_env(leo_object_storage,
+        case application:get_env(?APP_NAME,
                                  compaction_waiting_time_max) of
             {ok, EnvMaxCompactionWT} when is_integer(EnvMaxCompactionWT) ->
                 EnvMaxCompactionWT;
@@ -558,7 +580,8 @@
 
 %% [Number of batch processes]
 -define(env_compaction_num_of_batch_procs_max(),
-        case application:get_env(leo_object_storage, batch_procs_max) of
+        case application:get_env(?APP_NAME,
+                                 batch_procs_max) of
             {ok, EnvMaxCompactionBP} when is_integer(EnvMaxCompactionBP) ->
                 EnvMaxCompactionBP;
             _ ->
@@ -566,7 +589,8 @@
         end).
 
 -define(env_compaction_num_of_batch_procs_reg(),
-        case application:get_env(leo_object_storage, batch_procs_regular) of
+        case application:get_env(?APP_NAME,
+                                 batch_procs_regular) of
             {ok, EnvRegCompactionBP} when is_integer(EnvRegCompactionBP) ->
                 EnvRegCompactionBP;
             _ ->
@@ -594,6 +618,11 @@
                 end,_TargetContainers))
         end).
 
+
+%% custom-metadata's items for MDC-replication:
+-define(PROP_CMETA_CLUSTER_ID, 'cluster_id').
+-define(PROP_CMETA_NUM_OF_REPLICAS, 'num_of_replicas').
+-define(PROP_CMETA_VER, 'ver').
 
 %% @doc Generate a raw file path
 -define(gen_raw_file_path(_FilePath),

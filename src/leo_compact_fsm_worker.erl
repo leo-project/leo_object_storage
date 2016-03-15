@@ -888,8 +888,9 @@ execute_2(Ret, CompactionPrms, Metadata, NumOfActiveObjs, ActiveSize, State) ->
 
 
 %% @private
-finish(#compaction_worker_state{obj_storage_id = ObjStorageId,
-                                compact_cntl_pid = CntlPid} = State) ->
+finish(#compaction_worker_state{obj_storage_id   = ObjStorageId,
+                                compact_cntl_pid = CntlPid,
+                                compaction_prms = CompactionPrms} = State) ->
     %% Generate the compaction report
     {ok, Report} = gen_compaction_report(State),
 
@@ -903,6 +904,16 @@ finish(#compaction_worker_state{obj_storage_id = ObjStorageId,
                                        set_errors = sets:new(),
                                        acc_errors = [],
                                        obj_storage_info = #backend_info{},
+                                       compaction_prms = CompactionPrms#compaction_prms{
+                                                           key_bin = <<>>,
+                                                           body_bin = <<>>,
+                                                           metadata = #?METADATA{},
+                                                           next_offset = 0,
+                                                           start_lock_offset = 0,
+                                                           num_of_active_objs = 0,
+                                                           size_of_active_objs = 0,
+                                                           total_num_of_objs = 0,
+                                                           total_size_of_objs = 0},
                                        result = undefined}}.
 
 %% @private
@@ -952,8 +963,10 @@ after_execute_1({ok, #compaction_worker_state{
         ok ->
             ok = leo_object_storage_server:switch_container(
                    ObjStorageId, FilePath, NumActiveObjs, SizeActiveObjs),
-            ok = leo_object_storage_server:switch_container(
-                   ObjStorageId_R, FilePath, NumActiveObjs, SizeActiveObjs),
+            NumOfObjStorageReadProcs = ?env_num_of_obj_storage_read_procs(),
+            ok = after_execute_2(NumOfObjStorageReadProcs - 1, ObjStorageId_R,
+                                 FilePath, NumActiveObjs, SizeActiveObjs),
+
             ok = leo_backend_db_api:finish_compaction(MetaDBId, true),
             ok;
         {error,_Cause} ->
@@ -969,6 +982,23 @@ after_execute_1({_Error, #compaction_worker_state{meta_db_id = MetaDBId,
     catch file:delete(StorageInfo#backend_info.file_path),
     leo_backend_db_api:finish_compaction(MetaDBId, false),
     ok.
+
+
+%% @doc Switch an avs container for obj-storage-read
+%% @private
+after_execute_2(-1,_,_,_,_) ->
+    ok;
+after_execute_2(ChildIndex, ObjStorageId_R,
+                FilePath, NumActiveObjs, SizeActiveObjs) ->
+    ObjStorageId_R_Child = list_to_atom(
+                             lists:append([atom_to_list(ObjStorageId_R),
+                                           "_",
+                                           integer_to_list(ChildIndex)
+                                          ])),
+    ok = leo_object_storage_server:switch_container(
+           ObjStorageId_R_Child, FilePath, NumActiveObjs, SizeActiveObjs),
+    after_execute_2(ChildIndex - 1, ObjStorageId_R,
+                    FilePath, NumActiveObjs, SizeActiveObjs).
 
 
 %% @doc Output the diagnosis log
