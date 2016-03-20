@@ -25,6 +25,12 @@
 -compile(nowarn_deprecated_type).
 -define(APP_NAME, 'leo_object_storage').
 
+-ifdef(namespaced_types).
+-type otp_set() :: sets:set().
+-else.
+-type otp_set() :: set().
+-endif.
+
 %% Default Values
 -define(AVS_FILE_EXT, ".avs").
 -define(DEF_METADATA_DB, 'bitcask').
@@ -733,7 +739,7 @@
           compaction_prms = #compaction_prms{} :: #compaction_prms{},
           start_datetime = 0 :: non_neg_integer(),
           error_pos = 0 :: non_neg_integer(),
-          set_errors :: set(),
+          set_errors :: otp_set(),
           acc_errors = [] :: [{pos_integer(), pos_integer()}],
           result :: compaction_ret()
          }).
