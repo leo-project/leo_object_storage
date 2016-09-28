@@ -1,4 +1,4 @@
-.PHONY: deps test
+.PHONY: all compile xref eunit check_plt build_plt dialyzer doc callgraph graphviz clean distclean release
 
 REBAR := ./rebar
 APPS = erts kernel stdlib sasl crypto compiler inets mnesia public_key runtime_tools snmp syntax_tools tools xmerl webtool ssl
@@ -28,8 +28,6 @@ build_plt:
 dialyzer:
 	@$(REBAR) compile
 	dialyzer -Wno_return --plt $(PLT_FILE) -r ebin/ --dump_callgraph $(DOT_FILE) | fgrep -v -f ./dialyzer.ignore-warnings
-typer:
-	typer --plt $(PLT_FILE) -I include/ -r src/
 doc: compile
 	@$(REBAR) doc
 callgraph: graphviz
