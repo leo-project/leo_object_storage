@@ -287,7 +287,7 @@
           del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
          }).
 
--record(metadata_1, { %% leofs-v1.0.0 - the latest version
+-record(metadata_1, { %% leofs-v1.0.0 - v1.3.0
           key = <<>>          :: binary(),  %% filename
           addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
           ksize      = 0      :: integer(), %% file-path size
@@ -310,7 +310,33 @@
 
           del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
          }).
--define(METADATA, 'metadata_1').
+
+-record(metadata_2, { %% leofs-v1.3.1 - the latest version
+          key = <<>>          :: binary(),  %% filename
+          addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
+          ksize      = 0      :: integer(), %% file-path size
+          dsize      = 0      :: integer(), %% data size
+
+          cmeta      = <<>>   :: binary(),  %% custom-metadata (user defined metadata)
+          msize      = 0      :: integer(), %% custom-metadata size
+
+          csize      = 0      :: integer(), %% * chunked data size    (for large-object)
+          cnumber    = 0      :: integer(), %% * # of chunked objects (for large-object)
+          cindex     = 0      :: integer(), %% * chunked object index (for large-object)
+
+          offset     = 0      :: integer(), %% object-container's offset
+          clock      = 0      :: integer(), %% clock
+          timestamp  = 0      :: integer(), %% timestamp
+          checksum   = 0      :: integer(), %% checksum (MD5 > hex-to-integer)
+          ring_hash  = 0      :: integer(), %% RING's Hash(CRC32) when write an object.
+
+          cluster_id          :: atom(),    %% cluster-id for the mdc-replication
+          num_of_replicas = 0 :: integer(), %% # of replicas for the mdc-replication
+          ver = 0             :: integer(), %% version number
+
+          del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
+         }).
+-define(METADATA, 'metadata_2').
 
 -record(object, { %% - leofs-v1.0.0-pre3
           method,
@@ -340,7 +366,7 @@
           key        = <<>>   :: binary(),  %% filename
           addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
           data       = <<>>   :: binary(),  %% file
-          cmeta      = <<>>   :: binary(),  %% custom-metadata
+          cmeta      = <<>>   :: binary(),  %% custom-metadata (user defined metadata)
           ksize      = 0      :: integer(), %% filename size
           dsize      = 0      :: integer(), %% data size
           msize      = 0      :: integer(), %% custom-metadata size

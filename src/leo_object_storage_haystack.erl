@@ -408,6 +408,8 @@ get_fun_1(_MetaDBId,_StorageInfo, #?METADATA{dsize = 0} = Metadata,
           _StartPos,_EndPos,_IsStrictCheck) ->
     Object_1 = leo_object_storage_transformer:metadata_to_object(Metadata),
     Object_2 = Object_1#?OBJECT{data = <<>>},
+
+    %% @TODO: msize > 0
     {ok, Metadata, Object_2};
 
 get_fun_1(_MetaDBId,_StorageInfo, #?METADATA{dsize = DSize} = Metadata,
@@ -453,9 +455,7 @@ get_fun_2(StorageInfo, #?METADATA{ksize = KSize,
     Offset_1 = Offset + erlang:round(?BLEN_HEADER/8) + KSize + StartPos,
     Length = EndPos - StartPos + 1,
     DSize_1 = Length - MSize,
-
     #backend_info{read_handler = ReadHandler} = StorageInfo,
-    Object_1 = leo_object_storage_transformer:metadata_to_object(Metadata),
 
     case leo_file:pread(ReadHandler, Offset_1, Length) of
         {ok, Bin} when IsStrictCheck == true,
@@ -464,24 +464,22 @@ get_fun_2(StorageInfo, #?METADATA{ksize = KSize,
 
             case leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin_1)) of
                 Checksum ->
-                    {ok, Metadata, Object_1#?OBJECT{data = Bin_1,
-                                                    dsize = DSize_1,
-                                                    cmeta = CMetaBin
-                                                   }};
+                    Metadata_1 = Metadata#?METADATA{cmeta = CMetaBin},
+                    {ok, Metadata_1,
+                     leo_object_storage_transformer:metadata_to_object(Bin_1, Metadata_1)};
                 _ ->
                     {error, invalid_object}
             end;
         {ok, Bin} ->
             case IsRangeQuery of
                 true ->
-                    {ok, Metadata, Object_1#?OBJECT{data  = Bin,
-                                                    dsize = DSize_1}};
+                    {ok, Metadata,
+                     leo_object_storage_transformer:metadata_to_object(Bin, Metadata)};
                 false ->
                     {ok, {Bin_1, CMetaBin}} = get_body_and_cmeta(Bin, Length, MSize),
-                    {ok, Metadata, Object_1#?OBJECT{data  = Bin_1,
-                                                    dsize = DSize_1,
-                                                    cmeta = CMetaBin
-                                                   }}
+                    Metadata_1 = Metadata#?METADATA{cmeta = CMetaBin},
+                    {ok, Metadata_1,
+                     leo_object_storage_transformer:metadata_to_object(Bin_1, Metadata_1)}
             end;
         eof = Cause ->
             {error, Cause};
