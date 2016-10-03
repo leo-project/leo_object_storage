@@ -34,6 +34,7 @@
          transform_metadata/1,
          header_bin_to_metadata/1,
          cmeta_bin_into_metadata/2,
+         get_udm_from_cmeta_bin/1,
          list_to_cmeta_bin/1
         ]).
 
@@ -295,33 +296,60 @@ header_bin_to_metadata(Bin) ->
 
 
 %% @doc Set values from a custome-metadata
--spec(cmeta_bin_into_metadata(CustomMetaBin, Metadata)->
-             #?METADATA{} | {error, any()} when CustomMetaBin::binary(),
-                                                Metadata::#?METADATA{}).
+-spec(cmeta_bin_into_metadata(CustomMetadataBin, Metadata)->
+             {ok, {Metadata, UDM}} | {error, any()} when CustomMetadataBin::binary(),
+                                                         Metadata::#?METADATA{},
+                                                         UDM::[{UDM_Key, UDM_Val}],
+                                                         UDM_Key::binary(),
+                                                         UDM_Val::binary()
+                                                        ).
 cmeta_bin_into_metadata(<<>>, Metadata) ->
-    Metadata;
-cmeta_bin_into_metadata(CustomMetaBin, Metadata) ->
+    {ok, {Metadata, []}};
+cmeta_bin_into_metadata(CustomMetadataBin, Metadata) ->
     try
-        CustomMeta = binary_to_term(CustomMetaBin),
-        ClusterId     = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID,      CustomMeta, []),
-        NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomMeta, 0),
-        Version       = leo_misc:get_value(?PROP_CMETA_VER,             CustomMeta, 0),
-        Metadata#?METADATA{cluster_id = ClusterId,
-                           num_of_replicas = NumOfReplicas,
-                           ver = Version}
+        CustomMetadata = binary_to_term(CustomMetadataBin),
+        ClusterId = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID, CustomMetadata, []),
+        NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomMetadata, 0),
+        Ver = leo_misc:get_value(?PROP_CMETA_VER, CustomMetadata, 0),
+        UDM =leo_misc:get_value(?PROP_CMETA_UDM, CustomMetadata, []),
+        {ok, {Metadata#?METADATA{cluster_id = ClusterId,
+                                 num_of_replicas = NumOfReplicas,
+                                 ver = Ver},
+              UDM}}
     catch
         _:_Cause ->
             {error, invalid_format}
     end.
 
+
+%% @doc Get user defined metadata(s) from 'cmeta_bin'
+-spec(get_udm_from_cmeta_bin(CustomMetadataBin)->
+             {ok, UDM} | {error, any()} when CustomMetadataBin::binary(),
+                                             UDM::[{UDM_Key, UDM_Val}],
+                                             UDM_Key::binary(),
+                                             UDM_Val::binary()).
+get_udm_from_cmeta_bin(CustomMetadataBin)->
+    try
+        CustomMetadata = binary_to_term(CustomMetadataBin),
+        UDM =leo_misc:get_value(?PROP_CMETA_UDM, CustomMetadata, []),
+        {ok, UDM}
+    catch
+        _:_Cause ->
+            {error, invalid_format}
+    end.
+
+
 %% @doc List to a custome-metadata(binary)
--spec(list_to_cmeta_bin(CustomMeta) ->
-             binary() when CustomMeta::[{atom(), any()}]).
-list_to_cmeta_bin(CustomMeta) ->
-    ClusterId     = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID,      CustomMeta, []),
-    NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomMeta, 0),
-    Version       = leo_misc:get_value(?PROP_CMETA_VER,             CustomMeta, 0),
+-spec(list_to_cmeta_bin(CustomMetadata) ->
+             binary() when CustomMetadata::[{atom(), any()}]).
+list_to_cmeta_bin(CustomMetadata) ->
+    ClusterId     = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID, CustomMetadata, []),
+    NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomMetadata, 0),
+    Ver = leo_misc:get_value(?PROP_CMETA_VER, CustomMetadata, 0),
+    UDM = leo_misc:get_value(?PROP_CMETA_UDM, CustomMetadata, []),
+
     term_to_binary([{?PROP_CMETA_CLUSTER_ID, ClusterId},
                     {?PROP_CMETA_NUM_OF_REPLICAS, NumOfReplicas},
-                    {?PROP_CMETA_VER, Version}
+                    {?PROP_CMETA_VER, Ver},
+                    {?PROP_CMETA_UDM, UDM}
                    ]).

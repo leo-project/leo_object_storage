@@ -385,12 +385,15 @@ put_regular_bin_1(Index) ->
     AddrId = 1,
     Key = list_to_binary(lists:append(["TEST_", integer_to_list(Index)])),
     Bin = crypto:rand_bytes(erlang:phash2(leo_date:clock(), (1024 * 1024))),
+
     Object = #?OBJECT{method    = put,
                       addr_id   = AddrId,
                       key       = Key,
                       ksize     = byte_size(Key),
                       data      = Bin,
                       dsize     = byte_size(Bin),
+                      cmeta     = <<>>,
+                      msize     = 0,
                       checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
                       timestamp = leo_date:now(),
                       clock     = leo_date:clock()
@@ -427,16 +430,28 @@ put_regular_bin_with_cmeta(Index, Counter) ->
     AddrId = 1,
     Key = list_to_binary(lists:append(["TEST_", integer_to_list(Index)])),
     Bin = crypto:rand_bytes(erlang:phash2(leo_date:clock(), (1024 * 1024))),
-    CMetaBin = leo_object_storage_transformer:list_to_cmeta_bin(
-                 [{?PROP_CMETA_CLUSTER_ID, 'remote_cluster'},
-                  {?PROP_CMETA_NUM_OF_REPLICAS, 3}]),
+
+    CMeta = [{?PROP_CMETA_CLUSTER_ID, 'leofs_1'},
+             {?PROP_CMETA_NUM_OF_REPLICAS, 3},
+             {?PROP_CMETA_VER, leo_date:clock()},
+             {?PROP_CMETA_UDM, [{<<"name">>, <<"LeoFS">>},
+                                {<<"category">>, <<"distributed storage">>},
+                                {<<"url">>, <<"leo-project.net/leofs">>},
+                                {<<"index">>, list_to_binary(integer_to_list(Index))}
+                               ]
+             }],
+    CMetaBin = leo_object_storage_transformer:list_to_cmeta_bin(CMeta),
+    %% CMetaBin = leo_object_storage_transformer:list_to_cmeta_bin(
+    %%              [{?PROP_CMETA_CLUSTER_ID, 'remote_cluster'},
+    %%               {?PROP_CMETA_NUM_OF_REPLICAS, 3}]),
+
     Object = #?OBJECT{method    = put,
                       addr_id   = AddrId,
                       key       = Key,
                       ksize     = byte_size(Key),
                       data      = Bin,
                       dsize     = byte_size(Bin),
-                      meta      = CMetaBin,
+                      cmeta     = CMetaBin,
                       msize     = byte_size(CMetaBin),
                       checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
                       timestamp = leo_date:now(),
@@ -653,12 +668,25 @@ operate_([Path1, Path2]) ->
     ClusterId = "cluster_id",
     NumOfReplicas = 1,
     Ver = 1,
+    UDM = [{<<"name">>, <<"LeoFS">>},
+           {<<"category">>, <<"distributed storage">>},
+           {<<"url">>, <<"leo-project.net/leofs">>}
+          ],
+    CMeta = [{?PROP_CMETA_CLUSTER_ID, ClusterId},
+             {?PROP_CMETA_NUM_OF_REPLICAS, NumOfReplicas},
+             {?PROP_CMETA_VER, Ver},
+             {?PROP_CMETA_UDM, UDM}
+            ],
+    CMetaBin = leo_object_storage_transformer:list_to_cmeta_bin(CMeta),
+
     Obj2 = #?OBJECT{method    = put,
                     addr_id   = AddrId,
                     key       = Key,
                     ksize     = byte_size(Key),
                     data      = Bin,
                     dsize     = byte_size(Bin),
+                    cmeta     = CMetaBin,
+                    msize     = byte_size(CMetaBin),
                     checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
                     timestamp = leo_date:now(),
                     clock     = leo_date:clock(),
@@ -675,6 +703,13 @@ operate_([Path1, Path2]) ->
     ?assertEqual(ClusterId,     Res7#?OBJECT.cluster_id),
     ?assertEqual(NumOfReplicas, Res7#?OBJECT.num_of_replicas),
     ?assertEqual(Ver,           Res7#?OBJECT.ver),
+
+    ?debugVal(binary_to_term(Res7#?OBJECT.cmeta)),
+     CMeta_1 = binary_to_term(Res7#?OBJECT.cmeta),
+    ?assertEqual(ClusterId, leo_misc:get_value(?PROP_CMETA_CLUSTER_ID, CMeta_1)),
+    ?assertEqual(NumOfReplicas, leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CMeta_1)),
+    ?assertEqual(Ver, leo_misc:get_value(?PROP_CMETA_VER, CMeta_1)),
+    ?assertEqual(UDM, leo_misc:get_value(?PROP_CMETA_UDM, CMeta_1)),
 
     application:stop(leo_backend_db),
     application:stop(bitcask),

@@ -423,9 +423,10 @@ get_fun_1(_MetaDBId,_StorageInfo, #?METADATA{dsize = DSize} = Metadata,
     {ok, Metadata, Object_2};
 
 get_fun_1(_MetaDBId, StorageInfo, #?METADATA{cnumber = 0,
-                                             dsize = DSize} = Metadata, -1, -1, IsStrictCheck) ->
+                                             dsize = DSize,
+                                             msize = MSize} = Metadata, -1, -1, IsStrictCheck) ->
     StartPos = 0,
-    EndPos = DSize -1,
+    EndPos = DSize + MSize - 1,
     get_fun_2(StorageInfo, Metadata, StartPos, EndPos, IsStrictCheck, false);
 
 get_fun_1(_MetaDBId, StorageInfo, #?METADATA{cnumber = 0,
@@ -444,29 +445,44 @@ get_fun_1(_MetaDBId,_StorageInfo, #?METADATA{} = Metadata, _,_,_) ->
 
 %% @private
 get_fun_2(StorageInfo, #?METADATA{ksize = KSize,
+                                  msize = MSize,
                                   offset = Offset,
                                   checksum = Checksum} = Metadata,
           StartPos, EndPos, IsStrictCheck, IsRangeQuery) ->
     %% Retrieve the object
     Offset_1 = Offset + erlang:round(?BLEN_HEADER/8) + KSize + StartPos,
-    DSize_1  = EndPos - StartPos + 1,
+    Length = EndPos - StartPos + 1,
+    DSize_1 = Length - MSize,
 
     #backend_info{read_handler = ReadHandler} = StorageInfo,
     Object_1 = leo_object_storage_transformer:metadata_to_object(Metadata),
 
-    case leo_file:pread(ReadHandler, Offset_1, DSize_1) of
+    case leo_file:pread(ReadHandler, Offset_1, Length) of
         {ok, Bin} when IsStrictCheck == true,
                        IsRangeQuery  == false ->
-            case leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)) of
+            {ok, {Bin_1, CMetaBin}} = get_body_and_cmeta(Bin, Length, MSize),
+
+            case leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin_1)) of
                 Checksum ->
-                    {ok, Metadata, Object_1#?OBJECT{data  = Bin,
-                                                    dsize = DSize_1}};
+                    {ok, Metadata, Object_1#?OBJECT{data = Bin_1,
+                                                    dsize = DSize_1,
+                                                    cmeta = CMetaBin
+                                                   }};
                 _ ->
                     {error, invalid_object}
             end;
         {ok, Bin} ->
-            {ok, Metadata, Object_1#?OBJECT{data  = Bin,
-                                            dsize = DSize_1}};
+            case IsRangeQuery of
+                true ->
+                    {ok, Metadata, Object_1#?OBJECT{data  = Bin,
+                                                    dsize = DSize_1}};
+                false ->
+                    {ok, {Bin_1, CMetaBin}} = get_body_and_cmeta(Bin, Length, MSize),
+                    {ok, Metadata, Object_1#?OBJECT{data  = Bin_1,
+                                                    dsize = DSize_1,
+                                                    cmeta = CMetaBin
+                                                   }}
+            end;
         eof = Cause ->
             {error, Cause};
         {error, Cause} ->
@@ -484,6 +500,19 @@ get_fun_2(StorageInfo, #?METADATA{ksize = KSize,
                     {error, Cause}
             end
     end.
+
+
+%% @private
+get_body_and_cmeta(Bin, Length, MSize) ->
+    BodyLen = Length - MSize,
+    Body = binary:part(Bin, 0, BodyLen),
+    CMetaBin = case MSize > 0 of
+                   true ->
+                       binary:part(Bin, BodyLen, MSize);
+                   _ ->
+                       <<>>
+               end,
+    {ok, {Body, CMetaBin}}.
 
 
 %% @private
@@ -514,21 +543,21 @@ put_super_block(ObjectStorageWriteHandler) ->
 
 %% @doc Create a needle
 %% @private
-create_needle(#?OBJECT{addr_id    = AddrId,
-                       key        = Key,
-                       ksize      = KSize,
-                       dsize      = DSize,
-                       msize      = MSize,
-                       meta       = MBin,
-                       csize      = CSize,
-                       cnumber    = CNum,
-                       cindex     = CIndex,
-                       data       = Body,
-                       clock      = Clock,
-                       offset     = Offset,
-                       timestamp  = Timestamp,
-                       checksum   = Checksum,
-                       del        = Del}) ->
+create_needle(#?OBJECT{addr_id = AddrId,
+                       key = Key,
+                       ksize = KSize,
+                       dsize = DSize,
+                       msize = MSize,
+                       cmeta = MBin,
+                       csize = CSize,
+                       cnumber = CNum,
+                       cindex = CIndex,
+                       data = Body,
+                       clock = Clock,
+                       offset = Offset,
+                       timestamp = Timestamp,
+                       checksum = Checksum,
+                       del = Del}) ->
     {{Year,Month,Day},{Hour,Min,Second}} =
         calendar:gregorian_seconds_to_datetime(Timestamp),
     Padding = <<0:64>>,
@@ -715,8 +744,14 @@ get_obj_for_new_cntnr(ReadHandler, Offset) ->
     end.
 
 %% @private
--spec(get_obj_for_new_cntnr(pid(), integer(), integer(), binary()) ->
-             ok | {error, any()}).
+-spec(get_obj_for_new_cntnr(ReadHandler, Offset, HeaderSize, HeaderBin) ->
+             {ok, Metadata, [binary()]} | {error, any()}
+                 when ReadHandler::pid(),
+                      Offset::integer(),
+                      HeaderSize::integer(),
+                      HeaderBin::binary(),
+                      Metadata::#?METADATA{}
+                      ).
 get_obj_for_new_cntnr(ReadHandler, Offset, HeaderSize, HeaderBin) ->
     case leo_object_storage_transformer:header_bin_to_metadata(HeaderBin) of
         {error, Cause} ->
@@ -813,7 +848,8 @@ get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, Total
                                 {error,_Cause} ->
                                     {ok, Metadata_1#?METADATA{msize = 0},
                                      [HeaderBin, KeyBin, BodyBin, TotalSize]};
-                                Metadata_2 ->
+                                {ok, {Metadata_2,_UDM}} ->
+                                    %% @TODO: user defined metadata
                                     {ok, Metadata_2,
                                      [HeaderBin, KeyBin, BodyBin,
                                       Offset + HeaderSize + KSize

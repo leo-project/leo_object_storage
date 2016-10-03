@@ -287,7 +287,7 @@
           del = ?DEL_FALSE    :: del_flag() %% [{0,not_deleted}, {1,deleted}]
          }).
 
--record(metadata_1, { %% leofs-v1.0.0 - current ver
+-record(metadata_1, { %% leofs-v1.0.0 - the latest version
           key = <<>>          :: binary(),  %% filename
           addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
           ksize      = 0      :: integer(), %% file-path size
@@ -340,9 +340,9 @@
           key        = <<>>   :: binary(),  %% filename
           addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
           data       = <<>>   :: binary(),  %% file
-          meta       = <<>>   :: binary(),  %% custom-metadata
+          cmeta      = <<>>   :: binary(),  %% custom-metadata
           ksize      = 0      :: integer(), %% filename size
-          dsize      = 0      :: integer(),         %% data size
+          dsize      = 0      :: integer(), %% data size
           msize      = 0      :: integer(), %% custom-metadata size
 
           csize      = 0      :: integer(), %% * chunked data size    (for large-object)
@@ -523,6 +523,7 @@
 -define(PROP_CMETA_CLUSTER_ID, 'cluster_id').
 -define(PROP_CMETA_NUM_OF_REPLICAS, 'num_of_replicas').
 -define(PROP_CMETA_VER, 'ver').
+-define(PROP_CMETA_UDM, 'udm'). %% user defined metadata: [{<KEY>, <VALUE>}]
 
 
 %% @doc Generate a raw file path
