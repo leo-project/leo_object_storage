@@ -842,7 +842,6 @@ stats_test_() ->
              os:cmd("rm -rf " ++ Path2),
              true end)]}.
 
-
 compaction_2_test_() ->
     {setup,
      fun ( ) ->
@@ -866,7 +865,6 @@ compaction_2_test_() ->
       {"test compaction - irregular case",
        {timeout, 1000, fun compact_2/0}}
      ]}.
-
 
 compact_2() ->
     Path1 = ?AVS_DIR_FOR_COMPACTION ++ "avs1",
@@ -909,6 +907,28 @@ compact_2() ->
     ok = put_test_data(10005, <<"air/on/g/string/1/5">>, <<"JSB0-1">>),
     ok = put_test_data(10006, <<"air/on/g/string/1/6">>, <<"JSB0-1">>),
 
+    %% append an object w/a user defined metadata
+    CMeta = [{?PROP_CMETA_CLUSTER_ID, 'leofs_1'},
+             {?PROP_CMETA_NUM_OF_REPLICAS, 3},
+             {?PROP_CMETA_VER, leo_date:clock()},
+             {?PROP_CMETA_UDM, [{<<"name">>, <<"LeoFS">>},
+                                {<<"category">>, <<"distributed storage">>},
+                                {<<"url">>, <<"leo-project.net/leofs">>}
+                               ]
+             }],
+    CMetaBin = leo_object_storage_transformer:list_to_cmeta_bin(CMeta),
+    ok = put_test_data_with_custom_metadata(
+           90001, <<"air/on/g/string/2/0">>, <<"JSB-1-W-CMETA">>, CMetaBin),
+    {ok,_Metadata_UDM_1,_Object_UDM_1} = get_test_data(90001, <<"air/on/g/string/2/0">>),
+    ?debugVal(binary_to_term(_Metadata_UDM_1#?METADATA.cmeta)),
+    ?debugVal(_Metadata_UDM_1#?METADATA.msize),
+    ?debugVal(binary_to_term(_Object_UDM_1#?OBJECT.cmeta)),
+    ?debugVal(_Object_UDM_1#?OBJECT.msize),
+    ?assertEqual(true, _Metadata_UDM_1#?METADATA.cmeta == _Object_UDM_1#?OBJECT.cmeta),
+    ?assertEqual(true, _Metadata_UDM_1#?METADATA.msize == _Object_UDM_1#?OBJECT.msize),
+
+
+    %% preparing the data-compaction
     AllTargets = [_Pid || {_Pid,_}
                               <- leo_object_storage_api:get_object_storage_pid('all')],
     ?assertEqual({ok, #compaction_stats{status = ?ST_IDLING,
@@ -937,13 +957,30 @@ compact_2() ->
 
     %% inspect for compaction
     {ok, Res1} = leo_object_storage_api:stats(),
+    ?debugVal(Res1),
     {SumTotal1, SumActive1, SumTotalSize1, SumActiveSize1}
         = get_avs_stats_summary(Res1),
-    ?assertEqual(17, SumTotal1),
-    ?assertEqual(13, SumActive1),
+    ?assertEqual(18, SumTotal1),
+    ?assertEqual(14, SumActive1),
     ?assertEqual(true, SumTotalSize1 > SumActiveSize1),
+
+    {ok,_Metadata_UDM_2,_Object_UDM_2} = get_test_data(90001, <<"air/on/g/string/2/0">>),
+    ?debugVal({_Metadata_UDM_2,_Object_UDM_2}),
+    ?debugVal(binary_to_term(_Metadata_UDM_2#?METADATA.cmeta)),
+    ?debugVal(_Metadata_UDM_2#?METADATA.msize),
+    ?debugVal(binary_to_term(_Object_UDM_2#?OBJECT.cmeta)),
+    ?debugVal(_Object_UDM_2#?OBJECT.msize),
+    ?assertEqual(true, _Metadata_UDM_2#?METADATA.cmeta == _Object_UDM_2#?OBJECT.cmeta),
+    ?assertEqual(true, _Metadata_UDM_2#?METADATA.msize == _Object_UDM_2#?OBJECT.msize),
+
+    ?assertEqual(true, _Metadata_UDM_1#?METADATA.cmeta == _Metadata_UDM_2#?METADATA.cmeta),
+    ?assertEqual(true, _Metadata_UDM_1#?METADATA.msize == _Metadata_UDM_2#?METADATA.msize),
+    ?assertEqual(true, _Object_UDM_1#?OBJECT.cmeta == _Object_UDM_2#?OBJECT.cmeta),
+    ?assertEqual(true, _Object_UDM_1#?OBJECT.msize == _Object_UDM_2#?OBJECT.msize),
     timer:sleep(250),
 
+
+    %% executing the data-compaction
     FunHasChargeOfNode = fun(_Key_,_NumOfReplicas_) ->
                                  true
                          end,
@@ -975,20 +1012,35 @@ compact_2() ->
     TestKey1    = <<"air/on/g/string/3">>,
     {ok, _, _} = get_test_data(TestAddrId0, TestKey0),
     {ok, _, _} = get_test_data(TestAddrId1, TestKey1),
-
     ?assertEqual(ok, leo_compact_fsm_controller:resume()),
+
 
     %% Waiting for finished data-compaction
     ok = check_status(),
     timer:sleep(5000),
     {ok, Res2} = leo_object_storage_api:stats(),
+    ?debugVal(Res2),
     {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2}
         = get_avs_stats_summary(Res2),
 
+    {ok,_Metadata_UDM_3,_Object_UDM_3} = get_test_data(90001, <<"air/on/g/string/2/0">>),
+    ?debugVal({_Metadata_UDM_3,_Object_UDM_3}),
+    ?debugVal(binary_to_term(_Metadata_UDM_3#?METADATA.cmeta)),
+    ?debugVal(_Metadata_UDM_3#?METADATA.msize),
+    ?debugVal(binary_to_term(_Object_UDM_3#?OBJECT.cmeta)),
+    ?debugVal(_Object_UDM_3#?OBJECT.msize),
+
+    ?assertEqual(true, _Metadata_UDM_3#?METADATA.cmeta == _Object_UDM_3#?OBJECT.cmeta),
+    ?assertEqual(true, _Metadata_UDM_3#?METADATA.msize == _Object_UDM_3#?OBJECT.msize),
+    ?assertEqual(true, _Metadata_UDM_1#?METADATA.cmeta == _Metadata_UDM_3#?METADATA.cmeta),
+    ?assertEqual(true, _Metadata_UDM_1#?METADATA.msize == _Metadata_UDM_3#?METADATA.msize),
+    ?assertEqual(true, _Object_UDM_1#?OBJECT.cmeta == _Object_UDM_3#?OBJECT.cmeta),
+    ?assertEqual(true, _Object_UDM_1#?OBJECT.msize == _Object_UDM_3#?OBJECT.msize),
+
     io:format(user, "[debug] summary:~p~n", [{SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2}]),
     ?debugVal({SumTotal2, SumActive2}),
-    ?assertEqual(13, SumTotal2),
-    ?assertEqual(13, SumActive2),
+    ?assertEqual(14, SumTotal2),
+    ?assertEqual(14, SumActive2),
     ?assertEqual(true, SumTotalSize2 == SumActiveSize2),
     timer:sleep(10000),
 
@@ -997,6 +1049,7 @@ compact_2() ->
     ok = check_status(),
     timer:sleep(5000),
     {ok, Res3} = leo_object_storage_api:stats(),
+    ?debugVal(Res3),
     Ret3_1 = get_avs_stats_summary(Res3),
     ?debugVal(Ret3_1),
     {SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2} = Ret3_1,
@@ -1061,6 +1114,22 @@ put_test_data(AddrId, Key, Bin) ->
                       ksize     = byte_size(Key),
                       data      = Bin,
                       dsize     = byte_size(Bin),
+                      checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
+                      timestamp = leo_date:now(),
+                      clock     = leo_date:clock()
+                     },
+    {ok, _Checksum} = leo_object_storage_api:put({AddrId, Key}, Object),
+    ok.
+
+put_test_data_with_custom_metadata(AddrId, Key, Bin, CMetaBin) ->
+    Object = #?OBJECT{method    = put,
+                      addr_id   = AddrId,
+                      key       = Key,
+                      ksize     = byte_size(Key),
+                      data      = Bin,
+                      dsize     = byte_size(Bin),
+                      cmeta     = CMetaBin,
+                      msize     = byte_size(CMetaBin),
                       checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
                       timestamp = leo_date:now(),
                       clock     = leo_date:clock()

@@ -762,13 +762,17 @@ get_obj_for_new_cntnr(ReadHandler, Offset, HeaderSize, HeaderBin) ->
 %% @private
 get_obj_for_new_cntnr(#?METADATA{ksize = KSize,
                                  dsize = DSize,
+                                 msize = MSize,
                                  cnumber = CNum} = Metadata, ReadHandler,
                       Offset, HeaderSize, HeaderBin) ->
+    %% 'cnum > 0' means a parent of a large size object
     DSize4Read = case (CNum > 0) of
-                     true  -> 0;
-                     false -> DSize
+                     true ->
+                         0;
+                     false ->
+                         DSize
                  end,
-    RemainSize = (KSize + DSize4Read + ?LEN_PADDING),
+    RemainSize = (KSize + DSize4Read + MSize + ?LEN_PADDING),
 
     case (RemainSize > ?MAX_DATABLOCK_SIZE) of
         true ->
@@ -778,8 +782,7 @@ get_obj_for_new_cntnr(#?METADATA{ksize = KSize,
                 case leo_file:pread(ReadHandler, Offset + HeaderSize, RemainSize) of
                     {ok, RemainBin} ->
                         TotalSize = Offset + HeaderSize + RemainSize,
-                        get_obj_for_new_cntnr_1(ReadHandler,
-                                                HeaderBin, Metadata#?METADATA{offset = Offset},
+                        get_obj_for_new_cntnr_1(HeaderBin, Metadata#?METADATA{offset = Offset},
                                                 DSize4Read, RemainBin, TotalSize);
                     eof = Cause ->
                         {error, Cause};
@@ -805,17 +808,21 @@ get_obj_for_new_cntnr(#?METADATA{ksize = KSize,
     end.
 
 %% @private
-get_obj_for_new_cntnr_1(_ReadHandler,_HeaderBin, #?METADATA{ksize = 0},_DSize,_Bin,_TotalSize) ->
+get_obj_for_new_cntnr_1(_HeaderBin, #?METADATA{ksize = 0},_DSize,_Bin,_TotalSize) ->
     {error, {?LINE, ?ERROR_DATA_SIZE_DID_NOT_MATCH}};
-get_obj_for_new_cntnr_1(ReadHandler, HeaderBin, #?METADATA{ksize = KSize} = Metadata,
+get_obj_for_new_cntnr_1(HeaderBin, #?METADATA{ksize = KSize,
+                                              msize = MSize} = Metadata,
                         DSize, Bin, TotalSize) ->
     << KeyBin:KSize/binary,
        BodyBin:DSize/binary,
+       CMetaBin:MSize/binary,
        _Footer/binary>> = Bin,
-    get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, TotalSize).
+    get_obj_for_new_cntnr_2(HeaderBin, Metadata,
+                            KeyBin, BodyBin, CMetaBin, TotalSize).
 
 %% @private
-get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, TotalSize) ->
+get_obj_for_new_cntnr_2(HeaderBin, Metadata,
+                        KeyBin, BodyBin, CMetaBin, TotalSize) ->
     Checksum = Metadata#?METADATA.checksum,
     Checksum_1 = leo_hex:raw_binary_to_integer(crypto:hash(md5, BodyBin)),
     Metadata_1 = Metadata#?METADATA{key = KeyBin},
@@ -830,50 +837,9 @@ get_obj_for_new_cntnr_2(ReadHandler, HeaderBin, Metadata, KeyBin, BodyBin, Total
     case (Checksum == Checksum_1 orelse
           IsLargeObjParent == true) of
         true ->
-            HeaderSize = erlang:round(?BLEN_HEADER/8),
-            #?METADATA{offset = Offset,
-                       ksize  = KSize,
-                       dsize  = DSize,
-                       msize  = MSize} = Metadata,
-
-            case (?MAX_DATABLOCK_SIZE > MSize andalso MSize > 0) of
-                true ->
-                    MPos = Offset + HeaderSize + KSize + DSize,
-                    case leo_file:pread(ReadHandler, MPos, MSize) of
-                        {ok, CMetaBin} ->
-                            case leo_object_storage_transformer:cmeta_bin_into_metadata(
-                                   CMetaBin, Metadata_1) of
-                                {error,_Cause} ->
-                                    {ok, Metadata_1#?METADATA{msize = 0},
-                                     [HeaderBin, KeyBin, BodyBin, TotalSize]};
-                                {ok, {Metadata_2,_UDM}} ->
-                                    %% @TODO: user defined metadata
-                                    {ok, Metadata_2,
-                                     [HeaderBin, KeyBin, BodyBin,
-                                      Offset + HeaderSize + KSize
-                                      + DSize + MSize + ?LEN_PADDING]}
-                            end;
-                        eof = Cause ->
-                            {error, Cause};
-                        {error, Cause} ->
-                            case Cause of
-                                unexpected_len ->
-                                    error_logger:error_msg(
-                                      "~p,~p,~p,~p~n",
-                                      [{module, ?MODULE_STRING},
-                                       {function, "get_obj_for_new_cntnr_2/6"},
-                                       {line, ?LINE}, [{offset, MPos},
-                                                       {length, MSize},
-                                                       {body, Cause}]]),
-                                    {error, {abort, Cause}};
-                                _ ->
-                                    {error, {?LINE, invalid_data}}
-                            end
-                    end;
-                false ->
-                    {ok, Metadata_1#?METADATA{msize = 0},
-                     [HeaderBin, KeyBin, BodyBin, TotalSize]}
-            end;
+            {ok, Metadata_1#?METADATA{msize = byte_size(CMetaBin),
+                                      cmeta = CMetaBin},
+              [HeaderBin, KeyBin, BodyBin, TotalSize]};
         false ->
             Reason = ?ERROR_INVALID_DATA,
             {error, {?LINE, Reason}}
