@@ -35,7 +35,8 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([open/1, open/2, close/2,
-         put/3, get/3, get/6, delete/3, head/2,
+         put/3, get/3, get/6, delete/3,
+         head/2, head/3,
          fetch/4]).
 
 -export([head_with_calc_md5/4]).
@@ -225,7 +226,7 @@ head(MetaDBId, Key) ->
                    binary_to_term(MetadataBin)) of
                 {error, Cause} ->
                     {error, Cause};
-                Metadata->
+                Metadata ->
                     {ok, term_to_binary(Metadata)}
             end;
         not_found = Cause ->
@@ -233,6 +234,38 @@ head(MetaDBId, Key) ->
         {_, Cause} ->
             {error, Cause}
     end.
+
+-spec(head(MetaDBId, StorageInfo, Key) ->
+             {ok, binary()} | not_found | {error, any()} when MetaDBId::atom(),
+                                                              StorageInfo::#backend_info{},
+                                                              Key::binary()).
+head(MetaDBId, StorageInfo, Key) ->
+    case catch leo_backend_db_api:get(MetaDBId, Key) of
+        {ok, MetadataBin} ->
+            case leo_object_storage_transformer:transform_metadata(
+                   binary_to_term(MetadataBin)) of
+                {error, Cause} ->
+                    {error, Cause};
+                #?METADATA{msize = MSize} = Metadata ->
+                    case MSize > 0 of
+                        true ->
+                            case get_fun_1(MetaDBId, StorageInfo, Metadata,
+                                           -1, -1, false) of
+                                {ok, Metadata_1,_Object} ->
+                                    {ok, term_to_binary(Metadata_1)};
+                                {error, Cause} ->
+                                    {error, Cause}
+                            end;
+                        false ->
+                            {ok, term_to_binary(Metadata)}
+                    end
+            end;
+        not_found = Cause ->
+            Cause;
+        {_, Cause} ->
+            {error, Cause}
+    end.
+
 
 
 %% @doc Retrieve a metada/data from backend_db/object-storage

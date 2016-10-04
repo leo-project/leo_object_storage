@@ -938,6 +938,13 @@ compact_2() ->
     ?assertEqual(true, _Metadata_UDM_1b#?METADATA.cmeta == _Object_UDM_1b#?OBJECT.cmeta),
     ?assertEqual(true, _Metadata_UDM_1b#?METADATA.msize == _Object_UDM_1b#?OBJECT.msize),
 
+    {ok, _Metadata_UDM_1h} = leo_object_storage_api:head({90001, <<"air/on/g/string/2/0">>}),
+    _Metadata_UDM_1h_2 = binary_to_term(_Metadata_UDM_1h),
+    ?debugVal(binary_to_term(_Metadata_UDM_1h_2#?METADATA.cmeta)),
+    ?debugVal(_Metadata_UDM_1h_2#?METADATA.msize),
+    ?assertEqual(true, _Metadata_UDM_1#?METADATA.cmeta == _Metadata_UDM_1h_2#?METADATA.cmeta),
+    ?assertEqual(true, _Metadata_UDM_1#?METADATA.msize == _Metadata_UDM_1h_2#?METADATA.msize),
+
     %% preparing the data-compaction
     AllTargets = [_Pid || {_Pid,_}
                               <- leo_object_storage_api:get_object_storage_pid('all')],

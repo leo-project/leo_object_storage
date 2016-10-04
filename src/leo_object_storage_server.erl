@@ -438,7 +438,7 @@ handle_call({head, {AddrId, Key}},
                                      object_storage = StorageInfo} = State) ->
     BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                   AddrId, Key),
-    Reply = leo_object_storage_haystack:head(MetaDBId, BackendKey),
+    Reply = leo_object_storage_haystack:head(MetaDBId, StorageInfo, BackendKey),
     {reply, Reply, State};
 
 %% Fetch objects with address-id and key to maximum numbers of keys
