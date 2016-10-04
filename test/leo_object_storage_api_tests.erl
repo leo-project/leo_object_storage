@@ -908,7 +908,7 @@ compact_2() ->
     ok = put_test_data(10006, <<"air/on/g/string/1/6">>, <<"JSB0-1">>),
 
     %% append an object w/a user defined metadata
-    CMeta = [{?PROP_CMETA_CLUSTER_ID, 'leofs_1'},
+    CMeta_1 = [{?PROP_CMETA_CLUSTER_ID, 'leofs_1'},
              {?PROP_CMETA_NUM_OF_REPLICAS, 3},
              {?PROP_CMETA_VER, leo_date:clock()},
              {?PROP_CMETA_UDM, [{<<"name">>, <<"LeoFS">>},
@@ -916,9 +916,12 @@ compact_2() ->
                                 {<<"url">>, <<"leo-project.net/leofs">>}
                                ]
              }],
-    CMetaBin = leo_object_storage_transformer:list_to_cmeta_bin(CMeta),
+    CMetaBin_1 = leo_object_storage_transformer:list_to_cmeta_bin(CMeta_1),
     ok = put_test_data_with_custom_metadata(
-           90001, <<"air/on/g/string/2/0">>, <<"JSB-1-W-CMETA">>, CMetaBin),
+           90001, <<"air/on/g/string/2/0">>, <<"JSB-1-W-CMETA">>, CMetaBin_1),
+    ok = put_test_data_with_custom_metadata(
+           90002, <<"air/on/g/string/2/1">>, <<>>, CMetaBin_1), %% 'dsize = 0'
+
     {ok,_Metadata_UDM_1,_Object_UDM_1} = get_test_data(90001, <<"air/on/g/string/2/0">>),
     ?debugVal(binary_to_term(_Metadata_UDM_1#?METADATA.cmeta)),
     ?debugVal(_Metadata_UDM_1#?METADATA.msize),
@@ -927,6 +930,13 @@ compact_2() ->
     ?assertEqual(true, _Metadata_UDM_1#?METADATA.cmeta == _Object_UDM_1#?OBJECT.cmeta),
     ?assertEqual(true, _Metadata_UDM_1#?METADATA.msize == _Object_UDM_1#?OBJECT.msize),
 
+    {ok,_Metadata_UDM_1b,_Object_UDM_1b} = get_test_data(90002, <<"air/on/g/string/2/1">>),
+    ?debugVal(binary_to_term(_Metadata_UDM_1b#?METADATA.cmeta)),
+    ?debugVal(_Metadata_UDM_1b#?METADATA.msize),
+    ?debugVal(binary_to_term(_Object_UDM_1b#?OBJECT.cmeta)),
+    ?debugVal(_Object_UDM_1b#?OBJECT.msize),
+    ?assertEqual(true, _Metadata_UDM_1b#?METADATA.cmeta == _Object_UDM_1b#?OBJECT.cmeta),
+    ?assertEqual(true, _Metadata_UDM_1b#?METADATA.msize == _Object_UDM_1b#?OBJECT.msize),
 
     %% preparing the data-compaction
     AllTargets = [_Pid || {_Pid,_}
@@ -960,8 +970,8 @@ compact_2() ->
     ?debugVal(Res1),
     {SumTotal1, SumActive1, SumTotalSize1, SumActiveSize1}
         = get_avs_stats_summary(Res1),
-    ?assertEqual(18, SumTotal1),
-    ?assertEqual(14, SumActive1),
+    ?assertEqual(19, SumTotal1),
+    ?assertEqual(15, SumActive1),
     ?assertEqual(true, SumTotalSize1 > SumActiveSize1),
 
     {ok,_Metadata_UDM_2,_Object_UDM_2} = get_test_data(90001, <<"air/on/g/string/2/0">>),
@@ -1039,8 +1049,8 @@ compact_2() ->
 
     io:format(user, "[debug] summary:~p~n", [{SumTotal2, SumActive2, SumTotalSize2, SumActiveSize2}]),
     ?debugVal({SumTotal2, SumActive2}),
-    ?assertEqual(14, SumTotal2),
-    ?assertEqual(14, SumActive2),
+    ?assertEqual(15, SumTotal2),
+    ?assertEqual(15, SumActive2),
     ?assertEqual(true, SumTotalSize2 == SumActiveSize2),
     timer:sleep(10000),
 

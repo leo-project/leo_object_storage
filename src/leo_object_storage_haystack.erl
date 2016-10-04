@@ -404,12 +404,11 @@ get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck) ->
 
 
 %% @private
-get_fun_1(_MetaDBId,_StorageInfo, #?METADATA{dsize = 0} = Metadata,
+get_fun_1(_MetaDBId,_StorageInfo, #?METADATA{dsize = 0,
+                                             msize = 0} = Metadata,
           _StartPos,_EndPos,_IsStrictCheck) ->
     Object_1 = leo_object_storage_transformer:metadata_to_object(Metadata),
     Object_2 = Object_1#?OBJECT{data = <<>>},
-
-    %% @TODO: msize > 0
     {ok, Metadata, Object_2};
 
 get_fun_1(_MetaDBId,_StorageInfo, #?METADATA{dsize = DSize} = Metadata,
