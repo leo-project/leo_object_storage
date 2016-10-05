@@ -405,7 +405,7 @@ cmeta_bin_into_metadata(CustomMetadataBin, Metadata) ->
 get_udm_from_cmeta_bin(CustomMetadataBin)->
     try
         CustomMetadata = binary_to_term(CustomMetadataBin),
-        UDM =leo_misc:get_value(?PROP_CMETA_UDM, CustomMetadata, []),
+        UDM = leo_misc:get_value(?PROP_CMETA_UDM, CustomMetadata, []),
         {ok, UDM}
     catch
         _:_Cause ->
@@ -417,7 +417,7 @@ get_udm_from_cmeta_bin(CustomMetadataBin)->
 -spec(list_to_cmeta_bin(CustomMetadata) ->
              binary() when CustomMetadata::[{atom(), any()}]).
 list_to_cmeta_bin(CustomMetadata) ->
-    ClusterId     = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID, CustomMetadata, []),
+    ClusterId = leo_misc:get_value(?PROP_CMETA_CLUSTER_ID, CustomMetadata, []),
     NumOfReplicas = leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CustomMetadata, 0),
     Ver = leo_misc:get_value(?PROP_CMETA_VER, CustomMetadata, 0),
     UDM = leo_misc:get_value(?PROP_CMETA_UDM, CustomMetadata, []),

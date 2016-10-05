@@ -908,14 +908,15 @@ compact_2() ->
     ok = put_test_data(10006, <<"air/on/g/string/1/6">>, <<"JSB0-1">>),
 
     %% append an object w/a user defined metadata
+    UDM_1 = [{<<"name">>, <<"LeoFS">>},
+             {<<"category">>, <<"distributed storage">>},
+             {<<"url">>, <<"leo-project.net/leofs">>}
+            ],
     CMeta_1 = [{?PROP_CMETA_CLUSTER_ID, 'leofs_1'},
-             {?PROP_CMETA_NUM_OF_REPLICAS, 3},
-             {?PROP_CMETA_VER, leo_date:clock()},
-             {?PROP_CMETA_UDM, [{<<"name">>, <<"LeoFS">>},
-                                {<<"category">>, <<"distributed storage">>},
-                                {<<"url">>, <<"leo-project.net/leofs">>}
-                               ]
-             }],
+               {?PROP_CMETA_NUM_OF_REPLICAS, 3},
+               {?PROP_CMETA_VER, leo_date:clock()},
+               {?PROP_CMETA_UDM, UDM_1}
+              ],
     CMetaBin_1 = leo_object_storage_transformer:list_to_cmeta_bin(CMeta_1),
     ok = put_test_data_with_custom_metadata(
            90001, <<"air/on/g/string/2/0">>, <<"JSB-1-W-CMETA">>, CMetaBin_1),
@@ -929,6 +930,12 @@ compact_2() ->
     ?debugVal(_Object_UDM_1#?OBJECT.msize),
     ?assertEqual(true, _Metadata_UDM_1#?METADATA.cmeta == _Object_UDM_1#?OBJECT.cmeta),
     ?assertEqual(true, _Metadata_UDM_1#?METADATA.msize == _Object_UDM_1#?OBJECT.msize),
+
+    {ok, UDM_1a} = leo_object_storage_transformer:get_udm_from_cmeta_bin(
+                     _Metadata_UDM_1#?METADATA.cmeta),
+    ?debugVal(UDM_1a),
+    ?assertEqual(true, UDM_1 == UDM_1a),
+
 
     {ok,_Metadata_UDM_1b,_Object_UDM_1b} = get_test_data(90002, <<"air/on/g/string/2/1">>),
     ?debugVal(binary_to_term(_Metadata_UDM_1b#?METADATA.cmeta)),
