@@ -496,7 +496,7 @@ get_fun_2(StorageInfo, #?METADATA{ksize = KSize,
 
             case leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin_1)) of
                 Checksum ->
-                    Metadata_1 = Metadata#?METADATA{cmeta = CMetaBin},
+                    Metadata_1 = Metadata#?METADATA{meta = CMetaBin},
                     {ok, Metadata_1,
                      leo_object_storage_transformer:metadata_to_object(Bin_1, Metadata_1)};
                 _ ->
@@ -509,7 +509,7 @@ get_fun_2(StorageInfo, #?METADATA{ksize = KSize,
                      leo_object_storage_transformer:metadata_to_object(Bin, Metadata)};
                 false ->
                     {ok, {Bin_1, CMetaBin}} = get_body_and_cmeta(Bin, Length, MSize),
-                    Metadata_1 = Metadata#?METADATA{cmeta = CMetaBin},
+                    Metadata_1 = Metadata#?METADATA{meta = CMetaBin},
                     {ok, Metadata_1,
                      leo_object_storage_transformer:metadata_to_object(Bin_1, Metadata_1)}
             end;
@@ -578,7 +578,7 @@ create_needle(#?OBJECT{addr_id = AddrId,
                        ksize = KSize,
                        dsize = DSize,
                        msize = MSize,
-                       cmeta = MBin,
+                       meta = MBin,
                        csize = CSize,
                        cnumber = CNum,
                        cindex = CIndex,
@@ -781,7 +781,7 @@ get_obj_for_new_cntnr(ReadHandler, Offset) ->
                       HeaderSize::integer(),
                       HeaderBin::binary(),
                       Metadata::#?METADATA{}
-                      ).
+                                ).
 get_obj_for_new_cntnr(ReadHandler, Offset, HeaderSize, HeaderBin) ->
     case leo_object_storage_transformer:header_bin_to_metadata(HeaderBin) of
         {error, Cause} ->
@@ -870,8 +870,8 @@ get_obj_for_new_cntnr_2(HeaderBin, Metadata,
           IsLargeObjParent == true) of
         true ->
             {ok, Metadata_1#?METADATA{msize = byte_size(CMetaBin),
-                                      cmeta = CMetaBin},
-              [HeaderBin, KeyBin, BodyBin, TotalSize]};
+                                      meta = CMetaBin},
+             [HeaderBin, KeyBin, BodyBin, TotalSize]};
         false ->
             Reason = ?ERROR_INVALID_DATA,
             {error, {?LINE, Reason}}

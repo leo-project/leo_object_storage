@@ -317,7 +317,7 @@
           ksize      = 0      :: integer(), %% file-path size
           dsize      = 0      :: integer(), %% data size
 
-          cmeta      = <<>>   :: binary(),  %% custom-metadata (user defined metadata)
+          meta      = <<>>   :: binary(),   %% custom-metadata (user defined metadata)
           msize      = 0      :: integer(), %% custom-metadata size
 
           csize      = 0      :: integer(), %% * chunked data size    (for large-object)
@@ -366,7 +366,7 @@
           key        = <<>>   :: binary(),  %% filename
           addr_id    = 0      :: integer(), %% ring-address id (MD5 > hex-to-integer)
           data       = <<>>   :: binary(),  %% file
-          cmeta      = <<>>   :: binary(),  %% custom-metadata (user defined metadata)
+          meta       = <<>>   :: binary(),  %% custom-metadata (user defined metadata)
           ksize      = 0      :: integer(), %% filename size
           dsize      = 0      :: integer(), %% data size
           msize      = 0      :: integer(), %% custom-metadata size
