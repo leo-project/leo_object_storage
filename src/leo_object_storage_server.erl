@@ -390,8 +390,8 @@ handle_call({put, #?OBJECT{addr_id = AddrId,
                            key = Key} = Object, InTime}, _From,
             #obj_server_state{object_storage = StorageInfo,
                               threshold_slow_processing = ThresholdSlowProcessing} = State) ->
-                  Key_1 = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
-                                           AddrId, Key),
+    Key_1 = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
+                             AddrId, Key),
     {Reply, State_1} = put_1(Key_1, Object, State),
 
     erlang:garbage_collect(self()),
@@ -408,11 +408,11 @@ handle_call({get, {AddrId, Key}, StartPos, EndPos, IsForcedCheck, InTime},
                           true  -> IsForcedCheck;
                           false -> IsStrictCheck
                       end,
-                  BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
-                                                AddrId, Key),
-                  Reply = leo_object_storage_haystack:get(
-                            MetaDBId, StorageInfo, BackendKey, StartPos, EndPos, IsStrictCheck_1),
-                  State_1 = after_proc(Reply, State),
+    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
+                                  AddrId, Key),
+    Reply = leo_object_storage_haystack:get(
+              MetaDBId, StorageInfo, BackendKey, StartPos, EndPos, IsStrictCheck_1),
+    State_1 = after_proc(Reply, State),
     erlang:garbage_collect(self()),
     check_slow_op(get, Key, InTime, ThresholdSlowProcessing),
     {reply, Reply, State_1};
@@ -470,7 +470,7 @@ handle_call({store,_,_,_}, _From, #obj_server_state{is_locked = true} = State) -
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
 handle_call({store,_,_,_}, _From, #obj_server_state{privilege = ?OBJ_PRV_READ_ONLY} = State) ->
     {reply, {error, ?ERROR_NOT_ALLOWED_ACCESS}, State};
-handle_call({store, Metadata, Bin, InTime}, _From, 
+handle_call({store, Metadata, Bin, InTime}, _From,
             #obj_server_state{object_storage = StorageInfo,
                               is_del_blocked = IsDelBlocked,
                               threshold_slow_processing = ThresholdSlowProcessing} = State) ->
@@ -691,29 +691,13 @@ open_container(#obj_server_state{privilege = Privilege,
     end.
 
 
-%% @doc Execute the function - put/get/delete
+%% @doc Check slow operation of a processing
 %% @private
--spec(execute(Method, Key, Fun, ThresholdSlowProcessing) ->
+-spec(check_slow_op(Method, Key, InTime, ThresholdSlowProcessing) ->
              {any(), #obj_server_state{}} when Method::put|get|delete,
                                                Key::binary(),
-                                               Fun::fun(),
+                                               InTime::non_neg_integer(),
                                                ThresholdSlowProcessing::non_neg_integer()).
-execute(Method, Key, Fun, ThresholdSlowProcessing) ->
-    %% Execute the function
-    _ = erlang:statistics(wall_clock),
-    {Ret, State} = Fun(),
-    {_,Time} = erlang:statistics(wall_clock),
-
-    %% Judge the processing time
-    case (Time > ThresholdSlowProcessing) of
-        true ->
-            leo_object_storage_event_notifier:notify(
-              ?ERROR_MSG_SLOW_OPERATION, Method, Key, Time);
-        false ->
-            void
-    end,
-    {Ret, State}.
-
 check_slow_op(Method, Key, InTime, ThresholdSlowProcessing) ->
     {OutTime, _} = erlang:statistics(wall_clock),
     Time = OutTime - InTime,
