@@ -105,9 +105,11 @@ stop(Id) ->
              ok | {error, any()} when Id::atom(),
                                       Object::#?OBJECT{}).
 put(Id, #?OBJECT{del = ?DEL_FALSE} = Object) ->
-    gen_server:call(Id, {put, Object}, ?DEF_TIMEOUT);
+    {InTime, _} = erlang:statistics(wall_clock),
+    gen_server:call(Id, {put, Object, InTime}, ?DEF_TIMEOUT);
 put(Id, #?OBJECT{del = ?DEL_TRUE} = Object) ->
-    gen_server:call(Id, {delete, Object}, ?DEF_TIMEOUT).
+    {InTime, _} = erlang:statistics(wall_clock),
+    gen_server:call(Id, {delete, Object, InTime}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve an object from the object-storage
@@ -121,7 +123,8 @@ put(Id, #?OBJECT{del = ?DEL_TRUE} = Object) ->
                                  EndPos::non_neg_integer(),
                                  IsForcedCheck::boolean()).
 get(Id, AddrIdAndKey, StartPos, EndPos, IsForcedCheck) ->
-    gen_server:call(Id, {get, AddrIdAndKey, StartPos, EndPos, IsForcedCheck}, ?DEF_TIMEOUT).
+    {InTime, _} = erlang:statistics(wall_clock),
+    gen_server:call(Id, {get, AddrIdAndKey, StartPos, EndPos, IsForcedCheck, InTime}, ?DEF_TIMEOUT).
 
 
 %% @doc Remove an object from the object-storage - (logical-delete)
@@ -130,7 +133,8 @@ get(Id, AddrIdAndKey, StartPos, EndPos, IsForcedCheck) ->
              ok | {error, any()} when Id::atom(),
                                       Object::#?OBJECT{}).
 delete(Id, Object) ->
-    gen_server:call(Id, {delete, Object}, ?DEF_TIMEOUT).
+    {InTime, _} = erlang:statistics(wall_clock),
+    gen_server:call(Id, {delete, Object, InTime}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve an object's metadata from the object-storage
@@ -141,7 +145,8 @@ delete(Id, Object) ->
              {error, any()} when Id::atom(),
                                  AddrIdAndKey::addrid_and_key()).
 head(Id, Key) ->
-    gen_server:call(Id, {head, Key}, ?DEF_TIMEOUT).
+    {InTime, _} = erlang:statistics(wall_clock),
+    gen_server:call(Id, {head, Key, InTime}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve objects from the object-storage by Key and Function
@@ -152,7 +157,8 @@ head(Id, Key) ->
                                                 Fun::function(),
                                                 MaxKeys::non_neg_integer()|undefined).
 fetch(Id, Key, Fun, MaxKeys) ->
-    gen_server:call(Id, {fetch, Key, Fun, MaxKeys}, ?DEF_TIMEOUT).
+    {InTime, _} = erlang:statistics(wall_clock),
+    gen_server:call(Id, {fetch, Key, Fun, MaxKeys, InTime}, ?DEF_TIMEOUT).
 
 
 %% @doc Store metadata and data
@@ -162,7 +168,8 @@ fetch(Id, Key, Fun, MaxKeys) ->
                                       Metadata::#?METADATA{},
                                       Bin::binary()).
 store(Id, Metadata, Bin) ->
-    gen_server:call(Id, {store, Metadata, Bin}, ?DEF_TIMEOUT).
+    {InTime, _} = erlang:statistics(wall_clock),
+    gen_server:call(Id, {store, Metadata, Bin, InTime}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve the storage stats specfied by Id
@@ -200,7 +207,8 @@ get_avs_version_bin(Id) ->
                                                              Key::tuple(),
                                                              MD5Context::any()).
 head_with_calc_md5(Id, Key, MD5Context) ->
-    gen_server:call(Id, {head_with_calc_md5, Key, MD5Context}, ?DEF_TIMEOUT).
+    {InTime, _} = erlang:statistics(wall_clock),
+    gen_server:call(Id, {head_with_calc_md5, Key, MD5Context, InTime}, ?DEF_TIMEOUT).
 
 
 %% @doc Close the object-container
@@ -374,25 +382,24 @@ handle_call(stop, _From, State) ->
 
 
 %% Insert an object
-handle_call({put,_}, _From, #obj_server_state{is_locked = true} = State) ->
+handle_call({put,_,_}, _From, #obj_server_state{is_locked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
-handle_call({put,_}, _From, #obj_server_state{privilege = ?OBJ_PRV_READ_ONLY} = State) ->
+handle_call({put,_,_}, _From, #obj_server_state{privilege = ?OBJ_PRV_READ_ONLY} = State) ->
     {reply, {error, ?ERROR_NOT_ALLOWED_ACCESS}, State};
 handle_call({put, #?OBJECT{addr_id = AddrId,
-                           key = Key} = Object}, _From,
+                           key = Key} = Object, InTime}, _From,
             #obj_server_state{object_storage = StorageInfo,
                               threshold_slow_processing = ThresholdSlowProcessing} = State) ->
-    Fun = fun() ->
                   Key_1 = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                            AddrId, Key),
-                  put_1(Key_1, Object, State)
-          end,
-    {Reply, State_1} = execute(put, Key, Fun, ThresholdSlowProcessing),
+    {Reply, State_1} = put_1(Key_1, Object, State),
+
     erlang:garbage_collect(self()),
+    check_slow_op(put, Key, InTime, ThresholdSlowProcessing),
     {reply, Reply, State_1};
 
 %% Retrieve an object
-handle_call({get, {AddrId, Key}, StartPos, EndPos, IsForcedCheck},
+handle_call({get, {AddrId, Key}, StartPos, EndPos, IsForcedCheck, InTime},
             _From, #obj_server_state{meta_db_id      = MetaDBId,
                                      object_storage  = StorageInfo,
                                      is_strict_check = IsStrictCheck,
@@ -401,50 +408,48 @@ handle_call({get, {AddrId, Key}, StartPos, EndPos, IsForcedCheck},
                           true  -> IsForcedCheck;
                           false -> IsStrictCheck
                       end,
-    Fun = fun() ->
                   BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                                 AddrId, Key),
                   Reply = leo_object_storage_haystack:get(
                             MetaDBId, StorageInfo, BackendKey, StartPos, EndPos, IsStrictCheck_1),
                   State_1 = after_proc(Reply, State),
-                  {Reply, State_1}
-          end,
-    {Reply_1, State_2} = execute(get, Key, Fun, ThresholdSlowProcessing),
     erlang:garbage_collect(self()),
-    {reply, Reply_1, State_2};
+    check_slow_op(get, Key, InTime, ThresholdSlowProcessing),
+    {reply, Reply, State_1};
 
 %% Remove an object
-handle_call({delete,_}, _From, #obj_server_state{is_locked = true} = State) ->
+handle_call({delete,_,_}, _From, #obj_server_state{is_locked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
-handle_call({delete,_}, _From, #obj_server_state{is_del_blocked = true} = State) ->
+handle_call({delete,_,_}, _From, #obj_server_state{is_del_blocked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
-handle_call({delete, _}, _From, #obj_server_state{privilege = ?OBJ_PRV_READ_ONLY} = State) ->
+handle_call({delete,_,_}, _From, #obj_server_state{privilege = ?OBJ_PRV_READ_ONLY} = State) ->
     {reply, {error, ?ERROR_NOT_ALLOWED_ACCESS}, State};
 handle_call({delete, #?OBJECT{addr_id = AddrId,
-                              key = Key} = Object}, _From,
+                              key = Key} = Object, InTime}, _From,
             #obj_server_state{object_storage = StorageInfo,
                               threshold_slow_processing = ThresholdSlowProcessing} = State) ->
-    Fun = fun() ->
-                  Key_1 = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
-                                           AddrId, Key),
-                  delete_1(Key_1, Object, State)
-          end,
-    {Reply, State_1} = execute(delete, Key, Fun, ThresholdSlowProcessing),
+    Key_1 = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
+                             AddrId, Key),
+    {Reply, State_1} = delete_1(Key_1, Object, State),
+    check_slow_op(delete, Key, InTime, ThresholdSlowProcessing),
     {reply, Reply, State_1};
 
 %% Head an object
-handle_call({head, {AddrId, Key}},
+handle_call({head, {AddrId, Key}, InTime},
             _From, #obj_server_state{meta_db_id = MetaDBId,
-                                     object_storage = StorageInfo} = State) ->
+                                     object_storage = StorageInfo,
+                                     threshold_slow_processing = ThresholdSlowProcessing} = State) ->
     BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                   AddrId, Key),
     Reply = leo_object_storage_haystack:head(MetaDBId, StorageInfo, BackendKey),
+    check_slow_op(head, Key, InTime, ThresholdSlowProcessing),
     {reply, Reply, State};
 
 %% Fetch objects with address-id and key to maximum numbers of keys
-handle_call({fetch, {AddrId, Key}, Fun, MaxKeys},
+handle_call({fetch, {AddrId, Key}, Fun, MaxKeys, InTime},
             _From, #obj_server_state{meta_db_id     = MetaDBId,
-                                     object_storage = StorageInfo} = State) ->
+                                     object_storage = StorageInfo,
+                                     threshold_slow_processing = ThresholdSlowProcessing} = State) ->
     BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur, AddrId, Key),
     Reply = case catch leo_object_storage_haystack:fetch(
                          MetaDBId, BackendKey, Fun, MaxKeys) of
@@ -457,15 +462,18 @@ handle_call({fetch, {AddrId, Key}, Fun, MaxKeys},
                 Other ->
                     {error, Other}
             end,
+    check_slow_op(fetch, Key, InTime, ThresholdSlowProcessing),
     {reply, Reply, State};
 
 %% Store an object
-handle_call({store,_,_}, _From, #obj_server_state{is_locked = true} = State) ->
+handle_call({store,_,_,_}, _From, #obj_server_state{is_locked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
-handle_call({store,_,_}, _From, #obj_server_state{privilege = ?OBJ_PRV_READ_ONLY} = State) ->
+handle_call({store,_,_,_}, _From, #obj_server_state{privilege = ?OBJ_PRV_READ_ONLY} = State) ->
     {reply, {error, ?ERROR_NOT_ALLOWED_ACCESS}, State};
-handle_call({store, Metadata, Bin}, _From, #obj_server_state{object_storage = StorageInfo,
-                                                             is_del_blocked = IsDelBlocked} = State) ->
+handle_call({store, Metadata, Bin, InTime}, _From, 
+            #obj_server_state{object_storage = StorageInfo,
+                              is_del_blocked = IsDelBlocked,
+                              threshold_slow_processing = ThresholdSlowProcessing} = State) ->
     Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
     Key = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                            Metadata_1#?METADATA.addr_id,
@@ -489,6 +497,7 @@ handle_call({store, Metadata, Bin}, _From, #obj_server_state{object_storage = St
                       Other
               end,
     erlang:garbage_collect(self()),
+    check_slow_op(store, Metadata_1#?METADATA.key, InTime, ThresholdSlowProcessing),
     {reply, Reply_1, State_1};
 
 %% Retrieve the current status
@@ -505,9 +514,10 @@ handle_call(get_avs_version_bin, _From, #obj_server_state{object_storage = Stora
     {reply, Reply, State};
 
 %% Retrieve hash of the object with head-verb
-handle_call({head_with_calc_md5, {AddrId, Key}, MD5Context},
+handle_call({head_with_calc_md5, {AddrId, Key}, MD5Context, InTime},
             _From, #obj_server_state{meta_db_id      = MetaDBId,
-                                     object_storage  = StorageInfo} = State) ->
+                                     object_storage  = StorageInfo,
+                                     threshold_slow_processing = ThresholdSlowProcessing} = State) ->
     BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                   AddrId, Key),
     Reply = leo_object_storage_haystack:head_with_calc_md5(
@@ -515,6 +525,7 @@ handle_call({head_with_calc_md5, {AddrId, Key}, MD5Context},
 
     NewState = after_proc(Reply, State),
     erlang:garbage_collect(self()),
+    check_slow_op(head_with_calc_md5, Key, InTime, ThresholdSlowProcessing),
     {reply, Reply, NewState};
 
 %% Close the object-container
@@ -703,6 +714,16 @@ execute(Method, Key, Fun, ThresholdSlowProcessing) ->
     end,
     {Ret, State}.
 
+check_slow_op(Method, Key, InTime, ThresholdSlowProcessing) ->
+    {OutTime, _} = erlang:statistics(wall_clock),
+    Time = OutTime - InTime,
+    case (Time > ThresholdSlowProcessing) of
+        true ->
+            leo_object_storage_event_notifier:notify(
+              ?ERROR_MSG_SLOW_OPERATION, Method, Key, Time);
+        false ->
+            void
+    end.
 
 %% @doc After object-operations
 %% @private
