@@ -678,3 +678,8 @@
             _StepInterval = leo_math:ceiling(_RegInterval / _NumOfSteps),
             {ok, {_StepBatchOfProcs,_StepInterval}}
         end).
+
+
+%% @doc Retrieve the begining of statistics_wallclock
+-define(begin_statistics_wallclock(),
+        erlang:element(1, erlang:statistics(wall_clock))).
