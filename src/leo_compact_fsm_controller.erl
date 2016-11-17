@@ -347,6 +347,7 @@ idling(#event_info{event = ?EVENT_RUN,
                                    is_recovering      = IsRecovering,
                                    callback_fun       = Callback,
                                    start_datetime     = leo_date:now(),
+                                   pid_pairs = [],
                                    reports = []
                                   }),
     gen_fsm:reply(From, ok),
@@ -693,10 +694,9 @@ start_jobs_as_possible(#state{pid_pairs = PidPairs,
                               is_diagnosing = IsDiagnose,
                               is_recovering = IsRecovering,
                               child_pids    = ChildPids} = State, NumChild) when NumChild < NumOfConcurrency ->
-    Pid = spawn(fun() ->
+    {Pid, _Ref} = spawn_monitor(fun() ->
                         loop(CallbackFun)
                 end),
-    _Ref = erlang:monitor(process, Pid),
     erlang:send(Pid, {run, Id, IsDiagnose, IsRecovering}),
     start_jobs_as_possible(
       State#state{pending_targets = Rest,
