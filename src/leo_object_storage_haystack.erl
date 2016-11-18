@@ -767,7 +767,9 @@ get_obj_for_new_cntnr(ReadHandler, Offset) ->
                        {line, ?LINE}, [{offset, Offset},
                                        {header_size, HeaderSize},
                                        {body, Cause}]]),
-                    {error, {abort, Cause}};
+                    %% no more records - https://github.com/leo-project/leofs/issues/523
+                    %% enable the caller to handle the return value as EOF
+                    {error, eof};
                 _ ->
                     {error, Cause}
             end
@@ -828,7 +830,7 @@ get_obj_for_new_cntnr(#?METADATA{ksize = KSize,
                                    {line, ?LINE}, [{offset, Offset + HeaderSize},
                                                    {length, RemainSize},
                                                    {body, Cause}]]),
-                                {error, {abort, Cause}};
+                                {error, unexpected_len};
                             _ ->
                                 {error, Cause}
                         end
