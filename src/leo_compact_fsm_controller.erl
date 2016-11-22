@@ -427,9 +427,12 @@ running(#event_info{event = ?EVENT_FINISH,
                                                   child_pids      = _ChildPids,
                                                   is_diagnosing   = IsDiagnose,
                                                   is_recovering   = IsRecovering,
+                                                  pid_pairs       = PidPairs,
                                                   reports         = AccReports} = State) ->
     %% Execute data-compaction of a pending target
     erlang:send(Pid, {run, Id, IsDiagnose, IsRecovering}),
+    %% update pid_pairs
+    NewPidPairs = lists:keystore(Pid, 1, PidPairs, {Pid, Id}),
     %% Set locked target ids
     LockedTargets_1 = lists:delete(FinishedId, LockedTargets),
     ObjStorageId = leo_misc:get_value(FinishedId, ServerPairs),
@@ -441,6 +444,7 @@ running(#event_info{event = ?EVENT_FINISH,
                  pending_targets = Rest,
                  ongoing_targets = [Id|lists:delete(FinishedId, InProgPids)],
                  locked_targets  = LockedTargets_1,
+                 pid_pairs = NewPidPairs,
                  reports = [Report|AccReports]
                 }};
 
@@ -452,6 +456,7 @@ running(#event_info{event = ?EVENT_FINISH,
                                                   ongoing_targets = [_,_|_],
                                                   locked_targets  = LockedTargets,
                                                   child_pids      = ChildPids,
+                                                  pid_pairs       = PidPairs,
                                                   reports         = AccReports} = State) ->
     %% Send stop message to client
     erlang:send(Pid, stop),
@@ -466,6 +471,7 @@ running(#event_info{event = ?EVENT_FINISH,
                  ongoing_targets = lists:delete(FinishedId, State#state.ongoing_targets),
                  locked_targets  = LockedTargets_1,
                  child_pids      = orddict:erase(Pid, ChildPids),
+                 pid_pairs = lists:keydelete(Pid, 1, PidPairs),
                  reports = [Report|AccReports]
                 }};
 
@@ -493,6 +499,7 @@ running(#event_info{event  = ?EVENT_FINISH,
                                         pending_targets  = PendingTargets,
                                         ongoing_targets  = [],
                                         child_pids       = [],
+                                        pid_pairs        = [],
                                         locked_targets   = [],
                                         reports          = AccReports_1
                                        }};
