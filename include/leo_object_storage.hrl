@@ -204,6 +204,15 @@
 %% Max Data Block Size to be larger than leo_gateway's large object settings
 -define(MAX_DATABLOCK_SIZE, 1024 * 1024 * 10).
 
+%% Constants to validate a chunk retrieved from AVS
+%% spec: https://github.com/leo-project/leofs/issues/527#issuecomment-262163109
+%% -define(MAX_KEY_SIZE, 2048). already defined at the above section
+-define(MAX_MSIZE, 4096).
+-define(MAX_CSIZE, ?MAX_DATABLOCK_SIZE).
+-define(MAX_OFFSET, 1024 * 1024 * 1024 * 1024 * 16).
+-define(MAX_CLOCK, 4633552912011362).
+
+
 %% @doc Generate an key for backend db
 -define(gen_backend_key(_VSN, _AddrId, _Key),
         begin
