@@ -497,7 +497,8 @@ check_metadata(Index) ->
     case leo_backend_db_api:get('leo_metadata_0', KeyBin) of
         {ok, _Bin} ->
             check_metadata(Index - 1);
-        _ ->
+        Error ->
+            ?debugVal(Error),
             {error, invalid_key}
     end.
 

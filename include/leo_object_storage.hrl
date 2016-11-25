@@ -650,6 +650,14 @@
           total_size_of_objs = 0  :: non_neg_integer()
          }).
 
+-record(compaction_skip_garbage, {
+          buf = <<>> :: binary(),
+          read_pos = 0 :: non_neg_integer(),
+          prefetch_size = 512 :: pos_integer(),
+          is_skipping = false :: boolean(),
+          is_close_eof = false :: boolean()
+         }).
+
 -record(compaction_worker_state, {
           id :: atom(),
           obj_storage_id :: atom(),
@@ -674,6 +682,7 @@
           num_of_steps = ?DEF_COMPACTION_NUM_OF_STEPS :: pos_integer(),
           %% compaction-info:
           compaction_prms = #compaction_prms{} :: #compaction_prms{},
+          compaction_skip_garbage = #compaction_skip_garbage{} :: #compaction_skip_garbage{},
           start_datetime = 0 :: non_neg_integer(),
           error_pos = 0 :: non_neg_integer(),
           set_errors :: otp_set(),
