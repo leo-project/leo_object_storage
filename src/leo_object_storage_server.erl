@@ -289,6 +289,7 @@ get_compaction_worker(Id) ->
     gen_server:call(Id, get_compaction_worker, ?DEF_TIMEOUT).
 
 %% @doc Get the EOF offset
+%%      especially useful for debug/test
 %%
 -spec(get_eof_offset(Id) ->
              {ok, Offset} when Id::atom(),

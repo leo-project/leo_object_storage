@@ -307,6 +307,7 @@ fetch(MetaDBId, Key, Fun, MaxKeys) ->
 
 
 %% @doc Get the EOF offset
+%%      especially useful for debug/test
 -spec(get_eof_offset(#backend_info{}) ->
              {ok, non_neg_integer()} | {error, any()}).
 get_eof_offset(#backend_info{write_handler = WriteHandler}) ->

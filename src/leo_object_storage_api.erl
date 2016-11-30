@@ -369,6 +369,7 @@ get_object_storage_pid_by_container_id(ContainerId) ->
     end.
 
 %% @doc Get the EOF offset
+%%      especially useful for debug/test
 %%
 -spec(get_eof_offset(binary()) ->
              {ok, non_neg_integer()} | {error, any()}).
