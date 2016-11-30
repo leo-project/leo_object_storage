@@ -911,8 +911,7 @@ execute_1(ok = Ret, #compaction_worker_state{meta_db_id       = MetaDBId,
                           is_skipping_garbage = true,
                           compaction_skip_garbage =
                               SkipInfo#compaction_skip_garbage{
-                                is_skipping = true,
-                                read_pos = NextOffset + 1
+                                is_skipping = true
                               },
                           compaction_prms =
                               CompactionPrms#compaction_prms{

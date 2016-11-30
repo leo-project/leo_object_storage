@@ -812,6 +812,11 @@ get_obj_for_new_cntnr(ReadHandler, Offset,
     end;
 get_obj_for_new_cntnr(ReadHandler, Offset,
                       #compaction_skip_garbage{is_skipping = true,
+                                               read_pos = 0} = SkipInfo) ->
+    get_obj_for_new_cntnr(ReadHandler, Offset,
+                          SkipInfo#compaction_skip_garbage{read_pos = Offset});
+get_obj_for_new_cntnr(ReadHandler, Offset,
+                      #compaction_skip_garbage{is_skipping = true,
                                                buf = Buf,
                                                read_pos = ReadPos,
                                                prefetch_size = PS} = SkipInfo) ->
