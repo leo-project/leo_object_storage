@@ -474,6 +474,8 @@ put_irregular_bin() ->
     ?debugVal(Len),
     Bin = crypto:rand_bytes(Len),
     _ = leo_object_storage_api:add_incorrect_data(Bin),
+    {ok, Offset} = leo_object_storage_api:get_eof_offset(Bin),
+    io:format(user, "[garbage] *** start:~p, end:~p~n", [Offset - byte_size(Bin), Offset]),
     ok.
 
 

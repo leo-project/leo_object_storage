@@ -45,7 +45,8 @@
          calc_obj_size/2,
          put_obj_to_new_cntnr/4,
          get_obj_for_new_cntnr/1,
-         get_obj_for_new_cntnr/3
+         get_obj_for_new_cntnr/3,
+         get_eof_offset/1
         ]).
 
 -ifdef(TEST).
@@ -305,6 +306,20 @@ fetch(MetaDBId, Key, Fun, MaxKeys) ->
     leo_backend_db_api:fetch(MetaDBId, Key, Fun, MaxKeys).
 
 
+%% @doc Get the EOF offset
+-spec(get_eof_offset(#backend_info{}) ->
+             {ok, non_neg_integer()} | {error, any()}).
+get_eof_offset(#backend_info{write_handler = WriteHandler}) ->
+    case file:position(WriteHandler, eof) of
+        {ok, Offset} ->
+            {ok, Offset};
+        {error, Cause} ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING},
+                                    {function, "get_eof_offset/1"},
+                                    {line, ?LINE}, {body, Cause}]),
+            {error, Cause}
+    end.
 %%--------------------------------------------------------------------
 %% for TEST
 %%--------------------------------------------------------------------

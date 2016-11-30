@@ -42,6 +42,7 @@
          fetch_by_key/2, fetch_by_key/3,
          store/2,
          stats/0,
+         get_eof_offset/1,
          du_and_compaction_stats/0
         ]).
 
@@ -366,6 +367,14 @@ get_object_storage_pid_by_container_id(ContainerId) ->
             [{leo_misc:get_value(obj_storage, Value),
               leo_misc:get_value(obj_storage_read, Value)}]
     end.
+
+%% @doc Get the EOF offset
+%%
+-spec(get_eof_offset(binary()) ->
+             {ok, non_neg_integer()} | {error, any()}).
+get_eof_offset(Bin) ->
+    [{Pid,_}|_] = get_object_storage_pid(Bin),
+    ?SERVER_MODULE:get_eof_offset(Pid).
 
 
 -ifdef(TEST).

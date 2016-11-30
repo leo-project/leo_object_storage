@@ -47,7 +47,8 @@
          lock/1, block_del/1, unlock/1,
          switch_container/4,
          append_compaction_history/2,
-         get_compaction_worker/1
+         get_compaction_worker/1,
+         get_eof_offset/1
         ]).
 
 %% gen_server callbacks
@@ -286,6 +287,14 @@ append_compaction_history(Id, History) ->
                                            CompactionWorkerId::atom()).
 get_compaction_worker(Id) ->
     gen_server:call(Id, get_compaction_worker, ?DEF_TIMEOUT).
+
+%% @doc Get the EOF offset
+%%
+-spec(get_eof_offset(Id) ->
+             {ok, Offset} when Id::atom(),
+                               Offset::non_neg_integer()).
+get_eof_offset(Id) ->
+    gen_server:call(Id, get_eof_offset, ?DEF_TIMEOUT).
 
 
 -ifdef(TEST).
@@ -613,6 +622,12 @@ handle_call({append_compaction_history, History}, _From,
 handle_call(get_compaction_worker, _From,
             #obj_server_state{compaction_worker_id = CompactionWorkerId} = State) ->
     {reply, {ok, CompactionWorkerId}, State};
+
+%% Get the EOF offset
+handle_call(get_eof_offset,
+            _From, #obj_server_state{object_storage = StorageInfo} = State) ->
+    Reply = leo_object_storage_haystack:get_eof_offset(StorageInfo),
+    {reply, Reply, State};
 
 %% Put incorrect data for the unit-test
 handle_call({add_incorrect_data,_Bin},
