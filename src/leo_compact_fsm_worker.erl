@@ -248,6 +248,7 @@ idling(#compaction_event_info{event = ?EVENT_RUN,
                               is_forced_run  = false,
                               callback = CallbackFun}, From,
        #compaction_worker_state{id = Id,
+                                compaction_skip_garbage = SkipInfo,
                                 compaction_prms = CompactionPrms} = State) ->
     NextStatus = ?ST_RUNNING,
     State_1 = State#compaction_worker_state{
@@ -255,6 +256,7 @@ idling(#compaction_event_info{event = ?EVENT_RUN,
                 status        = NextStatus,
                 is_diagnosing = IsDiagnosing,
                 is_recovering = IsRecovering,
+                is_skipping_garbage = false,
                 error_pos     = 0,
                 set_errors    = sets:new(),
                 acc_errors    = [],
@@ -262,6 +264,13 @@ idling(#compaction_event_info{event = ?EVENT_RUN,
                 max_interval  = ?env_compaction_interval_max(),
                 num_of_batch_procs     = ?env_compaction_num_of_batch_procs_reg(),
                 max_num_of_batch_procs = ?env_compaction_num_of_batch_procs_max(),
+                compaction_skip_garbage =
+                    SkipInfo#compaction_skip_garbage{
+                      buf = <<>>,
+                      read_pos = 0,
+                      is_skipping = false,
+                      is_close_eof = false
+                     },
                 compaction_prms =
                     CompactionPrms#compaction_prms{
                       num_of_active_objs  = 0,
@@ -329,6 +338,7 @@ running(#compaction_event_info{event = ?EVENT_RUN,
                                  interval  = Interval,
                                  count_procs = CountProcs,
                                  num_of_batch_procs = BatchProcs,
+                                 is_skipping_garbage = IsSkipping,
                                  compaction_prms =
                                      #compaction_prms{
                                         start_lock_offset = StartLockOffset}} = State) ->
@@ -343,6 +353,9 @@ running(#compaction_event_info{event = ?EVENT_RUN,
                                         end,
                            timer:sleep(Interval_1),
                            BatchProcs;
+                       false when IsSkipping == true ->
+                           %% keep count_procs during skipping a garbage
+                           CountProcs;
                        false ->
                            CountProcs - 1
                    end,
@@ -669,16 +682,23 @@ prepare_1(LinkedPath, FilePath,
 execute(#compaction_worker_state{meta_db_id       = MetaDBId,
                                  diagnosis_log_id = LoggerId,
                                  obj_storage_info = StorageInfo,
+                                 is_skipping_garbage = IsSkipping,
                                  is_diagnosing    = IsDiagnosing,
                                  is_recovering    = IsRecovering,
                                  compaction_prms  = CompactionPrms} = State) ->
-    %% Initialize set-error property
-    State_1 = State#compaction_worker_state{set_errors = sets:new()},
+    State_1 = case IsSkipping of
+        true ->
+            %% keep set_errors during skipping a garbage
+            State;
+        false ->
+            %% Initialize set-error property
+            State#compaction_worker_state{set_errors = sets:new()}
+    end,
     Offset   = CompactionPrms#compaction_prms.next_offset,
     Metadata = CompactionPrms#compaction_prms.metadata,
 
     %% Execute compaction
-    case (Offset == ?AVS_SUPER_BLOCK_LEN) of
+    case (Offset == ?AVS_SUPER_BLOCK_LEN orelse IsSkipping) of
         true ->
             execute_1(State_1);
         false ->
@@ -773,13 +793,13 @@ execute_1(Ret, State) ->
 execute_1(ok = Ret, #compaction_worker_state{meta_db_id       = MetaDBId,
                                              obj_storage_info = StorageInfo,
                                              compaction_prms  = CompactionPrms,
+                                             compaction_skip_garbage = SkipInfo,
                                              is_recovering    = IsRecovering} = State, RetryTimes) ->
-    erlang:garbage_collect(self()),
     ReadHandler = StorageInfo#backend_info.read_handler,
     NextOffset  = CompactionPrms#compaction_prms.next_offset,
 
     case leo_object_storage_haystack:get_obj_for_new_cntnr(
-           ReadHandler, NextOffset) of
+           ReadHandler, NextOffset, SkipInfo) of
         {ok, NewMetadata, [_HeaderValue, NewKeyValue,
                            NewBodyValue, NewNextOffset]} ->
             %% If is-recovering is true, put a metadata to the backend-db
@@ -809,6 +829,14 @@ execute_1(ok = Ret, #compaction_worker_state{meta_db_id       = MetaDBId,
             {ok, {next, State_1#compaction_worker_state{
                           error_pos  = 0,
                           set_errors = sets:new(),
+                          is_skipping_garbage = false,
+                          compaction_skip_garbage =
+                              SkipInfo#compaction_skip_garbage{
+                                is_skipping = false,
+                                is_close_eof = false,
+                                read_pos = 0,
+                                buf = <<>>
+                              },
                           compaction_prms =
                               CompactionPrms#compaction_prms{
                                 key_bin     = NewKeyValue,
@@ -825,6 +853,14 @@ execute_1(ok = Ret, #compaction_worker_state{meta_db_id       = MetaDBId,
             {ok, {Cause, State_1#compaction_worker_state{
                            error_pos  = 0,
                            set_errors = sets:new(),
+                           is_skipping_garbage = false,
+                           compaction_skip_garbage =
+                              SkipInfo#compaction_skip_garbage{
+                                is_skipping = false,
+                                is_close_eof = false,
+                                read_pos = 0,
+                                buf = <<>>
+                              },
                            compaction_prms =
                                CompactionPrms#compaction_prms{
                                  num_of_active_objs  = NumOfAcriveObjs,
@@ -848,6 +884,17 @@ execute_1(ok = Ret, #compaction_worker_state{meta_db_id       = MetaDBId,
         %% It found this object is broken,
         %% then it seeks a regular object,
         %% finally it reports a collapsed object to the error-log
+        {skip, NewSkipInfo, Cause} ->
+            SetErrors = sets:add_element(Cause,
+                                         State#compaction_worker_state.set_errors),
+            {ok, {next, State#compaction_worker_state{
+                          set_errors = SetErrors,
+                          is_skipping_garbage = true,
+                          compaction_skip_garbage = NewSkipInfo,
+                          compaction_prms =
+                              CompactionPrms#compaction_prms{
+                                next_offset = NextOffset + 1}
+                         }}};
         {_, Cause} ->
             ErrorPosCur = State#compaction_worker_state.error_pos,
             ErrorPosNew = case (State#compaction_worker_state.error_pos == 0) of
@@ -858,13 +905,18 @@ execute_1(ok = Ret, #compaction_worker_state{meta_db_id       = MetaDBId,
                           end,
             SetErrors = sets:add_element(Cause,
                                          State#compaction_worker_state.set_errors),
-            execute_1(ok,
-                      State#compaction_worker_state{
-                        error_pos  = ErrorPosNew,
-                        set_errors = SetErrors,
-                        compaction_prms =
-                            CompactionPrms#compaction_prms{
-                              next_offset = NextOffset + 1}})
+            {ok, {next, State#compaction_worker_state{
+                          error_pos  = ErrorPosNew,
+                          set_errors = SetErrors,
+                          is_skipping_garbage = true,
+                          compaction_skip_garbage =
+                              SkipInfo#compaction_skip_garbage{
+                                is_skipping = true
+                              },
+                          compaction_prms =
+                              CompactionPrms#compaction_prms{
+                                next_offset = NextOffset + 1}
+                         }}}
     end;
 execute_1(Error, State,_) ->
     {Error, State}.

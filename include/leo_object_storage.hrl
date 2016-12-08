@@ -204,6 +204,15 @@
 %% Max Data Block Size to be larger than leo_gateway's large object settings
 -define(MAX_DATABLOCK_SIZE, 1024 * 1024 * 10).
 
+%% Constants to validate a chunk retrieved from AVS
+%% spec: https://github.com/leo-project/leofs/issues/527#issuecomment-262163109
+%% -define(MAX_KEY_SIZE, 2048). already defined at the above section
+-define(MAX_MSIZE, 4096).
+-define(MAX_CSIZE, ?MAX_DATABLOCK_SIZE).
+-define(MAX_OFFSET, 1024 * 1024 * 1024 * 1024 * 16).
+-define(MAX_CLOCK, 4633552912011362).
+
+
 %% @doc Generate an key for backend db
 -define(gen_backend_key(_VSN, _AddrId, _Key),
         begin
@@ -641,6 +650,14 @@
           total_size_of_objs = 0  :: non_neg_integer()
          }).
 
+-record(compaction_skip_garbage, {
+          buf = <<>> :: binary(),
+          read_pos = 0 :: non_neg_integer(),
+          prefetch_size = 512 :: pos_integer(),
+          is_skipping = false :: boolean(),
+          is_close_eof = false :: boolean()
+         }).
+
 -record(compaction_worker_state, {
           id :: atom(),
           obj_storage_id :: atom(),
@@ -654,6 +671,7 @@
           is_diagnosing = false :: boolean(),
           is_recovering = false :: boolean(),
           is_forced_suspending = false :: boolean(),
+          is_skipping_garbage = false :: boolean(),
           %% interval_between_batch_procs:
           interval = 0 :: non_neg_integer(),
           max_interval = 0 :: non_neg_integer(),
@@ -664,6 +682,7 @@
           num_of_steps = ?DEF_COMPACTION_NUM_OF_STEPS :: pos_integer(),
           %% compaction-info:
           compaction_prms = #compaction_prms{} :: #compaction_prms{},
+          compaction_skip_garbage = #compaction_skip_garbage{} :: #compaction_skip_garbage{},
           start_datetime = 0 :: non_neg_integer(),
           error_pos = 0 :: non_neg_integer(),
           set_errors :: otp_set(),
@@ -678,3 +697,8 @@
             _StepInterval = leo_math:ceiling(_RegInterval / _NumOfSteps),
             {ok, {_StepBatchOfProcs,_StepInterval}}
         end).
+
+
+%% @doc Retrieve the begining of statistics_wallclock
+-define(begin_statistics_wallclock(),
+        erlang:element(1, erlang:statistics(wall_clock))).

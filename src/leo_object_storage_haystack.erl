@@ -45,7 +45,8 @@
          calc_obj_size/2,
          put_obj_to_new_cntnr/4,
          get_obj_for_new_cntnr/1,
-         get_obj_for_new_cntnr/2
+         get_obj_for_new_cntnr/3,
+         get_eof_offset/1
         ]).
 
 -ifdef(TEST).
@@ -305,6 +306,21 @@ fetch(MetaDBId, Key, Fun, MaxKeys) ->
     leo_backend_db_api:fetch(MetaDBId, Key, Fun, MaxKeys).
 
 
+%% @doc Get the EOF offset
+%%      especially useful for debug/test
+-spec(get_eof_offset(#backend_info{}) ->
+             {ok, non_neg_integer()} | {error, any()}).
+get_eof_offset(#backend_info{write_handler = WriteHandler}) ->
+    case file:position(WriteHandler, eof) of
+        {ok, Offset} ->
+            {ok, Offset};
+        {error, Cause} ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING},
+                                    {function, "get_eof_offset/1"},
+                                    {line, ?LINE}, {body, Cause}]),
+            {error, Cause}
+    end.
 %%--------------------------------------------------------------------
 %% for TEST
 %%--------------------------------------------------------------------
@@ -745,11 +761,15 @@ put_obj_to_new_cntnr(WriteHandler, Metadata, KeyBin, BodyBin) ->
 -spec(get_obj_for_new_cntnr(pid()) ->
              ok | {error, any()}).
 get_obj_for_new_cntnr(ReadHandler) ->
-    get_obj_for_new_cntnr(ReadHandler, byte_size(?AVS_SUPER_BLOCK)).
+    get_obj_for_new_cntnr(ReadHandler, byte_size(?AVS_SUPER_BLOCK), #compaction_skip_garbage{}).
 
--spec(get_obj_for_new_cntnr(pid(), integer()) ->
+-spec(get_obj_for_new_cntnr(pid(), integer(), #compaction_skip_garbage{}) ->
              ok | {error, any()}).
-get_obj_for_new_cntnr(ReadHandler, Offset) ->
+get_obj_for_new_cntnr(ReadHandler, Offset, #compaction_skip_garbage{
+                                              is_skipping = IsSkipping,
+                                              is_close_eof = IsCloseEOF} = _SkipInfo)
+                                            when IsSkipping == false orelse
+                                                 IsCloseEOF == true ->
     HeaderSize = erlang:round(?BLEN_HEADER/8),
 
     case leo_file:pread(ReadHandler, Offset, HeaderSize) of
@@ -767,9 +787,58 @@ get_obj_for_new_cntnr(ReadHandler, Offset) ->
                        {line, ?LINE}, [{offset, Offset},
                                        {header_size, HeaderSize},
                                        {body, Cause}]]),
-                    {error, {abort, Cause}};
+                    %% no more records - https://github.com/leo-project/leofs/issues/523
+                    %% enable the caller to handle the return value as EOF
+                    {error, eof};
                 _ ->
                     {error, Cause}
+            end
+    end;
+%% @doc Used while skipping a garbage block to reduce # of file:pread(s)
+%%
+get_obj_for_new_cntnr(ReadHandler, Offset,
+                      #compaction_skip_garbage{is_skipping = true,
+                                               buf = Buf} = SkipInfo)
+                      when byte_size(Buf) >= erlang:round(?BLEN_HEADER/8) ->
+    HeaderSize = erlang:round(?BLEN_HEADER/8),
+    <<HeaderBin:HeaderSize/binary, _/binary>> = Buf,
+    case get_obj_for_new_cntnr(ReadHandler, Offset, HeaderSize, HeaderBin) of
+        {ok, Meta, [H, K, B, T]} ->
+            %% back to the normal exec path
+            {ok, Meta, [H, K, B, T]};
+        {error, Cause} ->
+            %% keep skipiping
+            <<_Skip:8, Remain/binary>> = Buf,
+            {skip, SkipInfo#compaction_skip_garbage{buf = Remain}, Cause}
+    end;
+get_obj_for_new_cntnr(ReadHandler, Offset,
+                      #compaction_skip_garbage{is_skipping = true,
+                                               read_pos = 0} = SkipInfo) ->
+    get_obj_for_new_cntnr(ReadHandler, Offset,
+                          SkipInfo#compaction_skip_garbage{read_pos = Offset});
+get_obj_for_new_cntnr(ReadHandler, Offset,
+                      #compaction_skip_garbage{is_skipping = true,
+                                               buf = Buf,
+                                               read_pos = ReadPos,
+                                               prefetch_size = PS} = SkipInfo) ->
+    ReadLen = PS - byte_size(Buf),
+    case leo_file:pread(ReadHandler, ReadPos, ReadLen) of
+        {ok, ReadBin} ->
+            get_obj_for_new_cntnr(ReadHandler, Offset, SkipInfo#compaction_skip_garbage{
+                                                         read_pos = ReadPos + ReadLen,
+                                                         buf = <<Buf/binary, ReadBin/binary>>});
+        eof = Cause ->
+            {error, Cause};
+        {error, Cause} ->
+            case Cause  of
+                unexpected_len ->
+                    %% close EOF
+                    %% get the exec path back to the normal
+                    get_obj_for_new_cntnr(ReadHandler, Offset, SkipInfo#compaction_skip_garbage{
+                                                                         is_close_eof = true
+                                                                       });
+                _ ->
+                    {skip, SkipInfo, Cause}
             end
     end.
 
@@ -828,7 +897,7 @@ get_obj_for_new_cntnr(#?METADATA{ksize = KSize,
                                    {line, ?LINE}, [{offset, Offset + HeaderSize},
                                                    {length, RemainSize},
                                                    {body, Cause}]]),
-                                {error, {abort, Cause}};
+                                {error, unexpected_len};
                             _ ->
                                 {error, Cause}
                         end

@@ -312,6 +312,17 @@ transform_metadata(#?METADATA{} = Metadata) ->
 transform_metadata(_) ->
     {error, invaid_record}.
 
+%% @private
+%% check the header
+%% according to https://github.com/leo-project/leofs/issues/527#issuecomment-262163109
+is_invalid_header(Meta) when Meta#?METADATA.ksize > ?MAX_KEY_SIZE;
+                             Meta#?METADATA.msize > ?MAX_MSIZE;
+                             Meta#?METADATA.csize > ?MAX_DATABLOCK_SIZE;
+                             Meta#?METADATA.offset > ?MAX_OFFSET;
+                             Meta#?METADATA.clock > ?MAX_CLOCK ->
+    true;
+is_invalid_header(_) ->
+    false.
 
 %% @doc Transport a header-bin to a metadata
 -spec(header_bin_to_metadata(HeaderBin) ->
@@ -348,7 +359,7 @@ header_bin_to_metadata(Bin) ->
                     end,
         case (Timestamp /= 0) of
             true ->
-                #?METADATA{addr_id   = AddrId,
+                Meta = #?METADATA{addr_id   = AddrId,
                            ksize     = KSize,
                            msize     = MSize,
                            dsize     = DSize,
@@ -359,7 +370,13 @@ header_bin_to_metadata(Bin) ->
                            clock     = Clock,
                            checksum  = Checksum,
                            timestamp = Timestamp,
-                           del       = Del};
+                           del       = Del},
+                case is_invalid_header(Meta) of
+                    true ->
+                        {error, {invalid_format, over_limit}};
+                    false ->
+                        Meta
+                end;
             false ->
                 {error, {invalid_format, unexpected_time_format}}
         end
