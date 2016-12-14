@@ -78,6 +78,8 @@
 -define(DEF_MAX_COMPACTION_BP, 10000). %% 10,000
 -endif.
 
+-define(DEF_COMPACTION_SKIP_PS, 512).
+
 
 -undef(ST_IDLING).
 -undef(ST_RUNNING).
@@ -532,6 +534,15 @@
                 ?DEF_REG_COMPACTION_BP
         end).
 
+-define(env_compaction_skip_prefetch_size(),
+        case application:get_env(?APP_NAME,
+                                 skip_prefetch_size) of
+            {ok, EnvPrefetchSize} when is_integer(EnvPrefetchSize) ->
+                EnvPrefetchSize;
+            _ ->
+                ?DEF_COMPACTION_SKIP_PS
+        end).
+
 -define(num_of_compaction_concurrency(_PrmNumOfConcurrency),
         begin
             _EnvNumOfConcurrency = ?env_limit_num_of_compaction_procs(),
@@ -653,7 +664,7 @@
 -record(compaction_skip_garbage, {
           buf = <<>> :: binary(),
           read_pos = 0 :: non_neg_integer(),
-          prefetch_size = 512 :: pos_integer(),
+          prefetch_size = ?DEF_COMPACTION_SKIP_PS :: pos_integer(),
           is_skipping = false :: boolean(),
           is_close_eof = false :: boolean()
          }).
