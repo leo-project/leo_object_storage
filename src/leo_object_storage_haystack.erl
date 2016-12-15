@@ -409,7 +409,7 @@ open_fun(FilePath, RetryTimes) ->
         false ->
             case file:open(FilePath, [raw, write,  binary, append]) of
                 {ok, FileHandler} ->
-                    file:close(FileHandler);
+                    {ok, FileHandler};
                 {error, _Cause} ->
                     open_fun(FilePath, RetryTimes+1)
             end;

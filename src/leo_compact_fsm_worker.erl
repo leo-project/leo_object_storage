@@ -268,6 +268,7 @@ idling(#compaction_event_info{event = ?EVENT_RUN,
                     SkipInfo#compaction_skip_garbage{
                       buf = <<>>,
                       read_pos = 0,
+                      prefetch_size = ?env_compaction_skip_prefetch_size(),
                       is_skipping = false,
                       is_close_eof = false
                      },
