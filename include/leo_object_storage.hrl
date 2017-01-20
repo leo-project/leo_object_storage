@@ -443,7 +443,7 @@
 -define(env_strict_check(), true).
 -else.
 -define(env_strict_check(),
-        case application:get_env(?APP_NAME, strict_check) of
+        case application:get_env(?APP_NAME, is_strict_check) of
             {ok, EnvStrictCheck} ->
                 EnvStrictCheck;
             _ ->
