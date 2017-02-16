@@ -360,10 +360,9 @@ idling(_, From, State) ->
 
 %% @doc State of 'idle'
 %%
--spec(idling(EventInfo, State) ->
-             {next_state, string(), State}
-                 when EventInfo::#event_info{}|any(),
-                      State::#state{}).
+-spec(idling(_EventInfo, State) ->
+             {next_state, ?ST_IDLING, State}
+                 when State::#state{}).
 idling(_, State) ->
     NextState = ?ST_IDLING,
     {next_state, NextState, State#state{status = NextState}}.

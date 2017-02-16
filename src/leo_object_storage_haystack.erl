@@ -193,8 +193,8 @@ get(MetaDBId, StorageInfo, Key) ->
              {error, any()} when MetaDBId::atom(),
                                  StorageInfo::#backend_info{},
                                  Key::binary(),
-                                 StartPos::non_neg_integer(),
-                                 EndPos::non_neg_integer(),
+                                 StartPos::integer(),
+                                 EndPos::integer(),
                                  IsStrictCheck::boolean()).
 get(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck) ->
     get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck).
@@ -759,12 +759,16 @@ put_obj_to_new_cntnr(WriteHandler, Metadata, KeyBin, BodyBin) ->
 %% @doc Retrieve a file from object-container when compacting.
 %%
 -spec(get_obj_for_new_cntnr(pid()) ->
-             ok | {error, any()}).
+             {ok, #?METADATA{}, [any()]} |
+             {skip, #compaction_skip_garbage{}, any()} |
+             {error, any()}).
 get_obj_for_new_cntnr(ReadHandler) ->
     get_obj_for_new_cntnr(ReadHandler, byte_size(?AVS_SUPER_BLOCK), #compaction_skip_garbage{}).
 
 -spec(get_obj_for_new_cntnr(pid(), integer(), #compaction_skip_garbage{}) ->
-             ok | {error, any()}).
+             {ok, #?METADATA{}, [any()]} |
+             {skip, #compaction_skip_garbage{}, any()} |
+             {error, any()}).
 get_obj_for_new_cntnr(ReadHandler, Offset, #compaction_skip_garbage{
                                               is_skipping = IsSkipping,
                                               is_close_eof = IsCloseEOF} = _SkipInfo)
@@ -844,7 +848,7 @@ get_obj_for_new_cntnr(ReadHandler, Offset,
 
 %% @private
 -spec(get_obj_for_new_cntnr(ReadHandler, Offset, HeaderSize, HeaderBin) ->
-             {ok, Metadata, [binary()]} | {error, any()}
+             {ok, Metadata, [any()]} | {error, any()}
                  when ReadHandler::pid(),
                       Offset::integer(),
                       HeaderSize::integer(),

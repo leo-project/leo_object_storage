@@ -436,7 +436,7 @@ add_container_2(ChildIndex, Mod, BaseId,
 
 %% @doc Generate Id for obj-storage or metadata
 %%
--spec(gen_id(obj_storage | metadata | diagnosis_logger | compact_worker, integer()) ->
+-spec(gen_id(obj_storage | obj_storage_read | metadata | diagnosis_logger | compact_worker, integer()) ->
              atom()).
 gen_id(obj_storage, Id) ->
     list_to_atom(lists:append([atom_to_list(?APP_NAME),

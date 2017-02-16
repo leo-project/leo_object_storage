@@ -2,7 +2,7 @@
 
 REBAR := ./rebar
 APPS = erts kernel stdlib sasl crypto compiler inets mnesia public_key runtime_tools snmp syntax_tools tools xmerl webtool ssl
-LIBS = deps/leo_commons/ebin deps/leo_backend_db/ebin deps/eleveldb/ebin
+LIBS = deps/leo_commons/ebin deps/leo_backend_db/ebin deps/eleveldb/ebin deps/leo_logger/ebin
 PLT_FILE = .leo_object_storage_dialyzer_plt
 COMMON_PLT_FILE = .common_dialyzer_plt
 DOT_FILE = leo_object_storage.dot
