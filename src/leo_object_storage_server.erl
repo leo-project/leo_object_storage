@@ -363,6 +363,12 @@ init([ObjServerState]) ->
                         _ ->
                             void
                     end,
+                    case ObjServerState#obj_server_state.sync_mode of
+                        ?SYNC_MODE_PERIODIC when Privilege == ?OBJ_PRV_READ_WRITE ->
+                            erlang:send_after(ObjServerState#obj_server_state.sync_interval_in_ms, self(), datasync);
+                        _ ->
+                            nop
+                    end,
                     {ok, ObjServerState#obj_server_state{
                            object_storage = StorageInfo,
                            storage_stats = StorageStats,
@@ -649,6 +655,15 @@ handle_cast(_Msg, State) ->
 %% <p>
 %% gen_server callback - Module:handle_info(Info, State) -> Result.
 %% </p>
+handle_info(datasync, #obj_server_state{object_storage = StorageInfo,
+                                        sync_interval_in_ms = SyncInterval
+                                       } = State) ->
+    #backend_info{
+        write_handler = WriteHandler
+    } = StorageInfo,
+    leo_object_storage_haystack:datasync(WriteHandler),
+    erlang:send_after(SyncInterval, self(), datasync),
+    {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -739,6 +754,7 @@ after_proc(Ret, State) ->
 %% @doc Put an object
 %% @private
 put_1(Key, Object, #obj_server_state{meta_db_id     = MetaDBId,
+                                     sync_mode      = SyncMode,
                                      object_storage = StorageInfo,
                                      storage_stats  = StorageStats} = State) ->
     {Ret, DiffRec, OldSize} =
@@ -762,6 +778,15 @@ put_1(Key, Object, #obj_server_state{meta_db_id     = MetaDBId,
         ok ->
             NewSize = leo_object_storage_haystack:calc_obj_size(Object),
             Reply   = leo_object_storage_haystack:put(MetaDBId, StorageInfo, Object),
+            case Reply of
+                {ok, _} when SyncMode =:= ?SYNC_MODE_WRITETHROUGH ->
+                    #backend_info{
+                        write_handler = WriteHandler
+                    } = StorageInfo,
+                    leo_object_storage_haystack:datasync(WriteHandler);
+                _ ->
+                    nop
+            end,
             State_1 = after_proc(Reply, State),
             {Reply, State_1#obj_server_state{
                       storage_stats = StorageStats#storage_stats{
@@ -777,6 +802,7 @@ put_1(Key, Object, #obj_server_state{meta_db_id     = MetaDBId,
 %% @doc Remove an object
 %% @private
 delete_1(Key, Object, #obj_server_state{meta_db_id     = MetaDBId,
+                                        sync_mode      = SyncMode,
                                         object_storage = StorageInfo,
                                         storage_stats  = StorageStats} = State) ->
     {Reply, DiffRec, OldSize, State_1} =
@@ -792,6 +818,15 @@ delete_1(Key, Object, #obj_server_state{meta_db_id     = MetaDBId,
                         case leo_object_storage_haystack:delete(
                                MetaDBId, StorageInfo, Object) of
                             ok ->
+                                case SyncMode of
+                                    ?SYNC_MODE_WRITETHROUGH ->
+                                        #backend_info{
+                                            write_handler = WriteHandler
+                                        } = StorageInfo,
+                                        leo_object_storage_haystack:datasync(WriteHandler);
+                                    _ ->
+                                        nop
+                                end,
                                 {ok, 1, leo_object_storage_haystack:calc_obj_size(Meta), State};
                             {error, Cause} ->
                                 NewState = after_proc({error, Cause}, State),

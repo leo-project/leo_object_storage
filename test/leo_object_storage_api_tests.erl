@@ -679,6 +679,8 @@ new_([Path1, _]) ->
 
 %% Get/Put/Delte
 operate_([Path1, Path2]) ->
+    application:set_env(leo_object_storage, sync_mode, ?SYNC_MODE_PERIODIC, [{persistent, true}]),
+    application:set_env(leo_object_storage, sync_interval_in_ms, 300, [{persistent, true}]),
     ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
 
     %% 1. Put
@@ -842,6 +844,7 @@ operate_([Path1, Path2]) ->
     ok.
 
 fetch_by_addr_id_([Path1, Path2]) ->
+    application:set_env(leo_object_storage, sync_mode, ?SYNC_MODE_WRITETHROUGH, [{persistent, true}]),
     ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
 
     try
@@ -879,6 +882,7 @@ fetch_by_addr_id_([Path1, Path2]) ->
     ok.
 
 fetch_by_key_([Path1, Path2]) ->
+    application:set_env(leo_object_storage, sync_mode, ?SYNC_MODE_WRITETHROUGH, [{persistent, true}]),
     ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
     try
         ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0">>),

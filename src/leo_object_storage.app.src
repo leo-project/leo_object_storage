@@ -34,6 +34,8 @@
          {regular_compaction_waiting_time, 10},
          {regular_batch_procs, 100000},
          {is_enable_diagnosis_log, true},
+         {sync_mode, none},
+         {sync_interval_in_ms, 1000},
          {is_strict_check,  false}
         ]}
  ]

@@ -35,7 +35,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([open/1, open/2, close/2,
-         put/3, get/3, get/6, delete/3,
+         put/3, get/3, get/6, delete/3, datasync/1,
          head/2, head/3,
          fetch/4]).
 
@@ -165,6 +165,21 @@ close(WriteHandler, ReadHandler) ->
     end,
     ok.
 
+%% @doc datasync the given file handle.
+%%
+-spec(datasync(WriteHandler) ->
+             ok | {error, any()} when WriteHandler::port()|any()).
+datasync(WriteHandler) ->
+    case file:datasync(WriteHandler) of
+        ok ->
+            ok;
+        {error, Cause} ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING},
+                                    {function, "datasync/1"},
+                                    {line, ?LINE}, {body, Cause}]),
+            {error, Cause}
+    end.
 
 %% @doc Insert an object and a metadata into the object-storage
 %%
