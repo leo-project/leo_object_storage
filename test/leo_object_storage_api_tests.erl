@@ -681,6 +681,7 @@ new_([Path1, _]) ->
 operate_([Path1, Path2]) ->
     application:set_env(leo_object_storage, sync_mode, ?SYNC_MODE_PERIODIC, [{persistent, true}]),
     application:set_env(leo_object_storage, sync_interval_in_ms, 300, [{persistent, true}]),
+    application:set_env(leo_object_storage, is_strict_check, true, [{persistent, true}]),
     ok = leo_object_storage_api:start([{4, Path1},{4, Path2}]),
 
     %% 1. Put
@@ -837,6 +838,11 @@ operate_([Path1, Path2]) ->
     ?assertEqual(NumOfReplicas, leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CMeta_1)),
     ?assertEqual(Ver, leo_misc:get_value(?PROP_CMETA_VER, CMeta_1)),
     ?assertEqual(UDM, leo_misc:get_value(?PROP_CMETA_UDM, CMeta_1)),
+
+    %% Get AVS broken
+    {ok, Offset} = leo_object_storage_api:get_eof_offset(term_to_binary({AddrId, Key})),
+    ok = leo_object_storage_api:modify_data({AddrId, Key}, <<"deadbeaf">>, Offset - 8),
+    {error, invalid_object} = leo_object_storage_api:get({AddrId, Key}),
 
     application:stop(leo_backend_db),
     application:stop(bitcask),

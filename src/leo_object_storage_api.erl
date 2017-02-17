@@ -59,7 +59,7 @@
         ]).
 
 -ifdef(TEST).
--export([add_incorrect_data/1]).
+-export([add_incorrect_data/1, modify_data/3]).
 -endif.
 
 -define(SERVER_MODULE, 'leo_object_storage_server').
@@ -386,6 +386,14 @@ get_eof_offset(Bin) ->
 add_incorrect_data(Bin) ->
     [{Pid,_}|_] = get_object_storage_pid(Bin),
     ?SERVER_MODULE:add_incorrect_data(Pid, Bin).
+%% @doc Modify data on debug purpose
+%%
+-spec(modify_data(addrid_and_key(), binary(), non_neg_integer()) ->
+             ok | {error, any()}).
+modify_data(AddrIdAndKey, Bin, Offset) ->
+    KeyBin = term_to_binary(AddrIdAndKey),
+    [{Pid,_}|_] = get_object_storage_pid(KeyBin),
+    ?SERVER_MODULE:modify_data(Pid, Bin, Offset).
 -endif.
 
 

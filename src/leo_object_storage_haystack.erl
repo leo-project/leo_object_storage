@@ -50,7 +50,7 @@
         ]).
 
 -ifdef(TEST).
--export([add_incorrect_data/2]).
+-export([add_incorrect_data/2, modify_data/3]).
 -endif.
 
 -define(ERR_TYPE_TIMEOUT, timeout).
@@ -369,8 +369,19 @@ add_incorrect_data(WriteHandler, Offset, Data) ->
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
+%% @doc Modify data
+%%
+-spec(modify_data(#backend_info{}, binary(), non_neg_integer()) ->
+             ok | {error, any()}).
+modify_data(StorageInfo, Bin, Offset) ->
+    #backend_info{file_path = FilePath} = StorageInfo,
+    {ok, FH} = file:open(FilePath, [raw, write,  binary]),
+    try
+        ok = file:pwrite(FH, Offset, Bin)
+    after
+        file:close(FH)
+    end.
 -endif.
-
 
 %%--------------------------------------------------------------------
 %% INNER FUNCTIONS

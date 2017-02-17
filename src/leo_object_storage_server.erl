@@ -62,7 +62,7 @@
 -compile(nowarn_deprecated_type).
 
 -ifdef(TEST).
--export([add_incorrect_data/2]).
+-export([add_incorrect_data/2, modify_data/3]).
 -endif.
 
 -define(DEF_TIMEOUT, timer:seconds(30)).
@@ -70,8 +70,11 @@
 -ifdef(TEST).
 -define(add_incorrect_data(_StorageInfo,_Bin),
         leo_object_storage_haystack:add_incorrect_data(_StorageInfo,_Bin)).
+-define(modify_data(_StorageInfo,_Bin,_Offset),
+        leo_object_storage_haystack:modify_data(_StorageInfo,_Bin,_Offset)).
 -else.
 -define(add_incorrect_data(_StorageInfo,_Bin), ok).
+-define(modify_data(_StorageInfo,_Bin,_Offset), ok).
 -endif.
 
 
@@ -305,6 +308,13 @@ get_eof_offset(Id) ->
              ok | {error, any()}).
 add_incorrect_data(Id, Bin) ->
     gen_server:call(Id, {add_incorrect_data, Bin}, ?DEF_TIMEOUT).
+
+%% @doc Modify AVS with the given data at the given offset.
+%%
+-spec(modify_data(atom(), binary(), non_neg_integer()) ->
+             ok | {error, any()}).
+modify_data(Id, Bin, Offset) ->
+    gen_server:call(Id, {modify_data, Bin, Offset}, ?DEF_TIMEOUT).
 -endif.
 
 
@@ -640,8 +650,13 @@ handle_call(get_eof_offset,
 handle_call({add_incorrect_data,_Bin},
             _From, #obj_server_state{object_storage =_StorageInfo} = State) ->
     ?add_incorrect_data(_StorageInfo,_Bin),
-    {reply, ok, State}.
+    {reply, ok, State};
 
+%% Modify data
+handle_call({modify_data, _Bin, _Offset},
+            _From, #obj_server_state{object_storage = _StorageInfo} = State) ->
+    ?modify_data(_StorageInfo, _Bin, _Offset),
+    {reply, ok, State}.
 
 %% @doc Handling cast message
 %% <p>
