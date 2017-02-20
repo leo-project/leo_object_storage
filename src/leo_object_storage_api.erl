@@ -59,7 +59,7 @@
         ]).
 
 -ifdef(TEST).
--export([add_incorrect_data/1]).
+-export([add_incorrect_data/1, modify_data/3]).
 -endif.
 
 -define(SERVER_MODULE, 'leo_object_storage_server').
@@ -151,8 +151,8 @@ get(AddrIdAndKey, IsForcedCheck) ->
              {ok, #?METADATA{}, #?OBJECT{}} |
              not_found |
              {error, any()} when AddrIdAndKey::addrid_and_key(),
-                                 StartPos::non_neg_integer(),
-                                 EndPos::non_neg_integer()).
+                                 StartPos::integer(),
+                                 EndPos::integer()).
 get(AddrIdAndKey, StartPos, EndPos) ->
     get(AddrIdAndKey, StartPos, EndPos, false).
 
@@ -160,8 +160,8 @@ get(AddrIdAndKey, StartPos, EndPos) ->
              {ok, #?METADATA{}, #?OBJECT{}} |
              not_found |
              {error, any()} when AddrIdAndKey::addrid_and_key(),
-                                 StartPos::non_neg_integer(),
-                                 EndPos::non_neg_integer(),
+                                 StartPos::integer(),
+                                 EndPos::integer(),
                                  IsForcedCheck::boolean()).
 get(AddrIdAndKey, StartPos, EndPos, IsForcedCheck) ->
     do_request(get, [AddrIdAndKey, StartPos, EndPos, IsForcedCheck]).
@@ -316,7 +316,7 @@ stats() ->
 %% @doc Retrieve the storage and compaction stats
 %%
 -spec(du_and_compaction_stats() ->
-             {ok, [#storage_stats{}]} | not_found).
+             {ok, [tuple()]} | not_found).
 du_and_compaction_stats() ->
     DUState = case stats() of
                   not_found ->
@@ -332,14 +332,14 @@ du_and_compaction_stats() ->
 
 %% @doc Retrieve the storage process-id
 -spec(get_object_storage_pid(Arg) ->
-             [atom()] when Arg::all | any()).
+             [tuple()] when Arg::all | any()).
 get_object_storage_pid(Arg) ->
     Ret = ets:tab2list(?ETS_CONTAINERS_TABLE),
     get_object_storage_pid(Ret, Arg).
 
 
 -spec(get_object_storage_pid(List, Arg) ->
-             [atom()] when List::[{_,_}],
+             [tuple()] when List::[{_,_}],
                            Arg::all | any()).
 get_object_storage_pid([],_) ->
     [];
@@ -357,7 +357,7 @@ get_object_storage_pid(List, Arg) ->
 
 %% @doc Retrieve object-storage-pid by container-id
 -spec(get_object_storage_pid_by_container_id(ContainerId) ->
-             Id when Id::atom(),
+             Id | not_found when Id::atom(),
                      ContainerId::non_neg_integer()).
 get_object_storage_pid_by_container_id(ContainerId) ->
     case ets:lookup(leo_object_storage_containers, ContainerId) of
@@ -386,6 +386,14 @@ get_eof_offset(Bin) ->
 add_incorrect_data(Bin) ->
     [{Pid,_}|_] = get_object_storage_pid(Bin),
     ?SERVER_MODULE:add_incorrect_data(Pid, Bin).
+%% @doc Modify data on debug purpose
+%%
+-spec(modify_data(addrid_and_key(), binary(), non_neg_integer()) ->
+             ok | {error, any()}).
+modify_data(AddrIdAndKey, Bin, Offset) ->
+    KeyBin = term_to_binary(AddrIdAndKey),
+    [{Pid,_}|_] = get_object_storage_pid(KeyBin),
+    ?SERVER_MODULE:modify_data(Pid, Bin, Offset).
 -endif.
 
 
@@ -407,7 +415,7 @@ compact_data(NumOfConcurrency) ->
 
 -spec(compact_data(NumOfConcurrency, CallbackFun) ->
              term() when NumOfConcurrency::integer(),
-                         CallbackFun::function()).
+                         CallbackFun::function()|undefined).
 compact_data(NumOfConcurrency, CallbackFun) ->
     NumOfConcurrency_1 =
         ?num_of_compaction_concurrency(NumOfConcurrency),
@@ -416,7 +424,7 @@ compact_data(NumOfConcurrency, CallbackFun) ->
 -spec(compact_data(TargetPids, NumOfConcurrency, CallbackFun) ->
              term() when TargetPids::[atom()],
                          NumOfConcurrency::integer(),
-                         CallbackFun::function()).
+                         CallbackFun::function()|undefined).
 compact_data(TargetPids, NumOfConcurrency, CallbackFun) ->
     NumOfConcurrency_1 =
         ?num_of_compaction_concurrency(NumOfConcurrency),

@@ -407,6 +407,13 @@
          }).
 
 
+-define(DEF_SYNC_INTERVAL, 1000).
+-define(SYNC_MODE_NONE, 'none').
+-define(SYNC_MODE_PERIODIC, 'periodic').
+-define(SYNC_MODE_WRITETHROUGH, 'writethrough').
+-type(sync_mode() :: ?SYNC_MODE_NONE |
+                     ?SYNC_MODE_PERIODIC |
+                     ?SYNC_MODE_WRITETHROUGH).
 -define(OBJ_PRV_READ_WRITE, 'read_and_write').
 -define(OBJ_PRV_READ_ONLY, 'read').
 -define(OBJ_PRV_WRITE_ONLY, 'write').
@@ -424,6 +431,8 @@
           object_storage = #backend_info{}  :: #backend_info{},
           storage_stats  = #storage_stats{} :: #storage_stats{},
           state_filepath :: string(),
+          sync_mode = ?SYNC_MODE_NONE :: sync_mode(),
+          sync_interval_in_ms = ?DEF_SYNC_INTERVAL :: pos_integer(),
           is_strict_check = false :: boolean(),
           is_locked = false :: boolean(),
           is_del_blocked = false  :: boolean(),
@@ -437,6 +446,22 @@
                 EnvMetadataDB;
             _ ->
                 ?DEF_METADATA_DB
+        end).
+
+-define(env_sync_mode(),
+        case application:get_env(?APP_NAME, sync_mode) of
+            {ok, SyncMode} ->
+                SyncMode;
+            _ ->
+                ?SYNC_MODE_NONE
+        end).
+
+-define(env_sync_interval(),
+        case application:get_env(?APP_NAME, sync_interval_in_ms) of
+            {ok, SyncInterval} ->
+                SyncInterval;
+            _ ->
+                ?DEF_SYNC_INTERVAL
         end).
 
 -ifdef(TEST).

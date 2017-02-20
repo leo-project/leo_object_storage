@@ -323,11 +323,7 @@ idling(_, State) ->
              {next_state, ?ST_RUNNING, State} when EventInfo::#compaction_event_info{},
                                                    State::#compaction_worker_state{}).
 running(#compaction_event_info{event = ?EVENT_RUN},
-        #compaction_worker_state{obj_storage_id = #backend_info{linked_path = []}} = State) ->
-    NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}};
-running(#compaction_event_info{event = ?EVENT_RUN},
-        #compaction_worker_state{obj_storage_id = #backend_info{file_path = []}} = State) ->
+        #compaction_worker_state{obj_storage_info = #backend_info{linked_path = []}} = State) ->
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}};
 running(#compaction_event_info{event = ?EVENT_RUN,

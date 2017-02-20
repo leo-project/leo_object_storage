@@ -173,6 +173,8 @@ start_child_3([{NumOfContainers, Path}|Rest], Index,
     Props  = [{num_of_containers, NumOfContainers},
               {path,              Path_1},
               {metadata_db,       MetadataDB},
+              {sync_mode,         ?env_sync_mode()},
+              {sync_interval_in_ms, ?env_sync_interval()},
               {is_strict_check,   IsStrictCheck}
              ],
     true = ets:insert(?ETS_INFO_TABLE,
@@ -358,6 +360,8 @@ add_container_1(leo_object_storage_server = Mod, BaseId,
                 ObjStorageId, MetaDBId, CompactWorkerId, LoggerId, Props) ->
     Path = leo_misc:get_value('path', Props),
     IsStrictCheck = leo_misc:get_value('is_strict_check', Props),
+    SyncMode = leo_misc:get_value('sync_mode', Props),
+    SyncInterval = leo_misc:get_value('sync_interval_in_ms', Props),
 
     %% For WRITE and DELETE
     ObjServerState = #obj_server_state{id = ObjStorageId,
@@ -367,6 +371,8 @@ add_container_1(leo_object_storage_server = Mod, BaseId,
                                        compaction_worker_id = CompactWorkerId,
                                        diagnosis_logger_id = LoggerId,
                                        root_path = Path,
+                                       sync_mode = SyncMode,
+                                       sync_interval_in_ms = SyncInterval,
                                        is_strict_check = IsStrictCheck},
     ChildSpec_1 = {ObjStorageId,
                    {Mod, start_link, [ObjServerState]},
@@ -436,7 +442,7 @@ add_container_2(ChildIndex, Mod, BaseId,
 
 %% @doc Generate Id for obj-storage or metadata
 %%
--spec(gen_id(obj_storage | metadata | diagnosis_logger | compact_worker, integer()) ->
+-spec(gen_id(obj_storage | obj_storage_read | metadata | diagnosis_logger | compact_worker, integer()) ->
              atom()).
 gen_id(obj_storage, Id) ->
     list_to_atom(lists:append([atom_to_list(?APP_NAME),
