@@ -556,7 +556,7 @@ handle_call(close, _From,
                               object_storage = #backend_info{write_handler = WriteHandler,
                                                              read_handler  = ReadHandler}} = State) ->
     ok = close_storage(Id, MetaDBId, StateFilePath,
-                       StorageStats, WriteHandler, ReadHandler),
+                       StorageStats, WriteHandler, ReadHandler, normal_shutdown),
     {reply, ok, State};
 
 %% Retrieve the backend info/configuration
@@ -695,7 +695,7 @@ terminate(_Reason, #obj_server_state{id = Id,
                           [{module, ?MODULE_STRING}, {function, "terminate/2"},
                            {line, ?LINE}, {body, Id}]),
     ok = close_storage(Id, MetaDBId, StateFilePath,
-                       StorageStats, WriteHandler, ReadHandler),
+                       StorageStats, WriteHandler, ReadHandler, _Reason),
     ok.
 
 %% @doc Convert process state when code is changed
@@ -905,7 +905,7 @@ get_raw_path(object, ObjectStorageRootDir, SymLinkPath) ->
 %% @doc Close a storage
 %% @private
 close_storage(Id, MetaDBId, StateFilePath,
-              StorageStats, WriteHandler, ReadHandler) when is_list(StateFilePath) ->
+              StorageStats, WriteHandler, ReadHandler, Reason) when is_list(StateFilePath) ->
     _ = filelib:ensure_dir(StateFilePath),
     _ = leo_file:file_unconsult(
           StateFilePath,
@@ -917,7 +917,13 @@ close_storage(Id, MetaDBId, StateFilePath,
            {compaction_hist, StorageStats#storage_stats.compaction_hist}
           ]),
     catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
-    catch leo_backend_db_server:close(MetaDBId),
+    case Reason of
+        normal_shutdown ->
+            % call leo_backend_db_server:close only when leo_storage stop
+            catch leo_backend_db_server:close(MetaDBId);
+        _ ->
+            nop
+    end,
     ok;
-close_storage(_,_,_,_,_,_) ->
+close_storage(_,_,_,_,_,_,_) ->
     ok.
