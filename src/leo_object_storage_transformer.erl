@@ -32,6 +32,7 @@
          metadata_to_object/2,
          object_to_metadata/1,
          transform_metadata/1,
+         transform_object/1,
          header_bin_to_metadata/1,
          cmeta_bin_into_metadata/2,
          get_udm_from_cmeta_bin/1,
@@ -328,8 +329,11 @@ object_to_metadata(_) ->
 
 %% @doc Transform old-type metadata to current-type
 -spec(transform_metadata(Metadata) ->
-             #metadata_1{} |
-             {error, invaid_record} when Metadata::#metadata{} | #metadata_1{}).
+             #metadata_3{} |
+             {error, invaid_record} when Metadata::#metadata{} |
+                                                   #metadata_1{} |
+                                                   #metadata_2{} |
+                                                   #metadata_3{}).
 transform_metadata(#metadata{key = Key,
                              addr_id = AddrId,
                              ksize = KSize,
@@ -433,6 +437,97 @@ transform_metadata(#?METADATA{} = Metadata) ->
     Metadata;
 transform_metadata(_) ->
     {error, invaid_record}.
+
+
+%% @doc Transform old-type object to current-type
+-spec(transform_object(Object) ->
+             #object_2{} |
+             {error, invaid_record} when Object::#object{} |
+                                                 #object_1{} |
+                                                 #object_2{}).
+transform_object(#object{method = Method,
+                         key = Key,
+                         addr_id = AddrId,
+                         data = Data,
+                         meta = CMeta,
+                         ksize = KSize,
+                         dsize = DSize,
+                         msize = MSize,
+                         csize = CSize,
+                         cnumber = CNum,
+                         cindex = CIdx,
+                         offset =  Offset,
+                         clock = Clock,
+                         timestamp = Timestamp,
+                         checksum = Checksum,
+                         ring_hash = RingHash,
+                         req_id = ReqId,
+                         del = Del}) ->
+    #?OBJECT{method = Method,
+             key = Key,
+             addr_id = AddrId,
+             data = Data,
+             meta = CMeta,
+             ksize = KSize,
+             dsize = DSize,
+             msize = MSize,
+             csize = CSize,
+             cnumber = CNum,
+             cindex = CIdx,
+             offset =  Offset,
+             clock = Clock,
+             timestamp = Timestamp,
+             checksum = Checksum,
+             ring_hash = RingHash,
+             req_id = ReqId,
+             del = Del};
+transform_object(#object_1{method = Method,
+                           key = Key,
+                           addr_id = AddrId,
+                           data = Data,
+                           meta = CMeta,
+                           ksize = KSize,
+                           dsize = DSize,
+                           msize = MSize,
+                           csize = CSize,
+                           cnumber = CNum,
+                           cindex = CIdx,
+                           offset = Offset,
+                           clock = Clock,
+                           timestamp = Timestamp,
+                           checksum = Checksum,
+                           ring_hash = RingHash,
+                           req_id= ReqId,
+                           cluster_id = ClusterId,
+                           num_of_replicas = MDCR_N,
+                           ver = Ver,
+                           del = Del}) ->
+    #?OBJECT{method = Method,
+             key = Key,
+             addr_id = AddrId,
+             data = Data,
+             meta = CMeta,
+             ksize = KSize,
+             dsize = DSize,
+             msize = MSize,
+             csize = CSize,
+             cnumber = CNum,
+             cindex = CIdx,
+             offset = Offset,
+             clock = Clock,
+             timestamp = Timestamp,
+             checksum = Checksum,
+             ring_hash = RingHash,
+             req_id= ReqId,
+             cluster_id = ClusterId,
+             num_of_replicas = MDCR_N,
+             ver = Ver,
+             del = Del};
+transform_object(#?OBJECT{} = Object) ->
+    Object;
+transform_object(_) ->
+    {error, invaid_record}.
+
 
 %% @private
 %% check the header
