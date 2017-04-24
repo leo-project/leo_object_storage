@@ -532,6 +532,9 @@ put_regular_bin_with_cmeta(Index, Counter) ->
 
     CMeta = [{?PROP_CMETA_CLUSTER_ID, 'leofs_1'},
              {?PROP_CMETA_NUM_OF_REPLICAS, 3},
+             {?PROP_CMETA_PREFERRED_R, 1},
+             {?PROP_CMETA_PREFERRED_W, 2},
+             {?PROP_CMETA_PREFERRED_D, 2},
              {?PROP_CMETA_VER, leo_date:clock()},
              {?PROP_CMETA_UDM, [{<<"name">>, <<"LeoFS">>},
                                 {<<"category">>, <<"distributed storage">>},
@@ -1049,6 +1052,9 @@ compact_2() ->
             ],
     CMeta_1 = [{?PROP_CMETA_CLUSTER_ID, 'leofs_1'},
                {?PROP_CMETA_NUM_OF_REPLICAS, 3},
+               {?PROP_CMETA_PREFERRED_R, 1},
+               {?PROP_CMETA_PREFERRED_W, 2},
+               {?PROP_CMETA_PREFERRED_D, 2},
                {?PROP_CMETA_VER, leo_date:clock()},
                {?PROP_CMETA_UDM, UDM_1}
               ],
