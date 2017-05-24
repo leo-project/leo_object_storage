@@ -52,7 +52,7 @@ handle_event({?ERROR_MSG_SLOW_OPERATION = Msg,
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "handle_event/2"},
                            {line, ?LINE}, {body, [{cause, "slow operation"},
-                                                  {mehtod, Method},
+                                                  {method, Method},
                                                   {key, Key},
                                                   {processing_time, ProcessingTime}]}]),
     case CallbackMod of
