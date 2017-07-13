@@ -162,7 +162,7 @@ head(Id, Key) ->
                                                 MaxKeys::non_neg_integer()|undefined).
 fetch(Id, Key, Fun, MaxKeys) ->
     gen_server:call(Id, {fetch, Key, Fun, MaxKeys,
-                         ?begin_statistics_wallclock()}, ?DEF_TIMEOUT).
+                         ?begin_statistics_wallclock()}, infinity).
 
 
 %% @doc Store metadata and data
