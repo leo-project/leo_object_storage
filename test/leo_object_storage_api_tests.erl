@@ -384,7 +384,7 @@ compact_3() ->
     put_irregular_bin(Key2, CMeta, 1024 * 1024 * 11, leo_date:clock()),
     %% inserted but will be compacte due to the msize limit
     Key3 = list_to_binary("invalid_msize"),
-    UDM = crypto:rand_bytes(4096),
+    UDM = crypto:strong_rand_bytes(4096),
     CMeta2 = [{?PROP_CMETA_CLUSTER_ID, 'leofs_1'},
              {?PROP_CMETA_NUM_OF_REPLICAS, 3},
              {?PROP_CMETA_VER, leo_date:clock()},
@@ -483,7 +483,7 @@ put_regular_bin(Index, Counter) ->
 put_regular_bin_1(Index) ->
     AddrId = 1,
     Key = list_to_binary(lists:append(["TEST_", integer_to_list(Index)])),
-    Bin = crypto:rand_bytes(erlang:phash2(leo_date:clock(), (1024 * 1024))),
+    Bin = crypto:strong_rand_bytes(erlang:phash2(leo_date:clock(), (1024 * 1024))),
 
     Object = #?OBJECT{method    = put,
                       addr_id   = AddrId,
@@ -528,7 +528,7 @@ put_regular_bin_with_cmeta(_, 0) ->
 put_regular_bin_with_cmeta(Index, Counter) ->
     AddrId = 1,
     Key = list_to_binary(lists:append(["TEST_", integer_to_list(Index)])),
-    Bin = crypto:rand_bytes(erlang:phash2(leo_date:clock(), (1024 * 1024))),
+    Bin = crypto:strong_rand_bytes(erlang:phash2(leo_date:clock(), (1024 * 1024))),
 
     CMeta = [{?PROP_CMETA_CLUSTER_ID, 'leofs_1'},
              {?PROP_CMETA_NUM_OF_REPLICAS, 3},
@@ -578,7 +578,7 @@ put_irregular_bin(Min, Range) ->
                   Val
           end,
     ?debugVal(Len),
-    Bin = crypto:rand_bytes(Len),
+    Bin = crypto:strong_rand_bytes(Len),
     _ = leo_object_storage_api:add_incorrect_data(Bin),
     {ok, Offset} = leo_object_storage_api:get_eof_offset(Bin),
     io:format(user, "[garbage] *** start:~p, end:~p~n", [Offset - byte_size(Bin), Offset]),
@@ -586,7 +586,7 @@ put_irregular_bin(Min, Range) ->
 
 put_irregular_bin(Key, CMeta, CSize, Clock) ->
     AddrId = 1,
-    Bin = crypto:rand_bytes(erlang:phash2(leo_date:clock(), (1024 * 1024))),
+    Bin = crypto:strong_rand_bytes(erlang:phash2(leo_date:clock(), (1024 * 1024))),
     CMetaBin = leo_object_storage_transformer:list_to_cmeta_bin(CMeta),
 
     Object = #?OBJECT{method    = put,
