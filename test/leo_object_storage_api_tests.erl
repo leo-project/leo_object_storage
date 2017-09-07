@@ -641,6 +641,8 @@ suite_test_() ->
                           ]]}.
 
 setup() ->
+    application:start(sasl),
+    application:start(os_mon),
     application:start(crypto),
     Path1 = "./avs1",
     Path2 = "./avs2",
@@ -654,6 +656,8 @@ teardown([Path1, Path2]) ->
     os:cmd("rm -rf " ++ Path1),
     os:cmd("rm -rf " ++ Path2),
     application:stop(crypto),
+    application:stop(os_mon),
+    application:stop(sasl),
     timer:sleep(1000),
     application:stop(leo_object_storage),
     timer:sleep(1000),
@@ -928,6 +932,8 @@ stats_test_() ->
     {timeout, 15,
      [?_test(
          begin
+             application:start(sasl),
+             application:start(os_mon),
              application:start(crypto),
              Path1 = "./avs1",
              Path2 = "./avs2",
@@ -976,6 +982,8 @@ stats_test_() ->
              application:stop(bitcask),
              application:stop(leo_object_storage),
              application:stop(crypto),
+             application:stop(os_mon),
+             application:stop(sasl),
              os:cmd("rm -rf " ++ Path1),
              os:cmd("rm -rf " ++ Path2),
              true end)]}.
