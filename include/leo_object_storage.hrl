@@ -178,6 +178,7 @@
 -define(ERROR_LOCKED_CONTAINER,         "locked obj-conatainer").
 -define(ERROR_NOT_ALLOWED_ACCESS,       "not allowed access").
 -define(ERROR_COULD_NOT_START_WORKER,   "could NOT start worker processes").
+-define(ERROR_FREESPACE_LT_AVS,   "The disk free space is less than the size of the AVS file").
 
 -define(ERROR_MSG_SLOW_OPERATION, 'slow_operation').
 -define(ERROR_MSG_TIMEOUT,        'timeout').
