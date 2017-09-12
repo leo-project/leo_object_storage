@@ -48,7 +48,8 @@
          switch_container/4,
          append_compaction_history/2,
          get_compaction_worker/1,
-         get_eof_offset/1
+         get_eof_offset/1,
+         update_diskspace_status/2
         ]).
 
 %% gen_server callbacks
@@ -301,6 +302,11 @@ get_eof_offset(Id) ->
     gen_server:call(Id, get_eof_offset, ?DEF_TIMEOUT).
 
 
+%% @doc Update each diskspace's status
+update_diskspace_status(Id, DiskSpaceStatus) ->
+    gen_server:call(Id, {update_diskspace_status, DiskSpaceStatus}, ?DEF_TIMEOUT).
+
+
 -ifdef(TEST).
 %% @doc Store metadata and data
 %%
@@ -412,22 +418,20 @@ handle_call({put,_,_}, _From, #obj_server_state{is_locked = true} = State) ->
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
 handle_call({put,_,_}, _From, #obj_server_state{privilege = ?OBJ_PRV_READ_ONLY} = State) ->
     {reply, {error, ?ERROR_NOT_ALLOWED_ACCESS}, State};
+
+
+handle_call({put,_Object,_InTime}, _From,
+            #obj_server_state{is_able_to_write = false} = State) ->
+    {reply, {error, ?ERROR_FREESPACE_LT_AVS}, State};
 handle_call({put = Method, #?OBJECT{addr_id = AddrId,
                                     key = Key} = Object, InTime}, _From,
             #obj_server_state{object_storage = StorageInfo} = State) ->
-    case is_freespace_lt_avs(StorageInfo#backend_info.file_path) of
-        {ok, true} ->
-            {reply, {error, ?ERROR_FREESPACE_LT_AVS}, State};
-        {ok, false} ->
-            Key_1 = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
-                                     AddrId, Key),
-            {Reply, State_1} = put_1(Key_1, Object, State),
+    Key_1 = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
+                             AddrId, Key),
+    {Reply, State_1} = put_1(Key_1, Object, State),
 
-            erlang:garbage_collect(self()),
-            reply(Method, Key, Reply, InTime, State_1);
-        Error ->
-            {reply, {error, Error}, State}
-    end;
+    erlang:garbage_collect(self()),
+    reply(Method, Key, Reply, InTime, State_1);
 
 %% Retrieve an object
 handle_call({get = Method, {AddrId, Key}, StartPos, EndPos, IsForcedCheck, InTime},
@@ -498,40 +502,37 @@ handle_call({store,_,_,_}, _From, #obj_server_state{is_locked = true} = State) -
     {reply, {error, ?ERROR_LOCKED_CONTAINER}, State};
 handle_call({store,_,_,_}, _From, #obj_server_state{privilege = ?OBJ_PRV_READ_ONLY} = State) ->
     {reply, {error, ?ERROR_NOT_ALLOWED_ACCESS}, State};
+handle_call({store,_Metadata,_Bin,_InTime}, _From,
+            #obj_server_state{is_able_to_write = false} = State) ->
+    {reply, {error, ?ERROR_FREESPACE_LT_AVS}, State};
 handle_call({store = Method, Metadata, Bin, InTime}, _From,
             #obj_server_state{object_storage = StorageInfo,
                               is_del_blocked = IsDelBlocked} = State) ->
-    case is_freespace_lt_avs(StorageInfo#backend_info.file_path) of
-        {ok, true} ->
-            {reply, {error, ?ERROR_FREESPACE_LT_AVS}, State};
-        {ok, false} ->
-            Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
-            Key = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
-                                   Metadata_1#?METADATA.addr_id,
-                                   Metadata_1#?METADATA.key),
-            Object = leo_object_storage_transformer:metadata_to_object(Bin, Metadata),
-            {Reply, State_1} =
-                case Metadata_1#?METADATA.del of
-                    ?DEL_TRUE when IsDelBlocked == true ->
-                        {{error, ?ERROR_LOCKED_CONTAINER}, State};
-                    ?DEL_TRUE ->
-                        delete_1(Key, Object, State);
-                    ?DEL_FALSE ->
-                        put_1(Key, Object, State)
-                end,
-            Reply_1 = case Reply of
-                          ok ->
-                              ok;
-                          {ok, _} ->
-                              ok;
-                          Other ->
-                              Other
-                      end,
-            erlang:garbage_collect(self()),
-            reply(Method, Metadata_1#?METADATA.key, Reply_1, InTime, State_1);
-        Error ->
-            {reply, {error, Error}, State}
-    end;
+    Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
+    Key = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
+                           Metadata_1#?METADATA.addr_id,
+                           Metadata_1#?METADATA.key),
+    Object = leo_object_storage_transformer:metadata_to_object(Bin, Metadata),
+    {Reply, State_1} =
+        case Metadata_1#?METADATA.del of
+            ?DEL_TRUE when IsDelBlocked == true ->
+                {{error, ?ERROR_LOCKED_CONTAINER}, State};
+            ?DEL_TRUE ->
+                delete_1(Key, Object, State);
+            ?DEL_FALSE ->
+                put_1(Key, Object, State)
+        end,
+    Reply_1 = case Reply of
+                  ok ->
+                      ok;
+                  {ok, _} ->
+                      ok;
+                  Other ->
+                      Other
+              end,
+    erlang:garbage_collect(self()),
+    reply(Method, Metadata_1#?METADATA.key, Reply_1, InTime, State_1);
+
 
 %% Retrieve the current status
 handle_call(get_stats, _From, #obj_server_state{storage_stats = StorageStats} = State) ->
@@ -658,6 +659,13 @@ handle_call(get_eof_offset,
             _From, #obj_server_state{object_storage = StorageInfo} = State) ->
     Reply = leo_object_storage_haystack:get_eof_offset(StorageInfo),
     {reply, Reply, State};
+
+%% Update each diskspace's status
+handle_call({update_diskspace_status, 'ok'},_From, State) ->
+    {reply, ok, State#obj_server_state{is_able_to_write = true}};
+handle_call({update_diskspace_status, 'error'},_From, State) ->
+    {reply, ok, State#obj_server_state{is_able_to_write = false}};
+
 
 %% Put incorrect data for the unit-test
 handle_call({add_incorrect_data,_Bin},
@@ -940,16 +948,3 @@ close_storage(Id, MetaDBId, StateFilePath,
     ok;
 close_storage(_,_,_,_,_,_,_) ->
     ok.
-
-%% @doc Return {ok, true} if the free disk space is less than(lt) the size of the current AVS,
-%%      otherwise {ok, false} or {error, Cause} if some error happened.
-%% @private
-is_freespace_lt_avs(AVSPath) ->
-    case leo_file:file_get_mount_path(AVSPath) of
-        {ok, {_MountPath, TotalSize, UsedPercentage}} ->
-            FreeSize = TotalSize * ((100 - UsedPercentage) / 100) * 1024,
-            AVSSize = filelib:file_size(AVSPath),
-            {ok, FreeSize < AVSSize};
-        Error ->
-            {error, Error}
-    end.

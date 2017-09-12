@@ -115,9 +115,10 @@ start_child(ObjectStorageInfo, CallbackMod) ->
 
     BackendDBSupPid = start_child_1(),
     ok = start_child_2(),
-    {ok, ServerPairL} = start_child_3(ObjectStorageInfo, 0,
-                                     MetadataDB, BackendDBSupPid,
-                                     IsStrictCheck, []),
+    {ok, ServerPairL} =
+        start_child_3(ObjectStorageInfo, 0,
+                      MetadataDB, BackendDBSupPid,
+                      IsStrictCheck, [], []),
     ok = start_child_4(ServerPairL),
     ok = start_child_5(),
     ok = start_child_6(CallbackMod),
@@ -130,14 +131,14 @@ start_child(ObjectStorageInfo, CallbackMod) ->
 start_child_1() ->
     case whereis(leo_backend_db_sup) of
         undefined ->
-            ChildSpec0 = {leo_backend_db_sup,
-                          {leo_backend_db_sup, start_link, []},
-                          permanent, 2000, supervisor, [leo_backend_db_sup]},
-            case supervisor:start_child(?MODULE, ChildSpec0) of
+            ChildSpec = {leo_backend_db_sup,
+                         {leo_backend_db_sup, start_link, []},
+                         permanent, 2000, supervisor, [leo_backend_db_sup]},
+            case supervisor:start_child(?MODULE, ChildSpec) of
                 {ok, Pid} ->
                     Pid;
-                {error, Cause0} ->
-                    exit(Cause0)
+                {error, Cause} ->
+                    exit(Cause)
             end;
         Pid ->
             Pid
@@ -165,10 +166,20 @@ start_child_2() ->
 %% @doc Launch backend-db's processes
 %%      under the leo_object_storage_sup
 %% @private
-start_child_3([],_,_,_,_,Acc) ->
+start_child_3([],_,_,_,_, AVSServerPairL, Acc) ->
+    ChildSpec = {leo_object_storage_diskspace_mon,
+                 {leo_object_storage_diskspace_mon, start_link,
+                  [?env_diskspace_check_intervals(), AVSServerPairL]},
+                 permanent, 2000, supervisor, [leo_object_storage_diskspace_mon]},
+    case supervisor:start_child(?MODULE, ChildSpec) of
+        {ok, Pid} ->
+            Pid;
+        {error, Cause} ->
+            exit(Cause)
+    end,
     {ok, Acc};
 start_child_3([{NumOfContainers, Path}|Rest], Index,
-              MetadataDB, BackendDBSupPid, IsStrictCheck, Acc) ->
+              MetadataDB, BackendDBSupPid, IsStrictCheck, AVSServerPairL, Acc) ->
     Path_1 = get_path(Path),
     Props  = [{num_of_containers, NumOfContainers},
               {path,              Path_1},
@@ -179,20 +190,25 @@ start_child_3([{NumOfContainers, Path}|Rest], Index,
              ],
     true = ets:insert(?ETS_INFO_TABLE,
                       {list_to_atom(?MODULE_STRING ++ integer_to_list(Index)), Props}),
-    {ok, Acc_1} = start_child_3_1(Index, NumOfContainers - 1, BackendDBSupPid, Props, Acc),
-    start_child_3(Rest, Index + 1, MetadataDB, BackendDBSupPid, IsStrictCheck, Acc_1).
+    {ok, {[{AVSPath, Servers}|_], Acc_1}} = start_child_3_1(Index, NumOfContainers - 1,
+                                             BackendDBSupPid, Props, dict:new(), Acc),
+    AVSServerPairL_1 = [#avs_path_and_servers{path = AVSPath,
+                                              servers = Servers}|AVSServerPairL],
+    start_child_3(Rest, Index + 1, MetadataDB, BackendDBSupPid, IsStrictCheck, AVSServerPairL_1, Acc_1).
 
 
 %% @doc Launch
 %% @private
-start_child_3_1(_,-1,_,_,Acc) ->
-    {ok, Acc};
-start_child_3_1(DeviceIndex, ContainerIndex, BackendDBSupPid, Props, Acc) ->
+start_child_3_1(_,-1,_,_, Dict, Acc) ->
+    {ok, {dict:to_list(Dict), Acc}};
+start_child_3_1(DeviceIndex, ContainerIndex, BackendDBSupPid, Props, Dict, Acc) ->
     Id = (DeviceIndex * ?DEVICE_ID_INTERVALS) + ContainerIndex,
     case add_container(BackendDBSupPid, Id, Props) of
         {ok, ServerPair} ->
+            Dict_1 = dict:append(leo_misc:get_value('path', Props),
+                                 gen_id(obj_storage, Id), Dict),
             start_child_3_1(DeviceIndex, ContainerIndex - 1,
-                            BackendDBSupPid, Props, [ServerPair|Acc]);
+                            BackendDBSupPid, Props, Dict_1, [ServerPair|Acc]);
         {error, Cause} ->
             exit(Cause)
     end.
@@ -413,10 +429,10 @@ add_container_2(ChildIndex, Mod, BaseId,
                 ObjStorageId, MetaDBId, CompactWorkerId, ObjServerState, Acc) ->
     ObjStorageId_R = gen_id(obj_storage_read, BaseId, ChildIndex),
     ChildSpec = {ObjStorageId_R,
-                   {Mod, start_link,
-                    [ObjServerState#obj_server_state{id = ObjStorageId_R,
-                                                     privilege = ?OBJ_PRV_READ_ONLY}]},
-                   permanent, 2000, worker, [Mod]},
+                 {Mod, start_link,
+                  [ObjServerState#obj_server_state{id = ObjStorageId_R,
+                                                   privilege = ?OBJ_PRV_READ_ONLY}]},
+                 permanent, 2000, worker, [Mod]},
     Ret = case supervisor:start_child(?MODULE, ChildSpec) of
               {ok,_} ->
                   ok;
@@ -425,7 +441,7 @@ add_container_2(ChildIndex, Mod, BaseId,
               {error, Cause} ->
                   error_logger:error_msg("~p,~p,~p,~p~n",
                                          [{module, ?MODULE_STRING},
-                                          {function, "add_container_2/8"},
+                                          {function, "add_container_2/9"},
                                           {line, ?LINE},
                                           {body, Cause}]),
                   {error, Cause}
