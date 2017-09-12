@@ -28,7 +28,7 @@
 -export([new/1,
          run/4]).
 
--include_lib("leo_object_storage/include/leo_object_storage.hrl").
+-include("leo_object_storage.hrl").
 
 
 %% @doc initialize
