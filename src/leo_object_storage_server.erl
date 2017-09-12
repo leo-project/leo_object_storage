@@ -304,7 +304,7 @@ get_eof_offset(Id) ->
 
 %% @doc Update each diskspace's status
 update_diskspace_status(Id, DiskSpaceStatus) ->
-    gen_server:call(Id, {update_diskspace_status, DiskSpaceStatus}, ?DEF_TIMEOUT).
+    gen_server:call(Id, {update_diskspace_status, DiskSpaceStatus}, infinity).
 
 
 -ifdef(TEST).
