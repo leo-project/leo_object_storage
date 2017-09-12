@@ -478,7 +478,8 @@
           is_strict_check = false :: boolean(),
           is_locked = false :: boolean(),
           is_del_blocked = false  :: boolean(),
-          threshold_slow_processing = ?DEF_THRESHOLD_SLOW_PROC :: non_neg_integer()
+          threshold_slow_processing = ?DEF_THRESHOLD_SLOW_PROC :: non_neg_integer(),
+          is_able_to_write = true :: boolean()
          }).
 
 %% apllication-env
@@ -626,6 +627,14 @@
                             _Pid -> _Pid
                         end
                 end,_TargetContainers))
+        end).
+
+-define(env_diskspace_check_intervals(),
+        case application:get_env(?APP_NAME, diskspace_check_intervals) of
+            {ok, EnvDiskSpaceCheckIntervals} ->
+                EnvDiskSpaceCheckIntervals;
+            _ ->
+                timer:minutes(1)
         end).
 
 
