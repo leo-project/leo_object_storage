@@ -46,7 +46,7 @@
 
 -record(state, {
           check_intervals = timer:minutes(1) :: pos_integer(),
-          avs_path_and_servers_list = [] :: [#avs_path_and_servers{}]
+          avs_path_and_server_pairs = [] :: [{string(), atom()}]
          }).
 
 -define(DEF_TIMEOUT, timer:seconds(30)).
@@ -57,11 +57,11 @@
 %%====================================================================
 %% @doc Starts the server with check intervals (sec)
 %%
--spec(start_link(CheckIntervals, AvsPathAndServersList) ->
+-spec(start_link(CheckIntervals, AvsPathAndServerPairs) ->
              {ok, pid()} | {error, any()} when CheckIntervals::pos_integer(),
-                                               AvsPathAndServersList::[#avs_path_and_servers{}]).
-start_link(CheckIntervals, AvsPathAndServersList) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [CheckIntervals, AvsPathAndServersList], []).
+                                               AvsPathAndServerPairs::[{string(), atom()}]).
+start_link(CheckIntervals, AvsPathAndServerPairs) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [CheckIntervals, AvsPathAndServerPairs], []).
 
 
 %% @doc Stop this server
@@ -76,10 +76,10 @@ stop() ->
 %% GEN_SERVER CALLBACKS
 %%====================================================================
 %% @doc Initiates the server
-init([CheckIntervals, AvsPathAndServersList]) ->
+init([CheckIntervals, AvsPathAndServerPairs]) ->
     erlang:send_after(CheckIntervals, self(), trigger),
     {ok, #state{check_intervals = CheckIntervals,
-                avs_path_and_servers_list = AvsPathAndServersList}}.
+                avs_path_and_server_pairs = AvsPathAndServerPairs}}.
 
 
 %% @doc gen_server callback - Module:handle_call(Request, From, State) -> Result
@@ -101,8 +101,8 @@ handle_cast(_Msg, State) ->
 %% gen_server callback - Module:handle_info(Info, State) -> Result.
 %% </p>
 handle_info(trigger, #state{check_intervals = CheckIntervals,
-                            avs_path_and_servers_list = AvsPathAndServersList} = State) ->
-    ok = check_disk_space(AvsPathAndServersList),
+                            avs_path_and_server_pairs = AvsPathAndServerPairs} = State) ->
+    ok = check_disk_space(AvsPathAndServerPairs),
     erlang:send_after(CheckIntervals, self(), trigger),
     {noreply, State};
 handle_info(_Info, State) ->
@@ -124,11 +124,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%====================================================================
 check_disk_space([]) ->
     ok;
-check_disk_space([#avs_path_and_servers{path = AVSPath,
-                                        servers = ServerList} | Rest]) ->
+check_disk_space([{AVSPath, Servers} | Rest]) ->
     case is_freespace_lt_avs(AVSPath) of
         {ok, Ret} ->
-            notify_diskspace_status(ServerList, Ret);
+            notify_diskspace_status(Servers, Ret);
         {error, Error} ->
             error_logger:error_msg(
               "~p,~p,~p,~p~n",
@@ -155,7 +154,7 @@ is_freespace_lt_avs(AVSPath) ->
 
 
 %% @private
-notify_diskspace_status([],_) ->
+notify_diskspace_status([],_Ret) ->
     ok;
 notify_diskspace_status([Server|Rest], Ret) ->
     Msg = case Ret of

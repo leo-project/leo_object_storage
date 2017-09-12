@@ -482,12 +482,6 @@
           is_able_to_write = true :: boolean()
          }).
 
-%% For Disk space monitor
--record(avs_path_and_servers, {
-          path = [] :: string(),
-          servers = [] :: [atom()]
-         }).
-
 %% apllication-env
 -define(env_metadata_db(),
         case application:get_env(?APP_NAME, metadata_storage) of

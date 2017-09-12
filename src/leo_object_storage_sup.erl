@@ -190,11 +190,10 @@ start_child_3([{NumOfContainers, Path}|Rest], Index,
              ],
     true = ets:insert(?ETS_INFO_TABLE,
                       {list_to_atom(?MODULE_STRING ++ integer_to_list(Index)), Props}),
-    {ok, {[{AVSPath, Servers}|_], Acc_1}} = start_child_3_1(Index, NumOfContainers - 1,
-                                             BackendDBSupPid, Props, dict:new(), Acc),
-    AVSServerPairL_1 = [#avs_path_and_servers{path = AVSPath,
-                                              servers = Servers}|AVSServerPairL],
-    start_child_3(Rest, Index + 1, MetadataDB, BackendDBSupPid, IsStrictCheck, AVSServerPairL_1, Acc_1).
+    {ok, {AVSServerPairL_1, Acc_1}} = start_child_3_1(Index, NumOfContainers - 1,
+                                                      BackendDBSupPid, Props, dict:new(), Acc),
+    start_child_3(Rest, Index + 1, MetadataDB, BackendDBSupPid,
+                  IsStrictCheck, AVSServerPairL ++ AVSServerPairL_1, Acc_1).
 
 
 %% @doc Launch
@@ -205,7 +204,11 @@ start_child_3_1(DeviceIndex, ContainerIndex, BackendDBSupPid, Props, Dict, Acc) 
     Id = (DeviceIndex * ?DEVICE_ID_INTERVALS) + ContainerIndex,
     case add_container(BackendDBSupPid, Id, Props) of
         {ok, ServerPair} ->
-            Dict_1 = dict:append(leo_misc:get_value('path', Props),
+            RootPath = leo_misc:get_value('path', Props),
+            ObjectStorageDir = lists:append([RootPath, ?DEF_OBJECT_STORAGE_SUB_DIR]),
+            ObjectStoragePath = lists:append([ObjectStorageDir, integer_to_list(ContainerIndex), ?AVS_FILE_EXT]),
+
+            Dict_1 = dict:append(ObjectStoragePath,
                                  gen_id(obj_storage, Id), Dict),
             start_child_3_1(DeviceIndex, ContainerIndex - 1,
                             BackendDBSupPid, Props, Dict_1, [ServerPair|Acc]);
