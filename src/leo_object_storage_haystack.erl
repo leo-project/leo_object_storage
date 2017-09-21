@@ -436,14 +436,28 @@ open_fun(FilePath, RetryTimes) ->
             case file:open(FilePath, [raw, write,  binary, append]) of
                 {ok, FileHandler} ->
                     {ok, FileHandler};
-                {error, _Cause} ->
+                {error, Cause} ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING},
+                                            {function, "open_fun/2"},
+                                            {line, ?LINE}, {body, Cause}]),
+                    % Output the error message to STDOUT as we may not have a file descriptor for logger
+                    % when emfile happened before opening error log files.
+                    io:format(user, "~s:open_fun error:~p~n", [?MODULE_STRING, Cause]),
                     open_fun(FilePath, RetryTimes+1)
             end;
         true ->
             case file:open(FilePath, [raw, read, binary]) of
                 {ok, FileHandler} ->
                     {ok, FileHandler};
-                {error, _Cause} ->
+                {error, Cause} ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING},
+                                            {function, "open_fun/2"},
+                                            {line, ?LINE}, {body, Cause}]),
+                    % Output the error message to STDOUT as we may not have a file descriptor for logger
+                    % when emfile happened before opening error log files.
+                    io:format(user, "~s:open_fun error:~p~n", [?MODULE_STRING, Cause]),
                     open_fun(FilePath, RetryTimes+1)
             end
     end.
