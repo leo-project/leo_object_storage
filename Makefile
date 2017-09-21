@@ -17,6 +17,7 @@ compile:
 xref:
 	@$(REBAR) xref skip_deps=true
 eunit:
+	@rm -rf .eunit/comaction_test
 	@$(REBAR) eunit skip_deps=true
 check_plt:
 	@$(REBAR) compile
