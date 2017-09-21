@@ -1150,7 +1150,7 @@ compact_2() ->
     ?assertEqual(true, _Metadata_UDM_1#?METADATA.msize == _Metadata_UDM_2#?METADATA.msize),
     ?assertEqual(true, _Object_UDM_1#?OBJECT.meta == _Object_UDM_2#?OBJECT.meta),
     ?assertEqual(true, _Object_UDM_1#?OBJECT.msize == _Object_UDM_2#?OBJECT.msize),
-    timer:sleep(250),
+    timer:sleep(1000),
 
 
     %% executing the data-compaction
