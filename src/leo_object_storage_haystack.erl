@@ -427,7 +427,13 @@ open_fun(_FilePath, 3) ->
     {error, ?ERROR_FILE_OPEN};
 
 open_fun(FilePath, RetryTimes) ->
-    timer:sleep(100),
+    case RetryTimes of
+        0 ->
+            nop;
+        _ ->
+            % do only after retries happened.
+            timer:sleep(100)
+    end,
 
     case catch filelib:is_file(FilePath) of
         {'EXIT', Cause} ->
