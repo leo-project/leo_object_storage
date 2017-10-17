@@ -206,7 +206,7 @@ start_child_3_1(DeviceIndex, ContainerIndex, BackendDBSupPid, Props, Dict, Acc) 
         {ok, ServerPair} ->
             RootPath = leo_misc:get_value('path', Props),
             ObjectStorageDir = lists:append([RootPath, ?DEF_OBJECT_STORAGE_SUB_DIR]),
-            ObjectStoragePath = lists:append([ObjectStorageDir, integer_to_list(ContainerIndex), ?AVS_FILE_EXT]),
+            ObjectStoragePath = lists:append([ObjectStorageDir, integer_to_list(Id), ?AVS_FILE_EXT]),
 
             Dict_1 = dict:append(ObjectStoragePath,
                                  gen_id(obj_storage, Id), Dict),
