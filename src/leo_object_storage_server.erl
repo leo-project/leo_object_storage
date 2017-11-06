@@ -33,6 +33,7 @@
 -behaviour(gen_server).
 
 -include("leo_object_storage.hrl").
+-include_lib("leo_commons/include/leo_commons.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 %% API
@@ -370,7 +371,7 @@ init([ObjServerState]) ->
                     case (Privilege == ?OBJ_PRV_READ_WRITE andalso
                           ?env_enable_diagnosis_log()) of
                         true ->
-                            _ = filelib:ensure_dir(LogFilePath),
+                            _ = leo_file:ensure_dir(LogFilePath),
                             ok = leo_logger_client_base:new(
                                    ?LOG_GROUP_ID_DIAGNOSIS,
                                    DiagnosisLogId,
@@ -897,7 +898,7 @@ delete_1(Key, Object, #obj_server_state{meta_db_id     = MetaDBId,
 -spec(get_raw_path(object, string(), string()) ->
              {ok, string()} | {error, any()}).
 get_raw_path(object, ObjectStorageRootDir, SymLinkPath) ->
-    case filelib:ensure_dir(ObjectStorageRootDir) of
+    case leo_file:ensure_dir(ObjectStorageRootDir) of
         ok ->
             case file:read_link(SymLinkPath) of
                 {ok, FileName} ->
@@ -927,7 +928,7 @@ get_raw_path(object, ObjectStorageRootDir, SymLinkPath) ->
 %% @private
 close_storage(Id, MetaDBId, StateFilePath,
               StorageStats, WriteHandler, ReadHandler, Reason) when is_list(StateFilePath) ->
-    _ = filelib:ensure_dir(StateFilePath),
+    _ = leo_file:ensure_dir(StateFilePath),
     _ = leo_file:file_unconsult(
           StateFilePath,
           [{id, Id},
