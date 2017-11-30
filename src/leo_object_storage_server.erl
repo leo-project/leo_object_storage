@@ -431,7 +431,7 @@ handle_call({put = Method, #?OBJECT{addr_id = AddrId,
                              AddrId, Key),
     {Reply, State_1} = put_1(Key_1, Object, State),
 
-    erlang:garbage_collect(self()),
+    erlang:garbage_collect(self(), [{async, void}]),
     reply(Method, Key, Reply, InTime, State_1);
 
 %% Retrieve an object
@@ -450,7 +450,7 @@ handle_call({get = Method, {AddrId, Key}, StartPos, EndPos, IsForcedCheck, InTim
               MetaDBId, StorageInfo, BackendKey, StartPos, EndPos, IsStrictCheck_1),
 
     State_1 = after_proc(Reply, State),
-    erlang:garbage_collect(self()),
+    erlang:garbage_collect(self(), [{async, void}]),
     reply(Method, Key, Reply, InTime, State_1);
 
 
@@ -531,7 +531,7 @@ handle_call({store = Method, Metadata, Bin, InTime}, _From,
                   Other ->
                       Other
               end,
-    erlang:garbage_collect(self()),
+    erlang:garbage_collect(self(), [{async, void}]),
     reply(Method, Metadata_1#?METADATA.key, Reply_1, InTime, State_1);
 
 
@@ -558,7 +558,7 @@ handle_call({head_with_calc_md5 = Method, {AddrId, Key}, MD5Context, InTime},
               MetaDBId, StorageInfo, BackendKey, MD5Context),
 
     State_1 = after_proc(Reply, State),
-    erlang:garbage_collect(self()),
+    erlang:garbage_collect(self(), [{async, void}]),
     reply(Method, Key, Reply, InTime, State_1);
 
 
