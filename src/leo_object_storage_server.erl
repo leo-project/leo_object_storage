@@ -430,9 +430,12 @@ handle_call({put = Method, #?OBJECT{addr_id = AddrId,
     Key_1 = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                              AddrId, Key),
     {Reply, State_1} = put_1(Key_1, Object, State),
-
-    erlang:garbage_collect(self()),
-    reply(Method, Key, Reply, InTime, State_1);
+    case State#obj_server_state.is_gc_wip of
+        false ->
+            erlang:garbage_collect(self(), [{async, void}]);
+        true -> nop
+    end,
+    reply(Method, Key, Reply, InTime, State_1#obj_server_state{is_gc_wip = true});
 
 %% Retrieve an object
 handle_call({get = Method, {AddrId, Key}, StartPos, EndPos, IsForcedCheck, InTime},
@@ -450,8 +453,12 @@ handle_call({get = Method, {AddrId, Key}, StartPos, EndPos, IsForcedCheck, InTim
               MetaDBId, StorageInfo, BackendKey, StartPos, EndPos, IsStrictCheck_1),
 
     State_1 = after_proc(Reply, State),
-    erlang:garbage_collect(self()),
-    reply(Method, Key, Reply, InTime, State_1);
+    case State#obj_server_state.is_gc_wip of
+        false ->
+            erlang:garbage_collect(self(), [{async, void}]);
+        true -> nop
+    end,
+    reply(Method, Key, Reply, InTime, State_1#obj_server_state{is_gc_wip = true});
 
 
 %% Remove an object
@@ -531,8 +538,12 @@ handle_call({store = Method, Metadata, Bin, InTime}, _From,
                   Other ->
                       Other
               end,
-    erlang:garbage_collect(self()),
-    reply(Method, Metadata_1#?METADATA.key, Reply_1, InTime, State_1);
+    case State#obj_server_state.is_gc_wip of
+        false ->
+            erlang:garbage_collect(self(), [{async, void}]);
+        true -> nop
+    end,
+    reply(Method, Metadata_1#?METADATA.key, Reply_1, InTime, State_1#obj_server_state{is_gc_wip = true});
 
 
 %% Retrieve the current status
@@ -558,8 +569,12 @@ handle_call({head_with_calc_md5 = Method, {AddrId, Key}, MD5Context, InTime},
               MetaDBId, StorageInfo, BackendKey, MD5Context),
 
     State_1 = after_proc(Reply, State),
-    erlang:garbage_collect(self()),
-    reply(Method, Key, Reply, InTime, State_1);
+    case State#obj_server_state.is_gc_wip of
+        false ->
+            erlang:garbage_collect(self(), [{async, void}]);
+        true -> nop
+    end,
+    reply(Method, Key, Reply, InTime, State_1#obj_server_state{is_gc_wip = true});
 
 
 %% Close the object-container
@@ -701,6 +716,9 @@ handle_info(datasync, #obj_server_state{object_storage = StorageInfo,
     leo_object_storage_haystack:datasync(WriteHandler),
     erlang:send_after(SyncInterval, self(), datasync),
     {noreply, State};
+handle_info({garbage_collect, void, _GCResult}, State) ->
+    %% Set GC flag off
+    {noreply, State#obj_server_state{is_gc_wip = false}};
 handle_info(_Info, State) ->
     {noreply, State}.
 

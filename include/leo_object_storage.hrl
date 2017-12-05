@@ -479,7 +479,8 @@
           is_locked = false :: boolean(),
           is_del_blocked = false  :: boolean(),
           threshold_slow_processing = ?DEF_THRESHOLD_SLOW_PROC :: non_neg_integer(),
-          is_able_to_write = true :: boolean()
+          is_able_to_write = true :: boolean(),
+          is_gc_wip = false :: boolean()
          }).
 
 %% apllication-env
