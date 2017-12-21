@@ -171,6 +171,9 @@ wait_start_child_3([], AVSServerPairL, ServerPairL) ->
     {ok, AVSServerPairL, ServerPairL};
 wait_start_child_3(Pids, AVSServerPairL, ServerPairL) ->
     receive
+        {'EXIT', _, _} ->
+            %% we have to ignore the exit signal as the supervisor has trap_exit true.
+            wait_start_child_3(Pids, AVSServerPairL, ServerPairL);
         {Pid, AVSServerPairL_1, ServerPairL_1} ->
             wait_start_child_3(lists:delete(Pid, Pids),
                                AVSServerPairL ++ AVSServerPairL_1,
