@@ -33,6 +33,9 @@
          init/1,
          start_child/1, start_child/2]).
 
+%% exported to suppress unused warnings so don't call this function out of the module
+-export([start_child_3_1/7]).
+
 -define(DEVICE_ID_INTERVALS, 10000).
 
 %%-----------------------------------------------------------------------
@@ -118,7 +121,7 @@ start_child(ObjectStorageInfo, CallbackMod) ->
     {ok, ServerPairL} =
         start_child_3(ObjectStorageInfo, 0,
                       MetadataDB, BackendDBSupPid,
-                      IsStrictCheck, [], []),
+                      IsStrictCheck, []),
     ok = start_child_4(ServerPairL),
     ok = start_child_5(),
     ok = start_child_6(CallbackMod),
@@ -162,11 +165,28 @@ start_child_2() ->
             ok
     end.
 
+%% @doc Wait for Pids to retrieve AVSServerPairL and ServerPairList from spawned processes
+%% @private
+wait_start_child_3([], AVSServerPairL, ServerPairL) ->
+    {ok, AVSServerPairL, ServerPairL};
+wait_start_child_3(Pids, AVSServerPairL, ServerPairL) ->
+    receive
+        {'EXIT', _, _} ->
+            %% we have to ignore the exit signal as the supervisor has trap_exit true.
+            wait_start_child_3(Pids, AVSServerPairL, ServerPairL);
+        {Pid, AVSServerPairL_1, ServerPairL_1} ->
+            wait_start_child_3(lists:delete(Pid, Pids),
+                               AVSServerPairL ++ AVSServerPairL_1,
+                               [ServerPairL_1|ServerPairL]);
+        _Other ->
+            wait_start_child_3(Pids, AVSServerPairL, ServerPairL)
+    end.
 
 %% @doc Launch backend-db's processes
 %%      under the leo_object_storage_sup
 %% @private
-start_child_3([],_,_,_,_, AVSServerPairL, Acc) ->
+start_child_3([],_,_,_,_, Pids) ->
+    {ok, AVSServerPairL, ServerPairL} = wait_start_child_3(Pids, [], []),
     ChildSpec = {leo_object_storage_diskspace_mon,
                  {leo_object_storage_diskspace_mon, start_link,
                   [?env_diskspace_check_intervals(), AVSServerPairL]},
@@ -177,9 +197,9 @@ start_child_3([],_,_,_,_, AVSServerPairL, Acc) ->
         {error, Cause} ->
             exit(Cause)
     end,
-    {ok, Acc};
+    {ok, ServerPairL};
 start_child_3([{NumOfContainers, Path}|Rest], Index,
-              MetadataDB, BackendDBSupPid, IsStrictCheck, AVSServerPairL, Acc) ->
+              MetadataDB, BackendDBSupPid, IsStrictCheck, Pids) ->
     Path_1 = get_path(Path),
     Props  = [{num_of_containers, NumOfContainers},
               {path,              Path_1},
@@ -190,17 +210,19 @@ start_child_3([{NumOfContainers, Path}|Rest], Index,
              ],
     true = ets:insert(?ETS_INFO_TABLE,
                       {list_to_atom(?MODULE_STRING ++ integer_to_list(Index)), Props}),
-    {ok, {AVSServerPairL_1, Acc_1}} = start_child_3_1(Index, NumOfContainers - 1,
-                                                      BackendDBSupPid, Props, dict:new(), Acc),
-    start_child_3(Rest, Index + 1, MetadataDB, BackendDBSupPid,
-                  IsStrictCheck, AVSServerPairL ++ AVSServerPairL_1, Acc_1).
+    %% Make start_child_3_1 in parallel to boost the boot time
+    %% For more detail, refer https://github.com/leo-project/leofs/issues/940
+    Pid = erlang:spawn_link(?MODULE, start_child_3_1, [Index, NumOfContainers - 1,
+                                                       BackendDBSupPid, Props, self(), dict:new(), []]),
+    start_child_3(Rest, Index + 1, MetadataDB, BackendDBSupPid, IsStrictCheck, [Pid|Pids]).
 
 
 %% @doc Launch
 %% @private
-start_child_3_1(_,-1,_,_, Dict, Acc) ->
-    {ok, {dict:to_list(Dict), Acc}};
-start_child_3_1(DeviceIndex, ContainerIndex, BackendDBSupPid, Props, Dict, Acc) ->
+start_child_3_1(_,-1,_,_, Parent, Dict, Acc) ->
+    %% Send the result back to the parent process executing wait_start_child_3
+    Parent ! {self(), dict:to_list(Dict), Acc};
+start_child_3_1(DeviceIndex, ContainerIndex, BackendDBSupPid, Props, Parent, Dict, Acc) ->
     Id = (DeviceIndex * ?DEVICE_ID_INTERVALS) + ContainerIndex,
     case add_container(BackendDBSupPid, Id, Props) of
         {ok, ServerPair} ->
@@ -211,7 +233,7 @@ start_child_3_1(DeviceIndex, ContainerIndex, BackendDBSupPid, Props, Dict, Acc) 
             Dict_1 = dict:append(ObjectStoragePath,
                                  gen_id(obj_storage, Id), Dict),
             start_child_3_1(DeviceIndex, ContainerIndex - 1,
-                            BackendDBSupPid, Props, Dict_1, [ServerPair|Acc]);
+                            BackendDBSupPid, Props, Parent, Dict_1, [ServerPair|Acc]);
         {error, Cause} ->
             exit(Cause)
     end.
