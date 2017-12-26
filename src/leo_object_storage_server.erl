@@ -42,7 +42,7 @@
 -export([put/2, get/5, delete/2, head/2, fetch/4, store/3,
          get_stats/1, set_stats/2,
          get_avs_version_bin/1,
-         head_with_calc_md5/3,
+         head_with_calc_md5/3, head_with_check_avs/3,
          close/1,
          get_backend_info/2,
          lock/1, block_del/1, unlock/1,
@@ -216,6 +216,18 @@ head_with_calc_md5(Id, Key, MD5Context) ->
     gen_server:call(Id, {head_with_calc_md5, Key, MD5Context,
                          ?begin_statistics_wallclock()}, ?DEF_TIMEOUT).
 
+%% @doc Retrieve a metada from backend_db
+%%      AND check if the corresponding AVS is broken.
+%%
+-spec(head_with_check_avs(Id, AddrIdAndKey, CheckMethod) ->
+             {ok, binary()} |
+             not_found |
+             {error, any()} when Id::atom(),
+                                 AddrIdAndKey::addrid_and_key(),
+                                 CheckMethod::atom()).
+head_with_check_avs(Id, AddrIdAndKey, CheckMethod) ->
+    gen_server:call(Id, {head_with_check_avs, AddrIdAndKey, CheckMethod,
+                         ?begin_statistics_wallclock()}, ?DEF_TIMEOUT).
 
 %% @doc Close the object-container
 %%
@@ -561,6 +573,13 @@ handle_call({head_with_calc_md5 = Method, {AddrId, Key}, MD5Context, InTime},
     erlang:garbage_collect(self()),
     reply(Method, Key, Reply, InTime, State_1);
 
+handle_call({head_with_check_avs = Method, {AddrId, Key}, CheckMethod, InTime},
+            _From, #obj_server_state{meta_db_id = MetaDBId,
+                                     object_storage = StorageInfo} = State) ->
+    BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
+                                  AddrId, Key),
+    Reply = leo_object_storage_haystack:head_with_check_avs(MetaDBId, StorageInfo, BackendKey, CheckMethod),
+    reply(Method, Key, Reply, InTime, State);
 
 %% Close the object-container
 handle_call(close, _From,
