@@ -39,7 +39,7 @@
          head/2, head/3,
          fetch/4]).
 
--export([head_with_calc_md5/4]).
+-export([head_with_calc_md5/4, head_with_check_avs/4]).
 
 -export([calc_obj_size/1,
          calc_obj_size/2,
@@ -302,6 +302,51 @@ head_with_calc_md5(MetaDBId, StorageInfo, Key, MD5Context) ->
         {ok, #?METADATA{cnumber = _N} = Meta, _Object} ->
             %% Not calc due to existing some grand childs
             {ok, Meta, MD5Context};
+        Other -> Other
+    end.
+
+%% @doc Retrieve a metadata from backend_db
+%%      AND check if the corresponding AVS is broken.
+%%
+-spec(head_with_check_avs(MetaDBId, StorageInfo, Key, CheckMethod) ->
+             {ok, binary()} |
+             not_found |
+             {error, any()} when MetaDBId::atom(),
+                                 StorageInfo::#backend_info{},
+                                 Key:: binary(),
+                                 CheckMethod::atom()).
+head_with_check_avs(MetaDBId, StorageInfo, Key, check_header) ->
+    case catch leo_backend_db_api:get(MetaDBId, Key) of
+        {ok, MetadataBin} ->
+            Metadata_1 = binary_to_term(MetadataBin),
+            #backend_info{read_handler = ReadHandler} = StorageInfo,
+            HeaderSize = erlang:round(?BLEN_HEADER/8),
+            case leo_file:pread(ReadHandler, Metadata_1#?METADATA.offset, HeaderSize) of
+                {ok, HeaderBin} ->
+                    case leo_object_storage_transformer:header_bin_to_metadata(HeaderBin) of
+                        {error, _Cause} ->
+                            {error, _Cause};
+                        _Metadata ->
+                            {ok, MetadataBin}
+                    end;
+                Other ->
+                    Other
+            end;
+        Error ->
+            Error
+    end;
+head_with_check_avs(MetaDBId, StorageInfo, Key, check_md5) ->
+    case get_fun(MetaDBId, StorageInfo, Key, -1, -1, false) of
+        {ok, #?METADATA{cnumber = 0, checksum = Checksum} = Meta, #?OBJECT{data = Bin}} ->
+            case leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)) of
+                Checksum ->
+                    {ok, term_to_binary(Meta)};
+                _ ->
+                    {error, invalid_object}
+            end;
+        {ok, #?METADATA{cnumber = _N} = Meta, _Object} ->
+            %% Not calc due to existing some grand childs
+            {ok, term_to_binary(Meta)};
         Other -> Other
     end.
 

@@ -775,6 +775,10 @@ operate_([Path1, Path2]) ->
     ?assertEqual(Key,    Meta2#?METADATA.key),
     ?assertEqual(0,      Meta2#?METADATA.del),
 
+    %% 5-2 Head with Check AVS for normal cases
+    {ok, _} = leo_object_storage_api:head_with_check_avs({AddrId, Key}, check_header),
+    {ok, _} = leo_object_storage_api:head_with_check_avs({AddrId, Key}, check_md5),
+
     %% 6. Delete
     Object2 = #?OBJECT{method    = delete,
                        key       = Key,
@@ -832,6 +836,9 @@ operate_([Path1, Path2]) ->
                    },
     {ok,_} = leo_object_storage_api:put({AddrId, Key}, Obj2),
     {ok, Res6, Res7} = leo_object_storage_api:get({AddrId, Key}),
+    %% Head with Check AVS for normal cases with custom metadata
+    {ok, _} = leo_object_storage_api:head_with_check_avs({AddrId, Key}, check_header),
+    {ok, _} = leo_object_storage_api:head_with_check_avs({AddrId, Key}, check_md5),
     ?assertEqual(ClusterId,     Res6#?METADATA.cluster_id),
     ?assertEqual(NumOfReplicas, Res6#?METADATA.num_of_replicas),
     ?assertEqual(Ver,           Res6#?METADATA.ver),
@@ -850,6 +857,11 @@ operate_([Path1, Path2]) ->
     {ok, Offset} = leo_object_storage_api:get_eof_offset(term_to_binary({AddrId, Key})),
     ok = leo_object_storage_api:modify_data({AddrId, Key}, <<"deadbeaf">>, Offset - 8),
     {error, invalid_object} = leo_object_storage_api:get({AddrId, Key}),
+
+    %% Head with Check AVS for abnormal cases
+    {error, invalid_method} = leo_object_storage_api:head_with_check_avs({AddrId, Key}, check_body),
+    {error, _} = leo_object_storage_api:head_with_check_avs({AddrId, Key}, check_header),
+    {error, invalid_object} = leo_object_storage_api:head_with_check_avs({AddrId, Key}, check_md5),
 
     application:stop(leo_backend_db),
     application:stop(bitcask),

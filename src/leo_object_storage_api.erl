@@ -37,7 +37,7 @@
          put/2,
          get/1, get/2, get/3, get/4,
          delete/2,
-         head/1, head_with_calc_md5/2,
+         head/1, head_with_calc_md5/2, head_with_check_avs/2,
          fetch_by_addr_id/2, fetch_by_addr_id/3,
          fetch_by_key/2, fetch_by_key/3,
          store/2,
@@ -194,6 +194,21 @@ head(AddrIdAndKey) ->
                                                          MD5Context::any()).
 head_with_calc_md5(AddrIdAndKey, MD5Context) ->
     do_request(head_with_calc_md5, [AddrIdAndKey, MD5Context]).
+
+%% @doc Retrieve a metadata from the object-storage
+%%      AND check if the corresponding AVS is broken.
+%%
+-spec(head_with_check_avs(AddrIdAndKey, CheckMethod) ->
+             {ok, binary()} |
+             not_found |
+             {error, any()} when AddrIdAndKey::addrid_and_key(),
+                                 CheckMethod::check_header | check_md5).
+head_with_check_avs(AddrIdAndKey, check_header) ->
+    do_request(head_with_check_avs, [AddrIdAndKey, check_header]);
+head_with_check_avs(AddrIdAndKey, check_md5) ->
+    do_request(head_with_check_avs, [AddrIdAndKey, check_md5]);
+head_with_check_avs(_AddrIdAndKey, _CheckMethod) ->
+    {error, invalid_method}.
 
 
 %% @doc Fetch objects by ring-address-id
@@ -602,6 +617,16 @@ do_request(head_with_calc_md5, [{AddrId, Key}, MD5Context]) ->
             Pid = ?get_obj_storage_read_proc(PidL, AddrId),
             ?SERVER_MODULE:head_with_calc_md5(
                Pid, {AddrId, Key}, MD5Context);
+        _ ->
+            {error, ?ERROR_PROCESS_NOT_FOUND}
+    end;
+do_request(head_with_check_avs, [{AddrId, Key}, CheckMethod]) ->
+    KeyBin = term_to_binary({AddrId, Key}),
+    case get_object_storage_pid(KeyBin) of
+        [{_,PidL}|_] ->
+            Pid = ?get_obj_storage_read_proc(PidL, AddrId),
+            ?SERVER_MODULE:head_with_check_avs(
+               Pid, {AddrId, Key}, CheckMethod);
         _ ->
             {error, ?ERROR_PROCESS_NOT_FOUND}
     end.
