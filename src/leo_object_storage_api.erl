@@ -228,7 +228,7 @@ fetch_by_addr_id(AddrId, Fun, MaxKeys) ->
         [] ->
             not_found;
         List ->
-            List_1 = [_Pid || {_Pid,_} <- List],
+            List_1 = [?get_obj_storage_read_proc(PidL, AddrId) || {_, PidL} <- List],
             case fetch_by_addr_id_1(List_1, AddrId, Fun, MaxKeys, []) of
                 Res ->
                     case MaxKeys of
@@ -269,7 +269,7 @@ fetch_by_key(Key, Fun, MaxKeys) ->
         [] ->
             not_found;
         List ->
-            List_1 = [_Pid || {_Pid,_} <- List],
+            List_1 = [?get_obj_storage_read_proc(PidL, erlang:phash2(Key)) || {_, PidL} <- List],
             case catch lists:foldl(
                          fun(Id, Acc) ->
                                  case catch ?SERVER_MODULE:fetch(Id, {0, Key}, Fun, MaxKeys) of
