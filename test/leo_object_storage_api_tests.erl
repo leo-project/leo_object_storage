@@ -932,7 +932,11 @@ fetch_by_key_([Path1, Path2]) ->
         {ok, Res} = leo_object_storage_api:fetch_by_key(<<"air/on/g/string">>, Fun),
         ?assertEqual(3, length(Res)),
         {ok, Res2} = leo_object_storage_api:fetch_by_key(<<"air/on/g/string">>, Fun, 2),
-        ?assertEqual(2, length(Res2))
+        ?assertEqual(2, length(Res2)),
+        {ok, Res3} = leo_object_storage_api:fetch_by_key_in_parallel(<<"air/on/g/string">>, Fun, undefined),
+        ?assertEqual(3, length(Res3)),
+        {ok, Res4} = leo_object_storage_api:fetch_by_key_in_parallel(<<"air/on/g/string">>, Fun, 1),
+        ?assertEqual(1, length(Res4))
     after
         application:stop(leo_backend_db),
         application:stop(bitcask),
