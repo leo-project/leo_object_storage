@@ -340,28 +340,57 @@ fetch_by_key_in_parallel(Key, Fun, MaxKeys) ->
 receiver_init(ServerIdList, Key, Fun, MaxKeys, Parent) ->
     process_flag(trap_exit, true),
     Pids = [spawn_link(?MODULE, fetcher_loop, [ServerId, Key, Fun, MaxKeys, self()]) || ServerId <- ServerIdList],
-    receiver_loop(Pids, [], [], Parent).
+    receiver_loop(Pids, [], [], dict:new(), Parent).
 
-receiver_loop([], Acc, [], Parent) ->
+receiver_loop([], Acc, [], _, Parent) ->
     Parent ! {ok, Acc};
-receiver_loop([], _Acc, Error, Parent) ->
+receiver_loop([], _Acc, Error, _, Parent) ->
     Parent ! {error, Error};
-receiver_loop(Pids, Acc, Error, Parent) ->
+receiver_loop(Pids, Acc, Error, CounterDict, Parent) ->
     receive
+        {counter, Pid, NewCnt} ->
+            NewCounterDict = dict:store(Pid, NewCnt, CounterDict),
+            Sum = dict:fold(fun(_K,V,ACC) -> V + ACC end, 0, NewCounterDict),
+            Pid ! {average, Sum / dict:size(NewCounterDict)},
+            receiver_loop(Pids, Acc, Error, NewCounterDict, Parent);
         {ok, Pid, Values} ->
-            receiver_loop(lists:delete(Pid, Pids), [Values|Acc], Error, Parent);
+            receiver_loop(lists:delete(Pid, Pids), [Values|Acc], Error, CounterDict, Parent);
         {not_found, Pid} ->
-            receiver_loop(lists:delete(Pid, Pids), Acc, Error, Parent);
+            receiver_loop(lists:delete(Pid, Pids), Acc, Error, CounterDict, Parent);
         {'EXIT', _Pid, normal} ->
-            receiver_loop(Pids, Acc, Error, Parent);
+            receiver_loop(Pids, Acc, Error, CounterDict, Parent);
         {'EXIT', Pid, Cause} ->
-            receiver_loop(lists:delete(Pid, Pids), Acc, [Cause|Error], Parent);
+            receiver_loop(lists:delete(Pid, Pids), Acc, [Cause|Error], CounterDict, Parent);
         _Other ->
-            receiver_loop(Pids, Acc, Error, Parent)
+            receiver_loop(Pids, Acc, Error, CounterDict, Parent)
     end.
 
 fetcher_loop(ServerId, Key, Fun, MaxKeys, ReceiverPid) ->
-    case catch ?SERVER_MODULE:fetch(ServerId, {0, Key}, Fun, MaxKeys) of
+    WrapFun = fun(K, V, Acc) ->
+                      Acc_1 = Fun(K, V, Acc),
+                      Counter = case erlang:get(counter) of
+                                    undefined ->
+                                        0;
+                                    C ->
+                                        C
+                                end,
+                      NewCounter = Counter + 1,
+                      erlang:put(counter, NewCounter),
+                      case NewCounter rem 5 of
+                          0 ->
+                              ReceiverPid ! {counter, self(), NewCounter},
+                              receive
+                                  {average, Avg} ->
+                                      case NewCounter > Avg of
+                                          true -> timer:sleep(10);
+                                          false -> nop
+                                      end
+                              end;
+                          _ -> nop
+                      end,
+                      Acc_1
+              end,
+    case catch ?SERVER_MODULE:fetch(ServerId, {0, Key}, WrapFun, MaxKeys) of
         {ok, Values} ->
             ReceiverPid ! {ok, self(), Values},
             exit(normal);
