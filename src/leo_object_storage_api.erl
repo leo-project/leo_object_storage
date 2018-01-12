@@ -382,7 +382,7 @@ fetcher_loop(ServerId, Key, Fun, MaxKeys, ReceiverPid) ->
                               receive
                                   {average, Avg} ->
                                       case NewCounter > Avg of
-                                          true -> timer:sleep(10);
+                                          true -> timer:sleep(1);
                                           false -> nop
                                       end
                               end;
