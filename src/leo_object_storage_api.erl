@@ -70,6 +70,7 @@
 -endif.
 
 -define(SERVER_MODULE, 'leo_object_storage_server').
+-define(FETCH_BY_KEY_INTERVAL_TO_COMMUNICATE_WITH_PARENT, 5). %% Communicate with a parent process per 5 messages
 
 %%--------------------------------------------------------------------
 %% API
@@ -376,7 +377,7 @@ fetcher_loop(ServerId, Key, Fun, MaxKeys, ReceiverPid) ->
                                 end,
                       NewCounter = Counter + 1,
                       erlang:put(counter, NewCounter),
-                      case NewCounter rem 5 of
+                      case NewCounter rem ?FETCH_BY_KEY_INTERVAL_TO_COMMUNICATE_WITH_PARENT of
                           0 ->
                               ReceiverPid ! {counter, self(), NewCounter},
                               receive
