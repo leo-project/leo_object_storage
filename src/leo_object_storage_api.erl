@@ -40,6 +40,7 @@
          head/1, head_with_calc_md5/2, head_with_check_avs/2,
          fetch_by_addr_id/2, fetch_by_addr_id/3,
          fetch_by_key/2, fetch_by_key/3,
+         fetch_by_key_in_parallel/3,
          store/2,
          stats/0,
          get_eof_offset/1,
@@ -58,11 +59,18 @@
          recover_metadata/0, recover_metadata/1, recover_metadata/2
         ]).
 
+%% to suppress unused function warnings
+-export([receiver_init/5,
+         fetcher_loop/5
+        ]).
+
+
 -ifdef(TEST).
 -export([add_incorrect_data/1, modify_data/3]).
 -endif.
 
 -define(SERVER_MODULE, 'leo_object_storage_server').
+-define(FETCH_BY_KEY_INTERVAL_TO_COMMUNICATE_WITH_PARENT, 5). %% Communicate with a parent process per 5 messages
 
 %%--------------------------------------------------------------------
 %% API
@@ -228,7 +236,7 @@ fetch_by_addr_id(AddrId, Fun, MaxKeys) ->
         [] ->
             not_found;
         List ->
-            List_1 = [_Pid || {_Pid,_} <- List],
+            List_1 = [?get_obj_storage_read_proc(PidL, AddrId) || {_, PidL} <- List],
             case fetch_by_addr_id_1(List_1, AddrId, Fun, MaxKeys, []) of
                 Res ->
                     case MaxKeys of
@@ -269,7 +277,7 @@ fetch_by_key(Key, Fun, MaxKeys) ->
         [] ->
             not_found;
         List ->
-            List_1 = [_Pid || {_Pid,_} <- List],
+            List_1 = [?get_obj_storage_read_proc(PidL, erlang:phash2(Key)) || {_, PidL} <- List],
             case catch lists:foldl(
                          fun(Id, Acc) ->
                                  case catch ?SERVER_MODULE:fetch(Id, {0, Key}, Fun, MaxKeys) of
@@ -302,6 +310,99 @@ fetch_by_key(Key, Fun, MaxKeys) ->
             end
     end.
 
+%% @doc Fetch objects by key (object-name) in parallel.
+%%      The number of spawned processes is same with the number of AVS files.
+%%
+-spec(fetch_by_key_in_parallel(Key, Fun, MaxKeys) ->
+             {ok, list()} | not_found when Key::binary(),
+                                           Fun::function(),
+                                           MaxKeys::non_neg_integer()|undefined).
+fetch_by_key_in_parallel(Key, Fun, MaxKeys) ->
+    case get_object_storage_pid(all) of
+        [] ->
+            not_found;
+        List ->
+            List_1 = [?get_obj_storage_read_proc(PidL, erlang:phash2(Key)) || {_, PidL} <- List],
+            spawn_link(?MODULE, receiver_init, [List_1, Key, Fun, MaxKeys, self()]),
+            receive
+                {ok, Ret} ->
+                    Reply = lists:reverse(lists:flatten(Ret)),
+                    case MaxKeys of
+                        undefined ->
+                            {ok, Reply};
+                        _ ->
+                            {ok, lists:sublist(Reply, MaxKeys)}
+                    end;
+                {error, Cause} ->
+                    {error, Cause}
+            end
+    end.
+
+receiver_init(ServerIdList, Key, Fun, MaxKeys, Parent) ->
+    process_flag(trap_exit, true),
+    Pids = [spawn_link(?MODULE, fetcher_loop, [ServerId, Key, Fun, MaxKeys, self()]) || ServerId <- ServerIdList],
+    receiver_loop(Pids, [], [], dict:new(), Parent).
+
+receiver_loop([], Acc, [], _, Parent) ->
+    Parent ! {ok, Acc};
+receiver_loop([], _Acc, Error, _, Parent) ->
+    Parent ! {error, Error};
+receiver_loop(Pids, Acc, Error, CounterDict, Parent) ->
+    receive
+        {counter, Pid, NewCnt} ->
+            NewCounterDict = dict:store(Pid, NewCnt, CounterDict),
+            Sum = dict:fold(fun(_K,V,ACC) -> V + ACC end, 0, NewCounterDict),
+            Pid ! {average, Sum / dict:size(NewCounterDict)},
+            receiver_loop(Pids, Acc, Error, NewCounterDict, Parent);
+        {ok, Pid, Values} ->
+            receiver_loop(lists:delete(Pid, Pids), [Values|Acc], Error, CounterDict, Parent);
+        {not_found, Pid} ->
+            receiver_loop(lists:delete(Pid, Pids), Acc, Error, CounterDict, Parent);
+        {'EXIT', _Pid, normal} ->
+            receiver_loop(Pids, Acc, Error, CounterDict, Parent);
+        {'EXIT', Pid, Cause} ->
+            receiver_loop(lists:delete(Pid, Pids), Acc, [Cause|Error], CounterDict, Parent);
+        _Other ->
+            receiver_loop(Pids, Acc, Error, CounterDict, Parent)
+    end.
+
+fetcher_loop(ServerId, Key, Fun, MaxKeys, ReceiverPid) ->
+    WrapFun = fun(K, V, Acc) ->
+                      Acc_1 = Fun(K, V, Acc),
+                      Counter = case erlang:get(counter) of
+                                    undefined ->
+                                        0;
+                                    C ->
+                                        C
+                                end,
+                      NewCounter = Counter + 1,
+                      erlang:put(counter, NewCounter),
+                      case NewCounter rem ?FETCH_BY_KEY_INTERVAL_TO_COMMUNICATE_WITH_PARENT of
+                          0 ->
+                              ReceiverPid ! {counter, self(), NewCounter},
+                              receive
+                                  {average, Avg} ->
+                                      case NewCounter > Avg of
+                                          true -> timer:sleep(1);
+                                          false -> nop
+                                      end
+                              end;
+                          _ -> nop
+                      end,
+                      Acc_1
+              end,
+    case catch ?SERVER_MODULE:fetch(ServerId, {0, Key}, WrapFun, MaxKeys) of
+        {ok, Values} ->
+            ReceiverPid ! {ok, self(), Values},
+            exit(normal);
+        not_found ->
+            ReceiverPid ! {not_found, self()},
+            exit(normal);
+        {_, Cause} when is_tuple(Cause) ->
+            exit(element(1, Cause));
+        {_, Cause} ->
+            exit(Cause)
+    end.
 
 %% @doc Store metadata and data
 %%
