@@ -190,7 +190,7 @@ start_child_3([],_,_,_,_, Pids) ->
     ChildSpec = {leo_object_storage_diskspace_mon,
                  {leo_object_storage_diskspace_mon, start_link,
                   [?env_diskspace_check_intervals(), AVSServerPairL]},
-                 permanent, 2000, supervisor, [leo_object_storage_diskspace_mon]},
+                 permanent, 2000, worker, [leo_object_storage_diskspace_mon]},
     case supervisor:start_child(?MODULE, ChildSpec) of
         {ok, Pid} ->
             Pid;
