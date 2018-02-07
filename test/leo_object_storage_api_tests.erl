@@ -637,7 +637,8 @@ suite_test_() ->
      [{with, [T]} || T <- [fun new_/1,
                            fun operate_/1,
                            fun fetch_by_addr_id_/1,
-                           fun fetch_by_key_/1
+                           fun fetch_by_key_/1,
+                           fun msg_collector_/1
                           ]]}.
 
 setup() ->
@@ -663,6 +664,36 @@ teardown([Path1, Path2]) ->
     timer:sleep(1000),
     ok.
 
+msg_collector_(_) ->
+    leo_object_storage_msg_collector:init(false),
+    {ok, Msgs} = leo_object_storage_msg_collector:get(),
+    ?assertEqual(0, erlang:length(leo_misc:get_value(?MSG_ITEM_TIMEOUT, Msgs, []))),
+    ?assertEqual(0, erlang:length(leo_misc:get_value(?MSG_ITEM_SLOW_OP, Msgs, []))),
+    ok = leo_object_storage_msg_collector:clear(),
+    ok = leo_object_storage_msg_collector:notify(?MSG_ITEM_TIMEOUT, put, key),
+    ok = leo_object_storage_msg_collector:notify(?MSG_ITEM_SLOW_OP, put, key, 1000),
+    {ok, Msgs2} = leo_object_storage_msg_collector:get(),
+    ?assertEqual(0, erlang:length(leo_misc:get_value(?MSG_ITEM_TIMEOUT, Msgs2, []))),
+    ?assertEqual(0, erlang:length(leo_misc:get_value(?MSG_ITEM_SLOW_OP, Msgs2, []))),
+
+    leo_object_storage_msg_collector:init(true),
+    {ok, Msgs3} = leo_object_storage_msg_collector:get(),
+    ?assertEqual(0, erlang:length(leo_misc:get_value(?MSG_ITEM_TIMEOUT, Msgs3, []))),
+    ?assertEqual(0, erlang:length(leo_misc:get_value(?MSG_ITEM_SLOW_OP, Msgs3, []))),
+    ok = leo_object_storage_msg_collector:notify(?MSG_ITEM_TIMEOUT, put, key),
+    ok = leo_object_storage_msg_collector:notify(?MSG_ITEM_TIMEOUT, get, key2),
+    ok = leo_object_storage_msg_collector:notify(?MSG_ITEM_TIMEOUT, delete, key3),
+    ok = leo_object_storage_msg_collector:notify(?MSG_ITEM_SLOW_OP, put, key, 1000),
+    ok = leo_object_storage_msg_collector:notify(?MSG_ITEM_SLOW_OP, get, key2, 1000),
+    ok = leo_object_storage_msg_collector:notify(?MSG_ITEM_SLOW_OP, delete, key3, 1000),
+    {ok, Msgs4} = leo_object_storage_msg_collector:get(),
+    ?assertEqual(3, erlang:length(leo_misc:get_value(?MSG_ITEM_TIMEOUT, Msgs4, []))),
+    ?assertEqual(3, erlang:length(leo_misc:get_value(?MSG_ITEM_SLOW_OP, Msgs4, []))),
+    ok = leo_object_storage_msg_collector:clear(),
+    {ok, Msgs5} = leo_object_storage_msg_collector:get(),
+    ?assertEqual(0, erlang:length(leo_misc:get_value(?MSG_ITEM_TIMEOUT, Msgs5, []))),
+    ?assertEqual(0, erlang:length(leo_misc:get_value(?MSG_ITEM_SLOW_OP, Msgs5, []))),
+    ok.
 
 new_([Path1, _]) ->
     %% 1-1.

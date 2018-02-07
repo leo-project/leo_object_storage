@@ -83,10 +83,10 @@ start([]) ->
     {error, badarg};
 start(Option) ->
     start(Option, undefined).
-start(Option, CallbackMod) ->
+start(Option, _CallbackMod) ->
     case start_app() of
         ok ->
-            leo_object_storage_sup:start_child(Option, CallbackMod);
+            leo_object_storage_sup:start_child(Option);
         {error, Cause} ->
             {error, Cause}
     end.

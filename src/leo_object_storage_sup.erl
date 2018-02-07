@@ -28,10 +28,10 @@
 -include("leo_object_storage.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--export([start_link/0, start_link/1, start_link/2,
+-export([start_link/0, start_link/1,
          stop/0,
          init/1,
-         start_child/1, start_child/2]).
+         start_child/1]).
 
 %% exported to suppress unused warnings so don't call this function out of the module
 -export([start_child_3_1/7]).
@@ -52,18 +52,13 @@ start_link() ->
 -spec(start_link([{pos_integer(), string()}]) ->
              {ok, pid()} | {error, any()}).
 start_link(ObjectStorageInfo) ->
-    start_link(ObjectStorageInfo, undefined).
-
--spec(start_link([{pos_integer(), string()}], module()|undefined) ->
-             {ok, pid()} | {error, any()}).
-start_link(ObjectStorageInfo, CallbackMod) ->
     Res = case whereis(?MODULE) of
               undefined ->
                   supervisor:start_link({local, ?MODULE}, ?MODULE, []);
               Pid ->
                   {ok, Pid}
           end,
-    _ = start_child(ObjectStorageInfo, CallbackMod),
+    _ = start_child(ObjectStorageInfo),
     Res.
 
 
@@ -101,11 +96,6 @@ init([]) ->
 -spec(start_child([{pos_integer(), string()}]) ->
              ok | no_return()).
 start_child(ObjectStorageInfo) ->
-    start_child(ObjectStorageInfo, undefined).
-
--spec(start_child([{pos_integer(), string()}], CallbackMod) ->
-             ok | no_return() when CallbackMod::module()|undefined).
-start_child(ObjectStorageInfo, CallbackMod) ->
     %% initialize ets-tables
     ok = leo_misc:init_env(),
     catch ets:new(?ETS_CONTAINERS_TABLE,
@@ -124,7 +114,6 @@ start_child(ObjectStorageInfo, CallbackMod) ->
                       IsStrictCheck, []),
     ok = start_child_4(ServerPairL),
     ok = start_child_5(),
-    ok = start_child_6(CallbackMod),
     ok.
 
 
@@ -287,14 +276,6 @@ start_child_5() ->
                     end
             end
     end.
-
-start_child_6(CallbackMod) ->
-    ChildSpec = {leo_object_storage_event_notifier,
-                 {leo_object_storage_event_notifier, start_link, [CallbackMod]},
-                 permanent, 2000, worker, [leo_object_storage_event_notifier]},
-    {ok, _} = supervisor:start_child(leo_object_storage_sup, ChildSpec),
-    ok.
-
 
 %% ---------------------------------------------------------------------
 %% Inner Function(s)
