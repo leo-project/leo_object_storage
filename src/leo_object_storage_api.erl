@@ -32,7 +32,7 @@
 -include("leo_object_storage.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--export([start/1, start/2,
+-export([start/1,
          start_with_path/1,
          put/2,
          get/1, get/2, get/3, get/4,
@@ -82,8 +82,6 @@
 start([]) ->
     {error, badarg};
 start(Option) ->
-    start(Option, undefined).
-start(Option, _CallbackMod) ->
     case start_app() of
         ok ->
             leo_object_storage_sup:start_child(Option);

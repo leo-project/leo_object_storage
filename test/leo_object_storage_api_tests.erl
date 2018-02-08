@@ -25,14 +25,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("leo_object_storage.hrl").
 
--export([notify/4]).
-
-notify(slow_operation, Method, Key, ProcessingTime) ->
-    ?debugVal({slow_operation, Method, Key, ProcessingTime});
-notify(_Info,_Method,_Key,_ProcessingTime) ->
-    ok.
-
-
 -ifdef(EUNIT).
 
 %%======================================================================
@@ -285,7 +277,7 @@ recover() ->
 
 compact() ->
     %% Launch object-storage
-    leo_object_storage_api:start([{1, ?AVS_DIR_FOR_COMPACTION}], ?MODULE),
+    leo_object_storage_api:start([{1, ?AVS_DIR_FOR_COMPACTION}]),
     ok = put_regular_bin(1, 50),
     ok = put_irregular_bin(),
     ok = put_regular_bin(36, 25),
