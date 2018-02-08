@@ -43,6 +43,8 @@
 %% ETS-Table
 -define(ETS_CONTAINERS_TABLE, 'leo_object_storage_containers').
 -define(ETS_INFO_TABLE, 'leo_object_storage_info').
+-define(ETS_TIMEOUT_MSG_TABLE, 'leo_object_storage_timeout_msg').
+-define(ETS_SLOWOP_MSG_TABLE, 'leo_object_storage_slowop_msg').
 
 %% regarding compaction
 -define(ENV_COMPACTION_STATUS, 'compaction_status').
@@ -182,6 +184,8 @@
 
 -define(ERROR_MSG_SLOW_OPERATION, 'slow_operation').
 -define(ERROR_MSG_TIMEOUT,        'timeout').
+-define(MSG_ITEM_SLOW_OP, 'slow_operation').
+-define(MSG_ITEM_TIMEOUT, 'timeout').
 
 -define(DEL_TRUE,  1).
 -define(DEL_FALSE, 0).
@@ -637,6 +641,13 @@
                 timer:minutes(1)
         end).
 
+-define(env_enable_msg_collector(),
+        case application:get_env(?APP_NAME, msg_collector) of
+            {ok, true} ->
+                true;
+            _ ->
+                false
+        end).
 
 %% custom-metadata's items for MDC-replication:
 -define(PROP_CMETA_CLUSTER_ID, 'cluster_id').
