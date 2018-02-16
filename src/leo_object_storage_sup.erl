@@ -47,14 +47,14 @@
 -spec(start_link() ->
              {ok, pid()} | {error, any()}).
 start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+    supervisor2:start_link({local, ?MODULE}, ?MODULE, []).
 
 -spec(start_link([{pos_integer(), string()}]) ->
              {ok, pid()} | {error, any()}).
 start_link(ObjectStorageInfo) ->
     Res = case whereis(?MODULE) of
               undefined ->
-                  supervisor:start_link({local, ?MODULE}, ?MODULE, []);
+                  supervisor2:start_link({local, ?MODULE}, ?MODULE, []);
               Pid ->
                   {ok, Pid}
           end,
@@ -71,7 +71,7 @@ start_link(ObjectStorageInfo) ->
 stop() ->
     case whereis(?MODULE) of
         Pid when is_pid(Pid) == true ->
-            List = supervisor:which_children(Pid),
+            List = supervisor2:which_children(Pid),
             ok = close_storage(List),
             ok;
         _ ->
@@ -125,8 +125,8 @@ start_child_1() ->
         undefined ->
             ChildSpec = {leo_backend_db_sup,
                          {leo_backend_db_sup, start_link, []},
-                         permanent, 2000, supervisor, [leo_backend_db_sup]},
-            case supervisor:start_child(?MODULE, ChildSpec) of
+                         {permanent, 2}, 2000, supervisor, [leo_backend_db_sup]},
+            case supervisor2:start_child(?MODULE, ChildSpec) of
                 {ok, Pid} ->
                     Pid;
                 {error, Cause} ->
@@ -143,8 +143,8 @@ start_child_2() ->
         undefined ->
             ChildSpec = {leo_logger_sup,
                          {leo_logger_sup, start_link, []},
-                         permanent, 2000, supervisor, [leo_logger_sup]},
-            case supervisor:start_child(?MODULE, ChildSpec) of
+                         {permanent, 2}, 2000, supervisor, [leo_logger_sup]},
+            case supervisor2:start_child(?MODULE, ChildSpec) of
                 {ok, _Pid} ->
                     ok;
                 {error, Cause} ->
@@ -179,8 +179,8 @@ start_child_3([],_,_,_,_, Pids) ->
     ChildSpec = {leo_object_storage_diskspace_mon,
                  {leo_object_storage_diskspace_mon, start_link,
                   [?env_diskspace_check_intervals(), AVSServerPairL]},
-                 permanent, 2000, worker, [leo_object_storage_diskspace_mon]},
-    case supervisor:start_child(?MODULE, ChildSpec) of
+                 {permanent, 2}, 2000, worker, [leo_object_storage_diskspace_mon]},
+    case supervisor2:start_child(?MODULE, ChildSpec) of
         {ok, Pid} ->
             Pid;
         {error, Cause} ->
@@ -234,8 +234,8 @@ start_child_3_1(DeviceIndex, ContainerIndex, BackendDBSupPid, Props, Parent, Dic
 start_child_4(ServerPairL) ->
     ChildSpec = {leo_compact_fsm_controller,
                  {leo_compact_fsm_controller, start_link, [ServerPairL]},
-                 permanent, 2000, worker, [leo_compact_fsm_controller]},
-    case supervisor:start_child(?MODULE, ChildSpec) of
+                 {permanent, 2}, 2000, worker, [leo_compact_fsm_controller]},
+    case supervisor2:start_child(?MODULE, ChildSpec) of
         {ok, _Pid} ->
             ok;
         {error, Cause} ->
@@ -250,7 +250,7 @@ start_child_5() ->
         undefined ->
             exit(not_initialized);
         SupRef ->
-            Ret = case supervisor:count_children(SupRef) of
+            Ret = case supervisor2:count_children(SupRef) of
                       [_|_] = Props ->
                           Active  = leo_misc:get_value('active',  Props),
                           Workers = leo_misc:get_value('workers', Props),
@@ -365,8 +365,8 @@ add_container_1(leo_compact_fsm_worker = Mod,
     ChildSpec = {Id,
                  {Mod, start_link,
                   [Id, ObjStorageId, ObjStorageIdRead, MetaDBId, LoggerId]},
-                 permanent, 2000, worker, [Mod]},
-    case supervisor:start_child(?MODULE, ChildSpec) of
+                 {permanent, 2}, 2000, worker, [Mod]},
+    case supervisor2:start_child(?MODULE, ChildSpec) of
         {ok,_} ->
             ok;
         {error, Cause} ->
@@ -398,8 +398,8 @@ add_container_1(leo_object_storage_server = Mod, BaseId,
                                        is_strict_check = IsStrictCheck},
     ChildSpec_1 = {ObjStorageId,
                    {Mod, start_link, [ObjServerState]},
-                   permanent, 2000, worker, [Mod]},
-    case supervisor:start_child(?MODULE, ChildSpec_1) of
+                   {permanent, 2}, 2000, worker, [Mod]},
+    case supervisor2:start_child(?MODULE, ChildSpec_1) of
         {ok,_} ->
             %% For GET and HEAD
             NumOfObjStorageReadProcs = ?env_num_of_obj_storage_read_procs(),
@@ -438,8 +438,8 @@ add_container_2(ChildIndex, Mod, BaseId,
                  {Mod, start_link,
                   [ObjServerState#obj_server_state{id = ObjStorageId_R,
                                                    privilege = ?OBJ_PRV_READ_ONLY}]},
-                 permanent, 2000, worker, [Mod]},
-    Ret = case supervisor:start_child(?MODULE, ChildSpec) of
+                 {permanent, 2}, 2000, worker, [Mod]},
+    Ret = case supervisor2:start_child(?MODULE, ChildSpec) of
               {ok,_} ->
                   ok;
               {error,{already_started,_Pid}} ->
