@@ -921,7 +921,13 @@ fetch_by_addr_id_([Path1, Path2]) ->
                       end
               end,
         {ok, Res} = leo_object_storage_api:fetch_by_addr_id(0, Fun),
-        ?assertEqual(3, length(Res))
+        ?assertEqual(3, length(Res)),
+        {ok, Res1} = leo_object_storage_api:fetch_by_addr_id_and_disk(0, 1, Fun),
+        ?debugVal(Res1),
+        {ok, Res2} = leo_object_storage_api:fetch_by_addr_id_and_disk(0, 2, Fun),
+        ?debugVal(Res2),
+        ?assertEqual(3, length(Res1) + length(Res2)),
+        ok
     after
         application:stop(leo_backend_db),
         application:stop(bitcask),

@@ -39,6 +39,7 @@
          delete/2,
          head/1, head_with_calc_md5/2, head_with_check_avs/2,
          fetch_by_addr_id/2, fetch_by_addr_id/3,
+         fetch_by_addr_id_and_disk/3,
          fetch_by_key/2, fetch_by_key/3,
          fetch_by_key_in_parallel/3,
          store/2,
@@ -216,6 +217,20 @@ head_with_check_avs(AddrIdAndKey, check_md5) ->
 head_with_check_avs(_AddrIdAndKey, _CheckMethod) ->
     {error, invalid_method}.
 
+%% @doc Fetch objects by ring-address-id and disk-id
+%%
+-spec(fetch_by_addr_id_and_disk(AddrId, Disk, Fun) ->
+             {ok, []} | not_found when AddrId::non_neg_integer(),
+                                       Disk::pos_integer(),
+                                       Fun::function()|undefined).
+fetch_by_addr_id_and_disk(AddrId, Disk, Fun) ->
+    case get_object_storage_pid_by_disk_id(Disk) of
+        [] ->
+            not_found;
+        List ->
+            List_1 = [?get_obj_storage_read_proc(PidL, AddrId) || {_, PidL} <- List],
+            {ok, fetch_by_addr_id_1(List_1, AddrId, Fun, undefined, [])}
+    end.
 
 %% @doc Fetch objects by ring-address-id
 %%
@@ -481,6 +496,16 @@ get_object_storage_pid_by_container_id(ContainerId) ->
             [{leo_misc:get_value(obj_storage, Value),
               leo_misc:get_value(obj_storage_read, Value)}]
     end.
+
+%% @doc Retrieve object-storage-pid by disk-id
+-spec(get_object_storage_pid_by_disk_id(Disk) ->
+             list() | not_found when Disk::pos_integer()).
+get_object_storage_pid_by_disk_id(Disk) ->
+    List = ets:tab2list(list_to_atom(?ETS_CONTAINERS_BY_DISK_TABLE ++ integer_to_list(Disk))),
+    lists:map(fun({_, Value}) ->
+                      {leo_misc:get_value(obj_storage, Value),
+                       leo_misc:get_value(obj_storage_read, Value)}
+              end, List).
 
 %% @doc Get the EOF offset
 %%      especially useful for debug/test
