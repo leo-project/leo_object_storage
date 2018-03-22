@@ -41,6 +41,7 @@
 -define(DEF_NUM_OF_OBJ_STORAGE_READ_PROCS, 3).
 
 %% ETS-Table
+-define(ETS_CONTAINERS_BY_DISK_TABLE, "leo_object_storage_containers_by_disk_").
 -define(ETS_CONTAINERS_TABLE, 'leo_object_storage_containers').
 -define(ETS_INFO_TABLE, 'leo_object_storage_info').
 -define(ETS_TIMEOUT_MSG_TABLE, 'leo_object_storage_timeout_msg').

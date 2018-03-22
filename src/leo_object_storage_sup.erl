@@ -98,6 +98,9 @@ init([]) ->
 start_child(ObjectStorageInfo) ->
     %% initialize ets-tables
     ok = leo_misc:init_env(),
+    [catch ets:new(list_to_atom(?ETS_CONTAINERS_BY_DISK_TABLE ++ integer_to_list(Index)),
+                   [named_table, ordered_set, public, {read_concurrency, true}]) ||
+                   Index <- lists:seq(1, length(ObjectStorageInfo))],
     catch ets:new(?ETS_CONTAINERS_TABLE,
                   [named_table, ordered_set, public, {read_concurrency, true}]),
     catch ets:new(?ETS_INFO_TABLE,
@@ -423,6 +426,12 @@ add_container_1(leo_object_storage_server = Mod, BaseId,
 add_container_2(-1,_Mod, BaseId,
                 ObjStorageId, MetaDBId, CompactWorkerId,_ObjServerState, Acc) ->
     true = ets:insert(?ETS_CONTAINERS_TABLE,
+                      {BaseId, [{obj_storage, ObjStorageId},
+                                {obj_storage_read, Acc},
+                                {metadata, MetaDBId},
+                                {compact_worker, CompactWorkerId}]}),
+    Index = BaseId div ?DEVICE_ID_INTERVALS + 1,
+    true = ets:insert(list_to_atom(?ETS_CONTAINERS_BY_DISK_TABLE ++ integer_to_list(Index)),
                       {BaseId, [{obj_storage, ObjStorageId},
                                 {obj_storage_read, Acc},
                                 {metadata, MetaDBId},
