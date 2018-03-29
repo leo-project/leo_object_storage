@@ -373,7 +373,7 @@ compact_3() ->
     put_irregular_bin(Key, CMeta, 0, leo_date:clock()),
     %% inserted but will be compacted due to the csize limit
     Key2 = list_to_binary("invalid_csize"),
-    put_irregular_bin(Key2, CMeta, 1024 * 1024 * 11, leo_date:clock()),
+    put_irregular_bin(Key2, CMeta, 1024 * 1024 * 1024 * 2 + 1, leo_date:clock()),
     %% inserted but will be compacte due to the msize limit
     Key3 = list_to_binary("invalid_msize"),
     UDM = crypto:strong_rand_bytes(4096),
