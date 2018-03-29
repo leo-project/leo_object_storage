@@ -27,7 +27,7 @@
 %%======================================================================
 -module(leo_object_storage_msg_collector).
 
--include_lib("leo_object_storage/include/leo_object_storage.hrl").
+-include_lib("leo_object_storage.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 %% API

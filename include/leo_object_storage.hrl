@@ -207,7 +207,10 @@
 -define(AVS_HEADER_VSN_TOBE, ?AVS_HEADER_VSN_2_4).
 
 %% Max Data Block Size to be larger than leo_gateway's large object settings
--define(MAX_DATABLOCK_SIZE, 1024 * 1024 * 10).
+%% https://docs.aws.amazon.com/AmazonS3/latest/dev/UploadingObjects.html
+%% According to the above spec, 5GB is the theoretical limit however the size is stored in a 32bit field
+%% so we set it to 2GB for now.
+-define(MAX_DATABLOCK_SIZE, 1024 * 1024 * 1024 * 2).
 
 %% Constants to validate a chunk retrieved from AVS
 %% spec: https://github.com/leo-project/leofs/issues/527#issuecomment-262163109
