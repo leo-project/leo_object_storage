@@ -343,7 +343,7 @@
           del = ?DEL_FALSE :: del_flag()    %% [{0,not_deleted}, {1,deleted}]
          }).
 
--record(metadata_3, { %% leofs-v1.3.1 - the latest version
+-record(metadata_3, { %% leofs-v1.3.1 - v1.4.x
           key = <<>> :: binary(),                   %% filename
           addr_id = 0 :: integer(),                 %% ring-address id (MD5 > hex-to-integer)
           ksize = 0 :: integer(),                   %% file-path size
@@ -369,7 +369,36 @@
           ver = 0 :: integer(),                     %% version number
           del = ?DEL_FALSE :: del_flag()            %% [{0,not_deleted}, {1,deleted}]
          }).
--define(METADATA, 'metadata_3').
+
+-record(metadata_4, { %% leofs-v2.0.0 - the latest version
+          key = <<>> :: binary(),                   %% filename
+          addr_id = 0 :: integer(),                 %% ring-address id (MD5 > hex-to-integer)
+          ksize = 0 :: integer(),                   %% file-path size
+          dsize = 0 :: integer(),                   %% data size
+          meta = <<>> :: binary(),                  %% custom-metadata (user defined metadata)
+          msize = 0 :: integer(),                   %% custom-metadata size
+          csize = 0 :: integer(),                   %% * chunked data size    (for large-object)
+          cnumber = 0 :: integer(),                 %% * # of chunked objects (for large-object)
+          cindex  = 0 :: integer(),                 %% * chunked object index (for large-object)
+          offset  = 0 :: integer(),                 %% object-container's offset
+          clock = 0 :: integer(),                   %% clock
+          timestamp = 0 :: integer(),               %% timestamp
+          checksum = 0 :: integer(),                %% checksum (MD5 > hex-to-integer)
+          ring_hash = 0 :: integer(),               %% RING's Hash(CRC32) when write an object.
+          cluster_id :: atom(),                     %% cluster-id for the mdc-replication
+          num_of_replicas = 0 :: non_neg_integer(), %% [mdcr/bucket] # of replicas for the mdc-replication
+                                                    %%              - [0: no effects,
+                                                    %%                 1..*: preferred value of the data-replicatino]
+                                                    %%                  as well as preferred_r, preferred_w, preferred_d
+          preferred_r = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful READ operation
+          preferred_w = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful WRITE operation
+          preferred_d = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful DELETE operation
+          sse_keyhash = <<>> :: binary(),           %% Server Side Encryption: Key Hash
+          sse_iv = <<>> :: binary(),                %% Server Side Encryption: IV
+          ver = 0 :: integer(),                     %% version number
+          del = ?DEL_FALSE :: del_flag()            %% [{0,not_deleted}, {1,deleted}]
+         }).
+-define(METADATA, 'metadata_4').
 
 -record(object, { %% - leofs-v1.0.0-pre3
           method,
@@ -416,7 +445,7 @@
           del = ?DEL_FALSE :: del_flag()    %% delete flag
          }).
 
--record(object_2, { %% leofs-v1.3.3 - the latest version
+-record(object_2, { %% leofs-v1.3.3 - v1.4.x
           method,
           key = <<>>   :: binary(),         %% filename
           addr_id = 0 :: integer(),         %% ring-address id (MD5 > hex-to-integer)
@@ -445,7 +474,39 @@
           ver = 0 :: integer(),                     %% version number
           del = ?DEL_FALSE :: del_flag()            %% delete flag
          }).
--define(OBJECT, 'object_2').
+
+-record(object_3, { %% leofs-v2.0.0 - the latest version
+          method,
+          key = <<>>   :: binary(),         %% filename
+          addr_id = 0 :: integer(),         %% ring-address id (MD5 > hex-to-integer)
+          data = <<>> :: binary(),          %% file
+          meta = <<>> :: binary(),          %% custom-metadata (user defined metadata)
+          ksize = 0 :: integer(),           %% filename size
+          dsize = 0 :: integer(),           %% data size
+          msize = 0 :: integer(),           %% custom-metadata size
+          csize = 0 :: integer(),           %% * chunked data size    (for large-object)
+          cnumber = 0 :: integer(),         %% * # of chunked objects (for large-object)
+          cindex = 0 :: integer(),          %% * chunked object index (for large-object)
+          offset = 0 :: integer(),          %% object-container's offset
+          clock = 0 :: integer(),           %% clock
+          timestamp = 0 :: integer(),       %% timestamp
+          checksum = 0 :: integer(),        %% checksum (MD5 > hex-to-integer)
+          ring_hash = 0 :: integer(),       %% RING's Hash(CRC32) when write an object.
+          req_id= 0 :: integer(),           %% request id
+          cluster_id :: atom(),             %% cluster-id for the mdc-replication
+          num_of_replicas = 0 :: non_neg_integer(), %% [mdcr/bucket] # of replicas for the mdc-replication
+                                                    %%              - [0: no effects,
+                                                    %%                 1..*: preferred value of the data-replicatino]
+                                                    %%                  as well as preferred_r, preferred_w, preferred_d
+          preferred_r = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful READ operation
+          preferred_w = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful WRITE operation
+          preferred_d = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful DELETE operation
+          sse_keyhash = <<>> :: binary(),           %% Server Side Encryption: Key Hash
+          sse_iv = <<>> :: binary(),                %% Server Side Encryption: IV
+          ver = 0 :: integer(),                     %% version number
+          del = ?DEL_FALSE :: del_flag()            %% delete flag
+         }).
+-define(OBJECT, 'object_3').
 
 -record(storage_stats, {
           file_path       = [] :: string(),
