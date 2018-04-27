@@ -2,7 +2,7 @@
 %%
 %% Leo Object Storage
 %%
-%% Copyright (c) 2012-2017 Rakuten, Inc.
+%% Copyright (c) 2012-2018 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -23,7 +23,6 @@
 %% @end
 %%======================================================================
 -module(leo_object_storage_transformer).
--author('Yosuke Hara').
 
 -include("leo_object_storage.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -46,8 +45,8 @@
 %% @doc Transform from a metadata to an object
 -spec(metadata_to_object(Metadata) ->
              #?OBJECT{} | {error, invaid_record} when Metadata::#metadata{} |
-                                                      #metadata_1{} | #metadata_2{} |
-                                                      #metadata_3{} | #?METADATA{}).
+                                                                #metadata_1{} | #metadata_2{} |
+                                                                #metadata_3{} | #?METADATA{}).
 metadata_to_object(#metadata{key = Key,
                              addr_id = AddrId,
                              ksize = KSize,
@@ -150,26 +149,26 @@ metadata_to_object(#metadata_2{} = Metadata) ->
              del = Del};
 metadata_to_object(#metadata_3{} = Metadata) ->
     #metadata_3{key = Key,
-               addr_id = AddrId,
-               ksize = KSize,
-               dsize = DSize,
-               meta = CMeta,
-               msize = MSize,
-               csize = CSize,
-               cnumber = CNum,
-               cindex = CIndex,
-               offset = Offset,
-               clock = Clock,
-               timestamp = Timestamp,
-               checksum = Checksum,
-               ring_hash = RingHash,
-               cluster_id = ClusterId,
-               num_of_replicas = NumOfReplicas,
-               preferred_r = Preferred_R,
-               preferred_w = Preferred_W,
-               preferred_d = Preferred_D,
-               ver = Ver,
-               del = Del} = Metadata,
+                addr_id = AddrId,
+                ksize = KSize,
+                dsize = DSize,
+                meta = CMeta,
+                msize = MSize,
+                csize = CSize,
+                cnumber = CNum,
+                cindex = CIndex,
+                offset = Offset,
+                clock = Clock,
+                timestamp = Timestamp,
+                checksum = Checksum,
+                ring_hash = RingHash,
+                cluster_id = ClusterId,
+                num_of_replicas = NumOfReplicas,
+                preferred_r = Preferred_R,
+                preferred_w = Preferred_W,
+                preferred_d = Preferred_D,
+                ver = Ver,
+                del = Del} = Metadata,
     #?OBJECT{key = Key,
              addr_id = AddrId,
              ksize = KSize,
@@ -211,8 +210,8 @@ metadata_to_object(#?METADATA{} = Metadata) ->
                preferred_r = Preferred_R,
                preferred_w = Preferred_W,
                preferred_d = Preferred_D,
-               sse_keyhash = SSE_KeyHash,
-               sse_iv = SSE_IV,
+               ssec_key_hash = SSEC_KeyHash,
+               ssec_iv = SSEC_IV,
                ver = Ver,
                del = Del} = Metadata,
     #?OBJECT{key = Key,
@@ -234,8 +233,8 @@ metadata_to_object(#?METADATA{} = Metadata) ->
              preferred_r = Preferred_R,
              preferred_w = Preferred_W,
              preferred_d = Preferred_D,
-             sse_keyhash = SSE_KeyHash,
-             sse_iv = SSE_IV,
+             ssec_key_hash = SSEC_KeyHash,
+             ssec_iv = SSEC_IV,
              ver = Ver,
              del = Del};
 metadata_to_object(_M) ->
@@ -243,7 +242,6 @@ metadata_to_object(_M) ->
 
 
 %% @doc a metadata to an object info
-%%
 -spec(metadata_to_object(Bin, Metadata) ->
              Object when Bin::binary(),
                          Metadata::#?METADATA{},
@@ -264,7 +262,7 @@ metadata_to_object(Bin, Metadata) ->
 %% @doc Transfer object to metadata
 -spec(object_to_metadata(Object) ->
              #?METADATA{} when Object::#object{}|#object_1{}|
-                               #object_2{}|#?OBJECT{}).
+                                       #object_2{}|#?OBJECT{}).
 object_to_metadata(#object{key = Key,
                            addr_id = AddrId,
                            ksize = KSize,
@@ -330,26 +328,26 @@ object_to_metadata(#object_1{key = Key,
                ver = Ver,
                del = Del};
 object_to_metadata(#object_2{key = Key,
-                            addr_id = AddrId,
-                            ksize = KSize,
-                            dsize = DSize,
-                            meta = CMeta,
-                            msize = MSize,
-                            csize = CSize,
-                            cnumber = CNum,
-                            cindex = CIndex,
-                            offset = Offset,
-                            clock = Clock,
-                            timestamp = Timestamp,
-                            checksum = Checksum,
-                            ring_hash = RingHash,
-                            cluster_id = ClusterId,
-                            num_of_replicas = NumOfReplicas,
-                            preferred_r = Preferred_R,
-                            preferred_w = Preferred_W,
-                            preferred_d = Preferred_D,
-                            ver = Ver,
-                            del = Del}) ->
+                             addr_id = AddrId,
+                             ksize = KSize,
+                             dsize = DSize,
+                             meta = CMeta,
+                             msize = MSize,
+                             csize = CSize,
+                             cnumber = CNum,
+                             cindex = CIndex,
+                             offset = Offset,
+                             clock = Clock,
+                             timestamp = Timestamp,
+                             checksum = Checksum,
+                             ring_hash = RingHash,
+                             cluster_id = ClusterId,
+                             num_of_replicas = NumOfReplicas,
+                             preferred_r = Preferred_R,
+                             preferred_w = Preferred_W,
+                             preferred_d = Preferred_D,
+                             ver = Ver,
+                             del = Del}) ->
     #?METADATA{key = Key,
                addr_id = AddrId,
                ksize = KSize,
@@ -390,8 +388,8 @@ object_to_metadata(#?OBJECT{key = Key,
                             preferred_r = Preferred_R,
                             preferred_w = Preferred_W,
                             preferred_d = Preferred_D,
-                            sse_keyhash = SSE_KeyHash,
-                            sse_iv = SSE_IV,
+                            ssec_key_hash = SSEC_KeyHash,
+                            ssec_iv = SSEC_IV,
                             ver = Ver,
                             del = Del}) ->
     #?METADATA{key = Key,
@@ -413,8 +411,8 @@ object_to_metadata(#?OBJECT{key = Key,
                preferred_r = Preferred_R,
                preferred_w = Preferred_W,
                preferred_d = Preferred_D,
-               sse_keyhash = SSE_KeyHash,
-               sse_iv = SSE_IV,
+               ssec_key_hash = SSEC_KeyHash,
+               ssec_iv = SSEC_IV,
                ver = Ver,
                del = Del};
 object_to_metadata(_) ->
