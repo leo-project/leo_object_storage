@@ -2,7 +2,7 @@
 %%
 %% Leo Object Storage
 %%
-%% Copyright (c) 2012-2017 Rakuten, Inc.
+%% Copyright (c) 2012-2018 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -20,12 +20,12 @@
 %%
 %%====================================================================
 -module(leo_object_storage_api_tests).
--author('yosuke hara').
 
 -include_lib("eunit/include/eunit.hrl").
 -include("leo_object_storage.hrl").
 
 -ifdef(EUNIT).
+
 
 %%======================================================================
 %% Compaction TEST
@@ -175,27 +175,27 @@ diagnose() ->
     ok = put_irregular_bin(),
     ok = put_large_bin(101),
     ok = leo_object_storage_api:delete({1, <<"TEST_10">>},
-                                       #?OBJECT{method    = delete,
-                                                addr_id   = 1,
-                                                key       = <<"TEST_10">>,
-                                                ksize     = 7,
-                                                data      = <<>>,
-                                                dsize     = 0,
-                                                checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
+                                       #?OBJECT{method = delete,
+                                                addr_id = 1,
+                                                key = <<"TEST_10">>,
+                                                ksize = 7,
+                                                data = <<>>,
+                                                dsize = 0,
+                                                checksum = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
                                                 timestamp = leo_date:now(),
-                                                clock     = leo_date:clock(),
+                                                clock = leo_date:clock(),
                                                 del = 1
                                                }),
     ok = leo_object_storage_api:delete({1, <<"TEST_50">>},
-                                       #?OBJECT{method    = delete,
-                                                addr_id   = 1,
-                                                key       = <<"TEST_50">>,
-                                                ksize     = 7,
-                                                data      = <<>>,
-                                                dsize     = 0,
+                                       #?OBJECT{method = delete,
+                                                addr_id = 1,
+                                                key = <<"TEST_50">>,
+                                                ksize = 7,
+                                                data = <<>>,
+                                                dsize = 0,
                                                 checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
                                                 timestamp = leo_date:now(),
-                                                clock     = leo_date:clock(),
+                                                clock = leo_date:clock(),
                                                 del = 1
                                                }),
 
@@ -231,27 +231,27 @@ recover() ->
     ok = put_irregular_bin(),
     ok = put_large_bin(101),
     ok = leo_object_storage_api:delete({1, <<"TEST_10">>},
-                                       #?OBJECT{method    = delete,
-                                                addr_id   = 1,
-                                                key       = <<"TEST_10">>,
-                                                ksize     = 7,
-                                                data      = <<>>,
-                                                dsize     = 0,
-                                                checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
+                                       #?OBJECT{method = delete,
+                                                addr_id = 1,
+                                                key = <<"TEST_10">>,
+                                                ksize = 7,
+                                                data = <<>>,
+                                                dsize = 0,
+                                                checksum = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
                                                 timestamp = leo_date:now(),
-                                                clock     = leo_date:clock(),
+                                                clock = leo_date:clock(),
                                                 del = 1
                                                }),
     ok = leo_object_storage_api:delete({1, <<"TEST_50">>},
-                                       #?OBJECT{method    = delete,
-                                                addr_id   = 1,
-                                                key       = <<"TEST_50">>,
-                                                ksize     = 7,
-                                                data      = <<>>,
-                                                dsize     = 0,
-                                                checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
+                                       #?OBJECT{method = delete,
+                                                addr_id = 1,
+                                                key = <<"TEST_50">>,
+                                                ksize = 7,
+                                                data = <<>>,
+                                                dsize = 0,
+                                                checksum = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
                                                 timestamp = leo_date:now(),
-                                                clock     = leo_date:clock(),
+                                                clock = leo_date:clock(),
                                                 del = 1
                                                }),
 
@@ -378,10 +378,10 @@ compact_3() ->
     Key3 = list_to_binary("invalid_msize"),
     UDM = crypto:strong_rand_bytes(4096),
     CMeta2 = [{?PROP_CMETA_CLUSTER_ID, 'leofs_1'},
-             {?PROP_CMETA_NUM_OF_REPLICAS, 3},
-             {?PROP_CMETA_VER, leo_date:clock()},
-             {?PROP_CMETA_UDM, UDM
-             }],
+              {?PROP_CMETA_NUM_OF_REPLICAS, 3},
+              {?PROP_CMETA_VER, leo_date:clock()},
+              {?PROP_CMETA_UDM, UDM
+              }],
     put_irregular_bin(Key3, CMeta2, 0, leo_date:clock()),
     %% inserted but will be compacted due to the clock limit
     Key4 = list_to_binary("invalid_clock"),
@@ -398,12 +398,12 @@ compact_3() ->
     timer:sleep(1000),
     {ok, Stats} = leo_object_storage_api:stats(),
     {SumTotal0, SumActive0} =
-                 lists:foldl(
-                   fun(#storage_stats{total_num  = Total,
-                                      active_num = Active},
-                       {SumTotal, SumActive}) ->
-                           {SumTotal + Total, SumActive + Active}
-                   end, {0, 0}, Stats),
+        lists:foldl(
+          fun(#storage_stats{total_num  = Total,
+                             active_num = Active},
+              {SumTotal, SumActive}) ->
+                  {SumTotal + Total, SumActive + Active}
+          end, {0, 0}, Stats),
     ?assertEqual(504, SumTotal0), %% +4 caused by inserted but invalid data
     ?assertEqual(54, SumActive0), %% +4 caused by inserted but invalid data
     FunHasChargeOfNode = fun(_Key_,_NumOfReplicas_) ->
@@ -420,12 +420,12 @@ compact_3() ->
     timer:sleep(1000),
     {ok, Stats1} = leo_object_storage_api:stats(),
     {SumTotal1, SumActive1} =
-                 lists:foldl(
-                   fun(#storage_stats{total_num  = Total,
-                                      active_num = Active},
-                       {SumTotal, SumActive}) ->
-                           {SumTotal + Total, SumActive + Active}
-                   end, {0, 0}, Stats1),
+        lists:foldl(
+          fun(#storage_stats{total_num  = Total,
+                             active_num = Active},
+              {SumTotal, SumActive}) ->
+                  {SumTotal + Total, SumActive + Active}
+          end, {0, 0}, Stats1),
     ?assertEqual(50, SumTotal1),
     ?assertEqual(50, SumActive1),
     ok.
@@ -477,17 +477,17 @@ put_regular_bin_1(Index) ->
     Key = list_to_binary(lists:append(["TEST_", integer_to_list(Index)])),
     Bin = crypto:strong_rand_bytes(erlang:phash2(leo_date:clock(), (1024 * 1024))),
 
-    Object = #?OBJECT{method    = put,
-                      addr_id   = AddrId,
-                      key       = Key,
-                      ksize     = byte_size(Key),
-                      data      = Bin,
-                      dsize     = byte_size(Bin),
-                      meta      = <<>>,
-                      msize     = 0,
-                      checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
+    Object = #?OBJECT{method = put,
+                      addr_id = AddrId,
+                      key = Key,
+                      ksize = byte_size(Key),
+                      data = Bin,
+                      dsize = byte_size(Bin),
+                      meta = <<>>,
+                      msize = 0,
+                      checksum = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
                       timestamp = leo_date:now(),
-                      clock     = leo_date:clock()
+                      clock = leo_date:clock()
                      },
     leo_object_storage_api:put({AddrId, Key}, Object).
 
@@ -496,18 +496,18 @@ put_large_bin(Index) ->
     AddrId = 1,
     Key = list_to_binary(lists:append(["TEST_", integer_to_list(Index)])),
     Len = 1024 * 1024,
-    Object = #?OBJECT{method    = put,
-                      addr_id   = AddrId,
-                      key       = Key,
-                      ksize     = byte_size(Key),
-                      data      = <<>>,
-                      dsize     = Len,
-                      checksum  = ?MD5_EMPTY_BIN,
+    Object = #?OBJECT{method = put,
+                      addr_id = AddrId,
+                      key = Key,
+                      ksize = byte_size(Key),
+                      data = <<>>,
+                      dsize = Len,
+                      checksum = ?MD5_EMPTY_BIN,
                       timestamp = leo_date:now(),
-                      clock     = leo_date:clock(),
-                      csize     = Len,
-                      cnumber   = 100,
-                      cindex    = 0
+                      clock = leo_date:clock(),
+                      csize = Len,
+                      cnumber = 100,
+                      cindex = 0
                      },
     {ok, _} = leo_object_storage_api:put({AddrId, Key}, Object),
     ok.
@@ -539,17 +539,17 @@ put_regular_bin_with_cmeta(Index, Counter) ->
     %%              [{?PROP_CMETA_CLUSTER_ID, 'remote_cluster'},
     %%               {?PROP_CMETA_NUM_OF_REPLICAS, 3}]),
 
-    Object = #?OBJECT{method    = put,
-                      addr_id   = AddrId,
-                      key       = Key,
-                      ksize     = byte_size(Key),
-                      data      = Bin,
-                      dsize     = byte_size(Bin),
-                      meta      = CMetaBin,
-                      msize     = byte_size(CMetaBin),
-                      checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
+    Object = #?OBJECT{method = put,
+                      addr_id = AddrId,
+                      key = Key,
+                      ksize = byte_size(Key),
+                      data = Bin,
+                      dsize = byte_size(Bin),
+                      meta = CMetaBin,
+                      msize = byte_size(CMetaBin),
+                      checksum = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
                       timestamp = leo_date:now(),
-                      clock     = leo_date:clock()
+                      clock = leo_date:clock()
                      },
     {ok, _} = leo_object_storage_api:put({AddrId, Key}, Object),
     put_regular_bin_with_cmeta(Index + 1, Counter -1).
@@ -581,18 +581,18 @@ put_irregular_bin(Key, CMeta, CSize, Clock) ->
     Bin = crypto:strong_rand_bytes(erlang:phash2(leo_date:clock(), (1024 * 1024))),
     CMetaBin = leo_object_storage_transformer:list_to_cmeta_bin(CMeta),
 
-    Object = #?OBJECT{method    = put,
-                      addr_id   = AddrId,
-                      key       = Key,
-                      ksize     = byte_size(Key),
-                      data      = Bin,
-                      dsize     = byte_size(Bin),
-                      csize     = CSize,
-                      meta      = CMetaBin,
-                      msize     = byte_size(CMetaBin),
-                      checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
+    Object = #?OBJECT{method = put,
+                      addr_id = AddrId,
+                      key = Key,
+                      ksize = byte_size(Key),
+                      data = Bin,
+                      dsize = byte_size(Bin),
+                      csize = CSize,
+                      meta = CMetaBin,
+                      msize = byte_size(CMetaBin),
+                      checksum = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
                       timestamp = leo_date:now(),
-                      clock     = Clock
+                      clock = Clock
                      },
     leo_object_storage_api:put({AddrId, Key}, Object).
 
@@ -718,24 +718,24 @@ operate_([Path1, Path2]) ->
     AddrId = 0,
     Key = <<"air/on/g/string">>,
     Bin = <<"J.S.Bach">>,
-    Object = #?OBJECT{method    = put,
-                      addr_id   = AddrId,
-                      key       = Key,
-                      ksize     = byte_size(Key),
-                      data      = Bin,
-                      dsize     = byte_size(Bin),
-                      checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
+    Object = #?OBJECT{method = put,
+                      addr_id = AddrId,
+                      key = Key,
+                      ksize = byte_size(Key),
+                      data = Bin,
+                      dsize = byte_size(Bin),
+                      checksum = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
                       timestamp = leo_date:now(),
-                      clock     = leo_date:clock()},
+                      clock = leo_date:clock()},
     {ok,_ETag} = leo_object_storage_api:put({AddrId, Key}, Object),
 
     ZeroByteKey = <<"air/on/g/string/0byte">>,
     {ok,_ETag} = leo_object_storage_api:put(
                    {AddrId, ZeroByteKey}, Object#?OBJECT{
-                                                    ksize = byte_size(ZeroByteKey),
-                                                    key = ZeroByteKey,
-                                                    dsize = 0,
-                                                    data = <<>>}),
+                                                         ksize = byte_size(ZeroByteKey),
+                                                         key = ZeroByteKey,
+                                                         dsize = 0,
+                                                         data = <<>>}),
     %% 2. Get
     {ok, Meta1, Obj0} = leo_object_storage_api:get({AddrId, Key}),
     ?assertEqual(AddrId, Meta1#?METADATA.addr_id),
@@ -803,16 +803,16 @@ operate_([Path1, Path2]) ->
     {ok, _} = leo_object_storage_api:head_with_check_avs({AddrId, Key}, check_md5),
 
     %% 6. Delete
-    Object2 = #?OBJECT{method    = delete,
-                       key       = Key,
-                       ksize     = byte_size(Key),
-                       addr_id   = AddrId,
-                       data      = <<>>,
-                       dsize     = 0,
-                       checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
+    Object2 = #?OBJECT{method = delete,
+                       key = Key,
+                       ksize = byte_size(Key),
+                       addr_id = AddrId,
+                       data = <<>>,
+                       dsize = 0,
+                       checksum = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
                        timestamp = leo_date:now(),
-                       clock     = leo_date:clock(),
-                       del       = 1},
+                       clock = leo_date:clock(),
+                       del = 1},
     ok = leo_object_storage_api:delete({AddrId, Key}, Object2),
 
     %% 7. Get
@@ -841,18 +841,17 @@ operate_([Path1, Path2]) ->
             ],
     CMetaBin = leo_object_storage_transformer:list_to_cmeta_bin(CMeta),
 
-    Obj2 = #?OBJECT{method    = put,
-                    addr_id   = AddrId,
-                    key       = Key,
-                    ksize     = byte_size(Key),
-                    data      = Bin,
-                    dsize     = byte_size(Bin),
-                    meta      = CMetaBin,
-                    msize     = byte_size(CMetaBin),
-                    checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
+    Obj2 = #?OBJECT{method = put,
+                    addr_id = AddrId,
+                    key = Key,
+                    ksize = byte_size(Key),
+                    data = Bin,
+                    dsize = byte_size(Bin),
+                    meta = CMetaBin,
+                    msize = byte_size(CMetaBin),
+                    checksum = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
                     timestamp = leo_date:now(),
-                    clock     = leo_date:clock(),
-
+                    clock = leo_date:clock(),
                     cluster_id = ClusterId,
                     num_of_replicas = NumOfReplicas,
                     ver = Ver
@@ -870,7 +869,7 @@ operate_([Path1, Path2]) ->
     ?assertEqual(Ver,           Res7#?OBJECT.ver),
 
     ?debugVal(binary_to_term(Res7#?OBJECT.meta)),
-     CMeta_1 = binary_to_term(Res7#?OBJECT.meta),
+    CMeta_1 = binary_to_term(Res7#?OBJECT.meta),
     ?assertEqual(ClusterId, leo_misc:get_value(?PROP_CMETA_CLUSTER_ID, CMeta_1)),
     ?assertEqual(NumOfReplicas, leo_misc:get_value(?PROP_CMETA_NUM_OF_REPLICAS, CMeta_1)),
     ?assertEqual(Ver, leo_misc:get_value(?PROP_CMETA_VER, CMeta_1)),
@@ -946,7 +945,7 @@ fetch_by_key_([Path1, Path2]) ->
         ok = put_test_data(1023, <<"air/on/g/string/4">>, <<"JSB4">>),
 
         Fun = fun(K, V, Acc) ->
-                      Metadata      = binary_to_term(V),
+                      Metadata = binary_to_term(V),
 
                       case (K == <<"air/on/g/string/0">> orelse
                             K == <<"air/on/g/string/2">> orelse
@@ -1150,27 +1149,27 @@ compact_2() ->
     AllTargets = [_Pid || {_Pid,_}
                               <- leo_object_storage_api:get_object_storage_pid('all')],
     ?assertEqual({ok, #compaction_stats{status = ?ST_IDLING,
-                                        total_num_of_targets    = 8,
+                                        total_num_of_targets = 8,
                                         num_of_reserved_targets = 0,
-                                        num_of_pending_targets  = 8,
-                                        num_of_ongoing_targets  = 0,
+                                        num_of_pending_targets = 8,
+                                        num_of_ongoing_targets = 0,
                                         reserved_targets = [],
-                                        pending_targets  = AllTargets,
-                                        ongoing_targets  = [],
+                                        pending_targets = AllTargets,
+                                        ongoing_targets = [],
                                         latest_exec_datetime = 0
                                        }}, leo_compact_fsm_controller:state()),
     AddrId = 4095,
     Key    = <<"air/on/g/string/7">>,
-    Object = #?OBJECT{method    = delete,
-                      key       = Key,
-                      ksize     = byte_size(Key),
-                      addr_id   = AddrId,
-                      data      = <<>>,
-                      dsize     = 0,
-                      checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
+    Object = #?OBJECT{method = delete,
+                      key = Key,
+                      ksize = byte_size(Key),
+                      addr_id = AddrId,
+                      data = <<>>,
+                      dsize = 0,
+                      checksum = leo_hex:raw_binary_to_integer(crypto:hash(md5, <<>>)),
                       timestamp = leo_date:now(),
-                      clock     = leo_date:clock(),
-                      del       = 1},
+                      clock = leo_date:clock(),
+                      del = 1},
     ok = leo_object_storage_api:delete({AddrId, Key}, Object),
 
     %% inspect for compaction
@@ -1311,46 +1310,46 @@ compact_2() ->
 %%--------------------------------------------------------------------
 get_avs_stats_summary(ResStats) ->
     lists:foldl(
-      fun(#storage_stats{file_path  = _ObjPath,
+      fun(#storage_stats{file_path = _ObjPath,
                          total_sizes = TotalSize,
                          active_sizes = ActiveSize,
-                         total_num  = Total,
+                         total_num = Total,
                          active_num = Active} = StorageStats,
           {SumTotal, SumActive, SumTotalSize, SumActiveSize}) ->
               io:format(user, "[debug] ~p~n",[StorageStats]),
-              {SumTotal      + Total,
-               SumActive     + Active,
-               SumTotalSize  + TotalSize,
+              {SumTotal + Total,
+               SumActive + Active,
+               SumTotalSize + TotalSize,
                SumActiveSize + ActiveSize}
       end, {0, 0, 0, 0}, ResStats).
 
 
 put_test_data(AddrId, Key, Bin) ->
-    Object = #?OBJECT{method    = put,
-                      addr_id   = AddrId,
-                      key       = Key,
-                      ksize     = byte_size(Key),
-                      data      = Bin,
-                      dsize     = byte_size(Bin),
-                      checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
+    Object = #?OBJECT{method = put,
+                      addr_id = AddrId,
+                      key = Key,
+                      ksize = byte_size(Key),
+                      data = Bin,
+                      dsize = byte_size(Bin),
+                      checksum = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
                       timestamp = leo_date:now(),
-                      clock     = leo_date:clock()
+                      clock = leo_date:clock()
                      },
     {ok, _Checksum} = leo_object_storage_api:put({AddrId, Key}, Object),
     ok.
 
 put_test_data_with_custom_metadata(AddrId, Key, Bin, CMetaBin) ->
-    Object = #?OBJECT{method    = put,
-                      addr_id   = AddrId,
-                      key       = Key,
-                      ksize     = byte_size(Key),
-                      data      = Bin,
-                      dsize     = byte_size(Bin),
-                      meta      = CMetaBin,
-                      msize     = byte_size(CMetaBin),
-                      checksum  = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
+    Object = #?OBJECT{method = put,
+                      addr_id = AddrId,
+                      key = Key,
+                      ksize = byte_size(Key),
+                      data = Bin,
+                      dsize = byte_size(Bin),
+                      meta = CMetaBin,
+                      msize = byte_size(CMetaBin),
+                      checksum = leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin)),
                       timestamp = leo_date:now(),
-                      clock     = leo_date:clock()
+                      clock= leo_date:clock()
                      },
     {ok, _Checksum} = leo_object_storage_api:put({AddrId, Key}, Object),
     ok.

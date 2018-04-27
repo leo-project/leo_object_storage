@@ -2,7 +2,7 @@
 %%
 %% Leo Object Storage
 %%
-%% Copyright (c) 2012-2017 Rakuten, Inc.
+%% Copyright (c) 2012-2018 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -20,8 +20,6 @@
 %%
 %%====================================================================
 -module(leo_object_storage_api_prop).
-
--author('Yosuke Hara').
 
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -64,11 +62,11 @@ objpool(Method) ->
     N = erlang:get("K"),
     Key = lists:append(["key_", integer_to_list(N)]),
     Bin = crypto:strong_rand_bytes(1024),
-    leo_object_storage_pool:new(#?OBJECT{method   = Method,
+    leo_object_storage_pool:new(#?OBJECT{method = Method,
                                          addr_id  = 0,
-                                         key      = Key,
-                                         data     = Bin,
-                                         dsize    = byte_size(Bin)}).
+                                         key = Key,
+                                         data = Bin,
+                                         dsize = byte_size(Bin)}).
 
 %% @doc Property TEST
 %%
