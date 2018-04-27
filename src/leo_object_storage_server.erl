@@ -2,7 +2,7 @@
 %%
 %% Leo Object Storage
 %%
-%% Copyright (c) 2012-2017 Rakuten, Inc.
+%% Copyright (c) 2012-2018 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -26,9 +26,6 @@
 %% @end
 %%======================================================================
 -module(leo_object_storage_server).
-
--author('Yosuke Hara').
--author('Yoshiyuki Kanno').
 
 -behaviour(gen_server).
 
@@ -84,7 +81,6 @@
 %% API
 %%====================================================================
 %% @doc Starts the server with strict-check
-%%
 -spec(start_link(ObjServerState) ->
              {ok, pid()} | {error, any()} when ObjServerState::#obj_server_state{}).
 start_link(#obj_server_state{id = Id} = ObjServerState) ->
@@ -92,7 +88,6 @@ start_link(#obj_server_state{id = Id} = ObjServerState) ->
 
 
 %% @doc Stop this server
-%%
 -spec(stop(Id) ->
              ok when Id::atom()).
 stop(Id) ->
@@ -106,7 +101,6 @@ stop(Id) ->
 %% API - object operations.
 %%--------------------------------------------------------------------
 %% @doc Insert an object and an object's metadata into the object-storage
-%%
 -spec(put(Id, Object) ->
              ok | {error, any()} when Id::atom(),
                                       Object::#?OBJECT{}).
@@ -119,7 +113,6 @@ put(Id, #?OBJECT{del = ?DEL_TRUE} = Object) ->
 
 
 %% @doc Retrieve an object from the object-storage
-%%
 -spec(get(Id, AddrIdAndKey, StartPos, EndPos, IsForcedCheck) ->
              {ok, #?METADATA{}, #?OBJECT{}} |
              not_found |
@@ -134,7 +127,6 @@ get(Id, AddrIdAndKey, StartPos, EndPos, IsForcedCheck) ->
 
 
 %% @doc Remove an object from the object-storage - (logical-delete)
-%%
 -spec(delete(Id, Object) ->
              ok | {error, any()} when Id::atom(),
                                       Object::#?OBJECT{}).
@@ -144,7 +136,6 @@ delete(Id, Object) ->
 
 
 %% @doc Retrieve an object's metadata from the object-storage
-%%
 -spec(head(Id, AddrIdAndKey) ->
              {ok, binary()} |
              not_found |
@@ -156,7 +147,6 @@ head(Id, Key) ->
 
 
 %% @doc Retrieve objects from the object-storage by Key and Function
-%%
 -spec(fetch(Id, Key, Fun, MaxKeys) ->
              {ok, list()} | {error, any()} when Id::atom(),
                                                 Key::any(),
@@ -168,7 +158,6 @@ fetch(Id, Key, Fun, MaxKeys) ->
 
 
 %% @doc Store metadata and data
-%%
 -spec(store(Id, Metadata, Bin) ->
              ok | {error, any()} when Id::atom(),
                                       Metadata::#?METADATA{},
@@ -180,7 +169,6 @@ store(Id, Metadata, Bin) ->
 
 %% @doc Retrieve the storage stats specfied by Id
 %%      which contains number of objects and so on.
-%%
 -spec(get_stats(Id) ->
              {ok, #storage_stats{}} |
              {error, any()} when Id::atom()).
@@ -190,7 +178,6 @@ get_stats(Id) ->
 
 %% @doc Retrieve the storage stats specfied by Id
 %%      which contains number of objects and so on.
-%%
 -spec(set_stats(Id, StorageStats) ->
              ok when Id::atom(),
                      StorageStats::#storage_stats{}).
@@ -207,7 +194,6 @@ get_avs_version_bin(Id) ->
 
 %% @doc Retrieve a metada/data from backend_db/object-storage
 %%      AND calc MD5 based on the body data
-%%
 -spec(head_with_calc_md5(Id, Key, MD5Context) ->
              {ok, #?METADATA{}, any()} | {error, any()} when Id::atom(),
                                                              Key::tuple(),
@@ -218,7 +204,6 @@ head_with_calc_md5(Id, Key, MD5Context) ->
 
 %% @doc Retrieve a metada from backend_db
 %%      AND check if the corresponding AVS is broken.
-%%
 -spec(head_with_check_avs(Id, AddrIdAndKey, CheckMethod) ->
              {ok, binary()} |
              not_found |
@@ -230,7 +215,6 @@ head_with_check_avs(Id, AddrIdAndKey, CheckMethod) ->
                          ?begin_statistics_wallclock()}, ?DEF_TIMEOUT).
 
 %% @doc Close the object-container
-%%
 -spec(close(Id) ->
              ok when Id::atom()).
 close(Id) ->
@@ -238,7 +222,6 @@ close(Id) ->
 
 
 %% @doc Retrieve object-storage/metadata-storage info
-%%
 -spec(get_backend_info(Id, ServerType) ->
              {ok, #backend_info{}} when Id::atom(),
                                         ServerType::?SERVER_OBJ_STORAGE).
@@ -247,7 +230,6 @@ get_backend_info(Id, ServerType) ->
 
 
 %% @doc Lock handling objects for put/delete/store
-%%
 -spec(lock(Id) ->
              ok when Id::atom()).
 lock(undefined) ->
@@ -257,7 +239,6 @@ lock(Id) ->
 
 
 %% @doc Lock handling objects for delete
-%%
 -spec(block_del(Id) ->
              ok when Id::atom()).
 block_del(undefined) ->
@@ -267,7 +248,6 @@ block_del(Id) ->
 
 
 %% @doc Unlock handling objects for put/delete/store
-%%
 -spec(unlock(Id) ->
              ok when Id::atom()).
 unlock(undefined) ->
@@ -277,7 +257,6 @@ unlock(Id) ->
 
 
 %% @doc Open the object-container
-%%
 -spec(switch_container(Id, FilePath, NumOfActiveObjs, SizeOfActiveObjs) ->
              ok when Id::atom(),
                      FilePath::string(),
@@ -289,7 +268,6 @@ switch_container(Id, FilePath, NumOfActiveObjs, SizeOfActiveObjs) ->
 
 
 %% @doc Append the history in the state
-%%
 -spec(append_compaction_history(Id, History) ->
              ok when Id::atom(),
                      History::tuple()).
@@ -298,7 +276,6 @@ append_compaction_history(Id, History) ->
 
 
 %% @doc Retrieve the compaction worker
-%%
 -spec(get_compaction_worker(Id) ->
              {ok, CompactionWorkerId} when Id::atom(),
                                            CompactionWorkerId::atom()).
@@ -307,7 +284,6 @@ get_compaction_worker(Id) ->
 
 %% @doc Get the EOF offset
 %%      especially useful for debug/test
-%%
 -spec(get_eof_offset(Id) ->
              {ok, Offset} when Id::atom(),
                                Offset::non_neg_integer()).
@@ -322,14 +298,12 @@ update_diskspace_status(Id, DiskSpaceStatus) ->
 
 -ifdef(TEST).
 %% @doc Store metadata and data
-%%
 -spec(add_incorrect_data(atom(), binary()) ->
              ok | {error, any()}).
 add_incorrect_data(Id, Bin) ->
     gen_server:call(Id, {add_incorrect_data, Bin}, ?DEF_TIMEOUT).
 
 %% @doc Modify AVS with the given data at the given offset.
-%%
 -spec(modify_data(atom(), binary(), non_neg_integer()) ->
              ok | {error, any()}).
 modify_data(Id, Bin, Offset) ->
@@ -407,14 +381,14 @@ init([ObjServerState]) ->
                           }};
                 {error, Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING}, {function, "init/4"},
+                                           [{module, ?MODULE_STRING}, {function, "init/1"},
                                             {line, ?LINE},
                                             {body, Cause}]),
                     {stop, Cause}
             end;
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
-                                   [{module, ?MODULE_STRING}, {function, "init/4"},
+                                   [{module, ?MODULE_STRING}, {function, "init/1"},
                                     {line, ?LINE},
                                     {body, Cause}]),
             {stop, Cause}
@@ -448,8 +422,8 @@ handle_call({put = Method, #?OBJECT{addr_id = AddrId,
 
 %% Retrieve an object
 handle_call({get = Method, {AddrId, Key}, StartPos, EndPos, IsForcedCheck, InTime},
-            _From, #obj_server_state{meta_db_id      = MetaDBId,
-                                     object_storage  = StorageInfo,
+            _From, #obj_server_state{meta_db_id = MetaDBId,
+                                     object_storage = StorageInfo,
                                      is_strict_check = IsStrictCheck} = State) ->
     IsStrictCheck_1 = case IsForcedCheck of
                           true  ->
@@ -562,8 +536,8 @@ handle_call(get_avs_version_bin, _From, #obj_server_state{object_storage = Stora
 
 %% Retrieve hash of the object with head-verb
 handle_call({head_with_calc_md5 = Method, {AddrId, Key}, MD5Context, InTime},
-            _From, #obj_server_state{meta_db_id      = MetaDBId,
-                                     object_storage  = StorageInfo} = State) ->
+            _From, #obj_server_state{meta_db_id = MetaDBId,
+                                     object_storage = StorageInfo} = State) ->
     BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur,
                                   AddrId, Key),
     Reply = leo_object_storage_haystack:head_with_calc_md5(
@@ -588,7 +562,7 @@ handle_call(close, _From,
                               state_filepath = StateFilePath,
                               storage_stats  = StorageStats,
                               object_storage = #backend_info{write_handler = WriteHandler,
-                                                             read_handler  = ReadHandler}} = State) ->
+                                                             read_handler = ReadHandler}} = State) ->
     ok = close_storage(Id, MetaDBId, StateFilePath,
                        StorageStats, WriteHandler, ReadHandler, normal_shutdown),
     {reply, ok, State};
@@ -615,11 +589,11 @@ handle_call(unlock, _From, State) ->
 handle_call({switch_container, FilePath,
              NumOfActiveObjs, SizeOfActiveObjs}, _From,
             #obj_server_state{object_storage = ObjectStorage,
-                              storage_stats  = StorageStats} = State) ->
+                              storage_stats = StorageStats} = State) ->
     %% Close the handlers
     #backend_info{
        write_handler = WriteHandler,
-       read_handler  = ReadHandler} = ObjectStorage,
+       read_handler = ReadHandler} = ObjectStorage,
     catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
 
     %% Delete the old container
@@ -638,12 +612,11 @@ handle_call({switch_container, FilePath,
                                            file_path = FilePath},
                                      storage_stats =
                                          StorageStats#storage_stats{
-                                           total_sizes  = SizeOfActiveObjs,
+                                           total_sizes = SizeOfActiveObjs,
                                            active_sizes = SizeOfActiveObjs,
-                                           total_num    = NumOfActiveObjs,
-                                           active_num   = NumOfActiveObjs
-                                          }
-                                    },
+                                           total_num = NumOfActiveObjs,
+                                           active_num = NumOfActiveObjs
+                                          }},
     %% Open the new container
     State_2 = open_container(State_1),
     {reply, ok, State_2};
@@ -715,8 +688,8 @@ handle_info(datasync, #obj_server_state{object_storage = StorageInfo,
                                         sync_interval_in_ms = SyncInterval
                                        } = State) ->
     #backend_info{
-        write_handler = WriteHandler
-    } = StorageInfo,
+       write_handler = WriteHandler
+      } = StorageInfo,
     leo_object_storage_haystack:datasync(WriteHandler),
     erlang:send_after(SyncInterval, self(), datasync),
     {noreply, State};
@@ -729,9 +702,9 @@ handle_info(_Info, State) ->
 terminate(_Reason, #obj_server_state{id = Id,
                                      meta_db_id = MetaDBId,
                                      state_filepath = StateFilePath,
-                                     storage_stats  = StorageStats,
+                                     storage_stats = StorageStats,
                                      object_storage = #backend_info{write_handler = WriteHandler,
-                                                                    read_handler  = ReadHandler}}) ->
+                                                                    read_handler = ReadHandler}}) ->
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "terminate/2"},
                            {line, ?LINE}, {body, Id}]),
@@ -744,9 +717,6 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 
-%%====================================================================
-%% INNER FUNCTIONS
-%%====================================================================
 %%--------------------------------------------------------------------
 %% object operations.
 %%--------------------------------------------------------------------
@@ -762,9 +732,9 @@ open_container(#obj_server_state{privilege = Privilege,
             State#obj_server_state{
               object_storage =
                   BackendInfo#backend_info{
-                    avs_ver_cur   = AVSVsnBin,
+                    avs_ver_cur = AVSVsnBin,
                     write_handler = NewWriteHandler,
-                    read_handler  = NewReadHandler},
+                    read_handler = NewReadHandler},
               is_locked = false};
         {error, _} ->
             State
@@ -809,10 +779,10 @@ after_proc(Ret, State) ->
 
 %% @doc Put an object
 %% @private
-put_1(Key, Object, #obj_server_state{meta_db_id     = MetaDBId,
-                                     sync_mode      = SyncMode,
+put_1(Key, Object, #obj_server_state{meta_db_id = MetaDBId,
+                                     sync_mode = SyncMode,
                                      object_storage = StorageInfo,
-                                     storage_stats  = StorageStats} = State) ->
+                                     storage_stats = StorageStats} = State) ->
     {Ret, DiffRec, OldSize} =
         case leo_object_storage_haystack:head(MetaDBId, Key) of
             not_found ->
@@ -833,12 +803,12 @@ put_1(Key, Object, #obj_server_state{meta_db_id     = MetaDBId,
     case Ret of
         ok ->
             NewSize = leo_object_storage_haystack:calc_obj_size(Object),
-            Reply   = leo_object_storage_haystack:put(MetaDBId, StorageInfo, Object),
+            Reply = leo_object_storage_haystack:put(MetaDBId, StorageInfo, Object),
             case Reply of
                 {ok, _} when SyncMode =:= ?SYNC_MODE_WRITETHROUGH ->
                     #backend_info{
-                        write_handler = WriteHandler
-                    } = StorageInfo,
+                       write_handler = WriteHandler
+                      } = StorageInfo,
                     leo_object_storage_haystack:datasync(WriteHandler);
                 _ ->
                     nop
@@ -846,10 +816,10 @@ put_1(Key, Object, #obj_server_state{meta_db_id     = MetaDBId,
             State_1 = after_proc(Reply, State),
             {Reply, State_1#obj_server_state{
                       storage_stats = StorageStats#storage_stats{
-                                        total_sizes  = StorageStats#storage_stats.total_sizes  + NewSize,
+                                        total_sizes = StorageStats#storage_stats.total_sizes + NewSize,
                                         active_sizes = StorageStats#storage_stats.active_sizes + (NewSize - OldSize),
-                                        total_num    = StorageStats#storage_stats.total_num    + 1,
-                                        active_num   = StorageStats#storage_stats.active_num   + DiffRec}}};
+                                        total_num = StorageStats#storage_stats.total_num + 1,
+                                        active_num = StorageStats#storage_stats.active_num + DiffRec}}};
         Error ->
             {Error, State}
     end.
@@ -857,10 +827,10 @@ put_1(Key, Object, #obj_server_state{meta_db_id     = MetaDBId,
 
 %% @doc Remove an object
 %% @private
-delete_1(Key, Object, #obj_server_state{meta_db_id     = MetaDBId,
-                                        sync_mode      = SyncMode,
+delete_1(Key, Object, #obj_server_state{meta_db_id = MetaDBId,
+                                        sync_mode = SyncMode,
                                         object_storage = StorageInfo,
-                                        storage_stats  = StorageStats} = State) ->
+                                        storage_stats = StorageStats} = State) ->
     {Reply, DiffRec, OldSize, State_1} =
         case leo_object_storage_haystack:head(
                MetaDBId, Key) of
@@ -877,8 +847,8 @@ delete_1(Key, Object, #obj_server_state{meta_db_id     = MetaDBId,
                                 case SyncMode of
                                     ?SYNC_MODE_WRITETHROUGH ->
                                         #backend_info{
-                                            write_handler = WriteHandler
-                                        } = StorageInfo,
+                                           write_handler = WriteHandler
+                                          } = StorageInfo,
                                         leo_object_storage_haystack:datasync(WriteHandler);
                                     _ ->
                                         nop
@@ -899,10 +869,10 @@ delete_1(Key, Object, #obj_server_state{meta_db_id     = MetaDBId,
         ok ->
             NewStorageStats =
                 StorageStats#storage_stats{
-                  total_sizes  = StorageStats#storage_stats.total_sizes,
+                  total_sizes = StorageStats#storage_stats.total_sizes,
                   active_sizes = StorageStats#storage_stats.active_sizes - OldSize,
-                  total_num    = StorageStats#storage_stats.total_num,
-                  active_num   = StorageStats#storage_stats.active_num - DiffRec},
+                  total_num = StorageStats#storage_stats.total_num,
+                  active_num = StorageStats#storage_stats.active_num - DiffRec},
             {Reply, State_1#obj_server_state{storage_stats = NewStorageStats}};
         _ ->
             {Reply, State_1}
@@ -951,16 +921,16 @@ close_storage(Id, MetaDBId, StateFilePath,
     _ = leo_file:file_unconsult(
           StateFilePath,
           [{id, Id},
-           {total_sizes,     StorageStats#storage_stats.total_sizes},
-           {active_sizes,    StorageStats#storage_stats.active_sizes},
-           {total_num,       StorageStats#storage_stats.total_num},
-           {active_num,      StorageStats#storage_stats.active_num},
+           {total_sizes, StorageStats#storage_stats.total_sizes},
+           {active_sizes, StorageStats#storage_stats.active_sizes},
+           {total_num, StorageStats#storage_stats.total_num},
+           {active_num, StorageStats#storage_stats.active_num},
            {compaction_hist, StorageStats#storage_stats.compaction_hist}
           ]),
     catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
     case Reason of
         normal_shutdown ->
-            % call leo_backend_db_server:close only when leo_storage stop
+            %% call leo_backend_db_server:close only when leo_storage stop
             catch leo_backend_db_server:close(MetaDBId);
         _ ->
             nop
