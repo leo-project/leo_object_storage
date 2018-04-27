@@ -2,7 +2,7 @@
 %%
 %% Leo Object Storage
 %%
-%% Copyright (c) 2012-2017 Rakuten, Inc.
+%% Copyright (c) 2012-2018 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -26,8 +26,6 @@
 %% @end
 %%======================================================================
 -module(leo_object_storage_api).
-
--author('Yosuke Hara').
 
 -include("leo_object_storage.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -73,11 +71,11 @@
 -define(SERVER_MODULE, 'leo_object_storage_server').
 -define(FETCH_BY_KEY_INTERVAL_TO_COMMUNICATE_WITH_PARENT, 5). %% Communicate with a parent process per 5 messages
 
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 %% @doc Create object-storage processes
-%%
 -spec(start(Option) ->
              ok | {error, any()} when Option::[{pos_integer(), string()}]).
 start([]) ->
@@ -418,7 +416,6 @@ fetcher_loop(ServerId, Key, Fun, MaxKeys, ReceiverPid) ->
     end.
 
 %% @doc Store metadata and data
-%%
 -spec(store(Metadata, Bin) ->
              ok | {error, any()} when Metadata::#?METADATA{},
                                       Bin::binary()).
@@ -427,7 +424,6 @@ store(Metadata, Bin) ->
 
 
 %% @doc Retrieve the storage stats
-%%
 -spec(stats() ->
              {ok, [#storage_stats{}]} | not_found).
 stats() ->
@@ -443,7 +439,6 @@ stats() ->
 
 
 %% @doc Retrieve the storage and compaction stats
-%%
 -spec(du_and_compaction_stats() ->
              {ok, [tuple()]} | not_found).
 du_and_compaction_stats() ->
@@ -469,7 +464,7 @@ get_object_storage_pid(Arg) ->
 
 -spec(get_object_storage_pid(List, Arg) ->
              [tuple()] when List::[{_,_}],
-                           Arg::all | any()).
+                            Arg::all | any()).
 get_object_storage_pid([],_) ->
     [];
 get_object_storage_pid(List, all) ->
@@ -487,7 +482,7 @@ get_object_storage_pid(List, Arg) ->
 %% @doc Retrieve object-storage-pid by container-id
 -spec(get_object_storage_pid_by_container_id(ContainerId) ->
              Id | not_found when Id::atom(),
-                     ContainerId::non_neg_integer()).
+                                 ContainerId::non_neg_integer()).
 get_object_storage_pid_by_container_id(ContainerId) ->
     case ets:lookup(leo_object_storage_containers, ContainerId) of
         [] ->
@@ -509,7 +504,6 @@ get_object_storage_pid_by_disk_id(Disk) ->
 
 %% @doc Get the EOF offset
 %%      especially useful for debug/test
-%%
 -spec(get_eof_offset(binary()) ->
              {ok, non_neg_integer()} | {error, any()}).
 get_eof_offset(Bin) ->
@@ -519,14 +513,12 @@ get_eof_offset(Bin) ->
 
 -ifdef(TEST).
 %% @doc Add incorrect datas on debug purpose
-%%
 -spec(add_incorrect_data(binary()) ->
              ok | {error, any()}).
 add_incorrect_data(Bin) ->
     [{Pid,_}|_] = get_object_storage_pid(Bin),
     ?SERVER_MODULE:add_incorrect_data(Pid, Bin).
 %% @doc Modify data on debug purpose
-%%
 -spec(modify_data(addrid_and_key(), binary(), non_neg_integer()) ->
              ok | {error, any()}).
 modify_data(AddrIdAndKey, Bin, Offset) ->
@@ -571,7 +563,6 @@ compact_data(TargetPids, NumOfConcurrency, CallbackFun) ->
 
 
 %% @doc Execute data-comaction via console
-%%
 -spec(compact_data_via_console(AVSPath, TargetContainers) ->
              term() when AVSPath::string(),
                          TargetContainers::[non_neg_integer()]).
@@ -588,7 +579,6 @@ compact_data_via_console(AVSPath, TargetContainers) ->
 
 
 %% @doc Retrieve current data-compaction status
-%%
 compact_state() ->
     leo_compact_fsm_controller:state().
 

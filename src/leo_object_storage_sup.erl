@@ -2,7 +2,7 @@
 %%
 %% Leo Object Storage
 %%
-%% Copyright (c) 2012-2017 Rakuten, Inc.
+%% Copyright (c) 2012-2018 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -20,8 +20,6 @@
 %%
 %%======================================================================
 -module(leo_object_storage_sup).
-
--author('Yosuke Hara').
 
 -behaviour(supervisor).
 
@@ -100,7 +98,7 @@ start_child(ObjectStorageInfo) ->
     ok = leo_misc:init_env(),
     [catch ets:new(list_to_atom(?ETS_CONTAINERS_BY_DISK_TABLE ++ integer_to_list(Index)),
                    [named_table, ordered_set, public, {read_concurrency, true}]) ||
-                   Index <- lists:seq(1, length(ObjectStorageInfo))],
+        Index <- lists:seq(1, length(ObjectStorageInfo))],
     catch ets:new(?ETS_CONTAINERS_TABLE,
                   [named_table, ordered_set, public, {read_concurrency, true}]),
     catch ets:new(?ETS_INFO_TABLE,
@@ -255,7 +253,7 @@ start_child_5() ->
         SupRef ->
             Ret = case supervisor2:count_children(SupRef) of
                       [_|_] = Props ->
-                          Active  = leo_misc:get_value('active',  Props),
+                          Active  = leo_misc:get_value('active', Props),
                           Workers = leo_misc:get_value('workers', Props),
                           case (Active > 0 andalso Workers > 0) of
                               true ->
