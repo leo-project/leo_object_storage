@@ -2,7 +2,7 @@
 %%
 %% Leo Object Storage
 %%
-%% Copyright (c) 2012-2017 Rakuten, Inc.
+%% Copyright (c) 2012-2018 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -84,11 +84,11 @@
 -undef(ST_IDLING).
 -undef(ST_RUNNING).
 -undef(ST_SUSPENDING).
--define(ST_IDLING,     'idling').
--define(ST_RUNNING,    'running').
+-define(ST_IDLING, 'idling').
+-define(ST_RUNNING, 'running').
 -define(ST_SUSPENDING, 'suspending').
--type(compaction_state() :: ?ST_IDLING     |
-                            ?ST_RUNNING    |
+-type(compaction_state() :: ?ST_IDLING |
+                            ?ST_RUNNING |
                             ?ST_SUSPENDING).
 
 
@@ -101,15 +101,15 @@
 -undef(EVENT_STATE).
 -undef(EVENT_INCREASE).
 -undef(EVENT_DECREASE).
--define(EVENT_RUN,      'run').
+-define(EVENT_RUN, 'run').
 -define(EVENT_DIAGNOSE, 'diagnose').
--define(EVENT_LOCK,     'lock').
--define(EVENT_SUSPEND,  'suspend').
--define(EVENT_RESUME,   'resume').
--define(EVENT_FINISH,   'finish').
--define(EVENT_STATE,    'state').
--define(EVENT_INCREASE,  'increase').
--define(EVENT_DECREASE,  'decrease').
+-define(EVENT_LOCK, 'lock').
+-define(EVENT_SUSPEND, 'suspend').
+-define(EVENT_RESUME, 'resume').
+-define(EVENT_FINISH, 'finish').
+-define(EVENT_STATE, 'state').
+-define(EVENT_INCREASE, 'increase').
+-define(EVENT_DECREASE, 'decrease').
 -type(compaction_event() ::?EVENT_RUN      |
                            ?EVENT_DIAGNOSE |
                            ?EVENT_LOCK     |
@@ -123,7 +123,7 @@
 
 %% @doc Compaction related definitions
 -define(RET_SUCCESS, 'success').
--define(RET_FAIL,    'fail').
+-define(RET_FAIL, 'fail').
 -type(compaction_ret() :: ?RET_SUCCESS |
                           ?RET_FAIL |
                           undefined).
@@ -135,56 +135,56 @@
 -record(compaction_report, {
           file_path = [] :: string(),
           avs_ver = <<>> :: binary(),
-          num_of_active_objs  = 0 :: non_neg_integer(),
+          num_of_active_objs = 0 :: non_neg_integer(),
           size_of_active_objs = 0 :: non_neg_integer(),
-          total_num_of_objs   = 0 :: non_neg_integer(),
-          total_size_of_objs  = 0 :: non_neg_integer(),
+          total_num_of_objs = 0 :: non_neg_integer(),
+          total_size_of_objs = 0 :: non_neg_integer(),
           start_datetime = [] :: string(),
-          end_datetime   = [] :: string(),
-          errors = []  :: [{non_neg_integer(),non_neg_integer()}],
+          end_datetime = [] :: string(),
+          errors = [] :: [{non_neg_integer(),non_neg_integer()}],
           duration = 0 :: non_neg_integer(),
           result :: atom()
          }).
 
 -record(compaction_hist, {
           start_datetime = 0 :: non_neg_integer(),
-          end_datetime   = 0 :: non_neg_integer(),
+          end_datetime = 0 :: non_neg_integer(),
           duration = 0 :: non_neg_integer(),
           result :: compaction_ret()
          }).
 
 -record(compaction_stats, {
           status = ?ST_IDLING :: compaction_state(),
-          total_num_of_targets    = 0  :: non_neg_integer(),
-          num_of_reserved_targets = 0  :: non_neg_integer(),
-          num_of_pending_targets  = 0  :: non_neg_integer(),
-          num_of_ongoing_targets  = 0  :: non_neg_integer(),
-          reserved_targets = []        :: [atom()],
-          pending_targets  = []        :: [atom()],
-          ongoing_targets  = []        :: [atom()],
-          locked_targets   = []        :: [atom()],
-          latest_exec_datetime = 0     :: non_neg_integer(),
-          acc_reports = []             :: [#compaction_report{}]
+          total_num_of_targets = 0 :: non_neg_integer(),
+          num_of_reserved_targets = 0 :: non_neg_integer(),
+          num_of_pending_targets  = 0 :: non_neg_integer(),
+          num_of_ongoing_targets  = 0 :: non_neg_integer(),
+          reserved_targets = [] :: [atom()],
+          pending_targets  = [] :: [atom()],
+          ongoing_targets  = [] :: [atom()],
+          locked_targets   = [] :: [atom()],
+          latest_exec_datetime = 0 :: non_neg_integer(),
+          acc_reports = [] :: [#compaction_report{}]
          }).
 
 
 %% Error Constants
 %%
--define(ERROR_FD_CLOSED,                "already closed file-descriptor").
--define(ERROR_FILE_OPEN,                "file open error").
--define(ERROR_INVALID_DATA,             "invalid data").
--define(ERROR_DATA_SIZE_DID_NOT_MATCH,  "data-size did not match").
--define(ERROR_COMPACT_SUSPEND_FAILURE,  "comaction-suspend filure").
--define(ERROR_COMPACT_RESUME_FAILURE,   "comaction-resume filure").
--define(ERROR_PROCESS_NOT_FOUND,        "server process not found").
+-define(ERROR_FD_CLOSED, "already closed file-descriptor").
+-define(ERROR_FILE_OPEN, "file open error").
+-define(ERROR_INVALID_DATA, "invalid data").
+-define(ERROR_DATA_SIZE_DID_NOT_MATCH, "data-size did not match").
+-define(ERROR_COMPACT_SUSPEND_FAILURE, "comaction-suspend filure").
+-define(ERROR_COMPACT_RESUME_FAILURE, "comaction-resume filure").
+-define(ERROR_PROCESS_NOT_FOUND, "server process not found").
 -define(ERROR_COULD_NOT_GET_MOUNT_PATH, "could not get mout path").
--define(ERROR_LOCKED_CONTAINER,         "locked obj-conatainer").
--define(ERROR_NOT_ALLOWED_ACCESS,       "not allowed access").
--define(ERROR_COULD_NOT_START_WORKER,   "could NOT start worker processes").
+-define(ERROR_LOCKED_CONTAINER, "locked obj-conatainer").
+-define(ERROR_NOT_ALLOWED_ACCESS, "not allowed access").
+-define(ERROR_COULD_NOT_START_WORKER, "could NOT start worker processes").
 -define(ERROR_FREESPACE_LT_AVS,   "The disk free space is less than the size of the AVS file").
 
 -define(ERROR_MSG_SLOW_OPERATION, 'slow_operation').
--define(ERROR_MSG_TIMEOUT,        'timeout').
+-define(ERROR_MSG_TIMEOUT, 'timeout').
 -define(MSG_ITEM_SLOW_OP, 'slow_operation').
 -define(MSG_ITEM_TIMEOUT, 'timeout').
 
@@ -202,9 +202,10 @@
 %% AVS-Related
 %%--------------------------------------------------------------------
 %% AVS version strings
--define(AVS_HEADER_VSN_2_2,  <<"LeoFS AVS-2.2">>). %% leofs v0.14 - v1.0.0-pre1
--define(AVS_HEADER_VSN_2_4,  <<"LeoFS AVS-2.4">>). %% leofs v1.0.0-pre1 - current ver
--define(AVS_HEADER_VSN_TOBE, ?AVS_HEADER_VSN_2_4).
+-define(AVS_HEADER_VSN_2_2,  <<"LeoFS AVS-2.2">>). %% leofs v0.14 - v0.16
+-define(AVS_HEADER_VSN_2_4,  <<"LeoFS AVS-2.4">>). %% leofs v1.0 - v1.4
+-define(AVS_HEADER_VSN_3_0,  <<"LeoFS AVS-3.0">>). %% leofs v2.0
+-define(AVS_HEADER_VSN_TOBE, ?AVS_HEADER_VSN_3_0).
 
 %% Max Data Block Size to be larger than leo_gateway's large object settings
 %% https://docs.aws.amazon.com/AmazonS3/latest/dev/UploadingObjects.html
@@ -228,12 +229,14 @@
                 ?AVS_HEADER_VSN_2_2 ->
                     term_to_binary({_AddrId, _Key});
                 ?AVS_HEADER_VSN_2_4 ->
+                    _Key;
+                ?AVS_HEADER_VSN_3_0 ->
                     _Key
             end
         end).
 
 -define(AVS_HEADER_VSN,     <<?AVS_HEADER_VSN_TOBE/binary,13,10>>).
--define(AVS_PART_OF_HEADER, <<"CHKSUM:128,KSIZE:16,BLEN_MSIZE:32,DSIZE:32,OFFSET:64,ADDRID:128,CLOCK:64,TIMESTAMP:42,DEL:1,BUF:437,CHUNK_SIZE:32,CHUNK_NUM:24,CHUNK_INDEX:24",13,10>>).
+-define(AVS_PART_OF_HEADER, <<"CHKSUM:128,KSIZE:16,BLEN_MSIZE:32,DSIZE:32,OFFSET:64,ADDRID:128,CLOCK:64,TIMESTAMP:42,DEL:1,BUF:437,CHUNK_SIZE:32,CHUNK_NUM:24,CHUNK_INDEX:24,SSEC_KEY_HASH:32,SSEC_IV",13,10>>).
 -define(AVS_PART_OF_BODY,   <<"KEY/binary,DATA/binary",13,10>>).
 -define(AVS_PART_OF_FOOTER, <<"PADDING:64",13,10>>).
 -define(AVS_SUPER_BLOCK,    <<?AVS_HEADER_VSN/binary,
@@ -257,10 +260,13 @@
 -define(BLEN_TS_N,           6). %% timestamp-min
 -define(BLEN_TS_S,           6). %% timestamp-sec
 -define(BLEN_DEL,            1). %% delete flag
--define(BLEN_CHUNK_SIZE,    32). %% * chunked data size    (for large-object)
--define(BLEN_CHUNK_NUM,     24). %% * # of chunked objects (for large-object)
--define(BLEN_CHUNK_INDEX,   24). %% * chunked object index (for large-object)
+-define(BLEN_CHUNK_SIZE,    32). %% chunked data size    (for large-object)
+-define(BLEN_CHUNK_NUM,     24). %% # of chunked objects (for large-object)
+-define(BLEN_CHUNK_INDEX,   24). %% chunked object index (for large-object)
+-define(BLEN_SSEC_KEY_HASH, 32). %% hash of sever-side-encryption-c's key (for sse-c since v2.0.0)
+-define(BLEN_SSEC_IV,       32). %% initialization-vector of sever-side-encryption-c (for sse-c since v2.0.0)
 %% ----------------------------- %%
+%% -define(BLEN_BUF,          373). %% buffer
 -define(BLEN_BUF,          437). %% buffer
 %% ----------------------------- %%
 -define(BLEN_HEADER,      1024). %% 128 Byte
@@ -276,17 +282,17 @@
 %% Records
 %%--------------------------------------------------------------------
 -record(backend_info, {
-          backend            :: atom(),
+          backend :: atom(),
           avs_ver_cur = <<>> :: binary(),
           avs_ver_prv = <<>> :: binary(), %% need to know during compaction
-          linked_path = []   :: string(),
-          file_path   = []   :: string(),
-          write_handler      :: pid()|undefined,
-          read_handler       :: pid()|undefined
+          linked_path = [] :: string(),
+          file_path   = [] :: string(),
+          write_handler :: pid()|undefined,
+          read_handler :: pid()|undefined
          }).
 
 -record(metadata, { %% - leofs-v1.0.0-pre3
-          key = <<>> :: binary(),        %% filename
+          key = <<>> :: binary(),        %% object name
           addr_id = 0 :: integer(),      %% ring-address id (MD5 > hex-to-integer)
           ksize = 0 :: integer(),        %% file-path size
           dsize = 0 :: integer(),        %% data size
@@ -303,7 +309,7 @@
          }).
 
 -record(metadata_1, { %% leofs-v1.0.0 - v1.3.0
-          key = <<>> :: binary(),           %% filename
+          key = <<>> :: binary(),           %% object name
           addr_id = 0 :: integer(),         %% ring-address id (MD5 > hex-to-integer)
           ksize = 0 :: integer(),           %% file-path size
           dsize = 0 :: integer(),           %% data size
@@ -323,7 +329,7 @@
          }).
 
 -record(metadata_2, { %% leofs-v1.3.1 - v1.3.2.1
-          key = <<>> :: binary(),           %% filename
+          key = <<>> :: binary(),           %% object name
           addr_id = 0 :: integer(),         %% ring-address id (MD5 > hex-to-integer)
           ksize = 0 :: integer(),           %% file-path size
           dsize = 0 :: integer(),           %% data size
@@ -344,7 +350,7 @@
          }).
 
 -record(metadata_3, { %% leofs-v1.3.1 - v1.4.x
-          key = <<>> :: binary(),                   %% filename
+          key = <<>> :: binary(),                   %% object name
           addr_id = 0 :: integer(),                 %% ring-address id (MD5 > hex-to-integer)
           ksize = 0 :: integer(),                   %% file-path size
           dsize = 0 :: integer(),                   %% data size
@@ -371,7 +377,7 @@
          }).
 
 -record(metadata_4, { %% leofs-v2.0.0 - the latest version
-          key = <<>> :: binary(),                   %% filename
+          key = <<>> :: binary(),                   %% object name
           addr_id = 0 :: integer(),                 %% ring-address id (MD5 > hex-to-integer)
           ksize = 0 :: integer(),                   %% file-path size
           dsize = 0 :: integer(),                   %% data size
@@ -393,8 +399,8 @@
           preferred_r = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful READ operation
           preferred_w = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful WRITE operation
           preferred_d = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful DELETE operation
-          sse_keyhash = <<>> :: binary(),           %% Server Side Encryption: Key Hash
-          sse_iv = <<>> :: binary(),                %% Server Side Encryption: IV
+          ssec_key_hash = <<>> :: binary(),         %% Server Side Encryption: Key Hash
+          ssec_iv = <<>> :: binary(),               %% Server Side Encryption: IV
           ver = 0 :: integer(),                     %% version number
           del = ?DEL_FALSE :: del_flag()            %% [{0,not_deleted}, {1,deleted}]
          }).
@@ -402,11 +408,11 @@
 
 -record(object, { %% - leofs-v1.0.0-pre3
           method,
-          key = <<>> :: binary(),        %% filename
+          key = <<>> :: binary(),        %% object name
           addr_id = 0 :: integer(),      %% ring-address id (MD5 > hex-to-integer)
           data = <<>> :: binary(),       %% file
           meta = <<>> :: binary(),       %% custom-metadata
-          ksize = 0 :: integer(),        %% filename size
+          ksize = 0 :: integer(),        %% size of object name
           dsize = 0 :: integer(),        %% data size
           msize = 0 :: integer(),        %% custom-metadata size
           csize = 0 :: integer(),        %% * chunked data size    (for large-object)
@@ -423,11 +429,11 @@
 
 -record(object_1, { %% leofs-v1.0.0 - v1.3.2.1
           method,
-          key = <<>>   :: binary(),         %% filename
+          key = <<>> :: binary(),           %% object name
           addr_id = 0 :: integer(),         %% ring-address id (MD5 > hex-to-integer)
           data = <<>> :: binary(),          %% file
           meta = <<>> :: binary(),          %% custom-metadata (user defined metadata)
-          ksize = 0 :: integer(),           %% filename size
+          ksize = 0 :: integer(),           %% size of object name
           dsize = 0 :: integer(),           %% data size
           msize = 0 :: integer(),           %% custom-metadata size
           csize = 0 :: integer(),           %% * chunked data size    (for large-object)
@@ -447,11 +453,11 @@
 
 -record(object_2, { %% leofs-v1.3.3 - v1.4.x
           method,
-          key = <<>>   :: binary(),         %% filename
+          key = <<>>   :: binary(),         %% object name
           addr_id = 0 :: integer(),         %% ring-address id (MD5 > hex-to-integer)
           data = <<>> :: binary(),          %% file
           meta = <<>> :: binary(),          %% custom-metadata (user defined metadata)
-          ksize = 0 :: integer(),           %% filename size
+          ksize = 0 :: integer(),           %% size of object name
           dsize = 0 :: integer(),           %% data size
           msize = 0 :: integer(),           %% custom-metadata size
           csize = 0 :: integer(),           %% * chunked data size    (for large-object)
@@ -477,11 +483,11 @@
 
 -record(object_3, { %% leofs-v2.0.0 - the latest version
           method,
-          key = <<>>   :: binary(),         %% filename
+          key = <<>>   :: binary(),         %% object name
           addr_id = 0 :: integer(),         %% ring-address id (MD5 > hex-to-integer)
           data = <<>> :: binary(),          %% file
           meta = <<>> :: binary(),          %% custom-metadata (user defined metadata)
-          ksize = 0 :: integer(),           %% filename size
+          ksize = 0 :: integer(),           %% size of object name
           dsize = 0 :: integer(),           %% data size
           msize = 0 :: integer(),           %% custom-metadata size
           csize = 0 :: integer(),           %% * chunked data size    (for large-object)
@@ -501,8 +507,8 @@
           preferred_r = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful READ operation
           preferred_w = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful WRITE operation
           preferred_d = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful DELETE operation
-          sse_keyhash = <<>> :: binary(),           %% Server Side Encryption: Key Hash
-          sse_iv = <<>> :: binary(),                %% Server Side Encryption: IV
+          ssec_key_hash = <<>> :: binary(),         %% Server-Side-Encryption-C: Key Hash since v2.0
+          ssec_iv = <<>> :: binary(),               %% Server-Side-Encryption-C: IV since v2.0
           ver = 0 :: integer(),                     %% version number
           del = ?DEL_FALSE :: del_flag()            %% delete flag
          }).
@@ -793,7 +799,7 @@
           id :: atom(),
           event = ?EVENT_RUN :: compaction_event(),
           controller_pid :: pid(),
-          client_pid     :: pid(),
+          client_pid :: pid(),
           is_diagnosing = false :: boolean(),
           is_recovering = false :: boolean(),
           is_forced_run = false :: boolean(),
@@ -801,16 +807,16 @@
          }).
 
 -record(compaction_prms, {
-          key_bin  = <<>> :: binary(),
+          key_bin = <<>> :: binary(),
           body_bin = <<>> :: binary(),
           metadata = #?METADATA{} :: #?METADATA{},
-          next_offset = 0         :: non_neg_integer()|eof,
-          start_lock_offset = 0   :: non_neg_integer(),
-          callback_fun            :: function(),
-          num_of_active_objs = 0  :: non_neg_integer(),
+          next_offset = 0 :: non_neg_integer()|eof,
+          start_lock_offset = 0 :: non_neg_integer(),
+          callback_fun :: function(),
+          num_of_active_objs = 0 :: non_neg_integer(),
           size_of_active_objs = 0 :: non_neg_integer(),
-          total_num_of_objs = 0   :: non_neg_integer(),
-          total_size_of_objs = 0  :: non_neg_integer()
+          total_num_of_objs = 0 :: non_neg_integer(),
+          total_size_of_objs = 0 :: non_neg_integer()
          }).
 
 -record(compaction_skip_garbage, {

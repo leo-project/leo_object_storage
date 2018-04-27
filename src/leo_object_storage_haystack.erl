@@ -2,7 +2,7 @@
 %%
 %% Leo Object Storage
 %%
-%% Copyright (c) 2012-2017 Rakuten, Inc.
+%% Copyright (c) 2012-2018 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -26,9 +26,6 @@
 %% @end
 %%======================================================================
 -module(leo_object_storage_haystack).
-
--author('Yosuke Hara').
--author('Yoshiyuki Kanno').
 
 -include("leo_object_storage.hrl").
 -include_lib("kernel/include/file.hrl").
@@ -694,13 +691,18 @@ create_needle(#?OBJECT{addr_id = AddrId,
                        offset = Offset,
                        timestamp = Timestamp,
                        checksum = Checksum,
-                       del = Del}) ->
+                       del = Del
+                       %% ssec_key_hash = SSEC_KeyHash,
+                       %% ssec_iv = SSEC_IV
+                      }) ->
     {{Year,Month,Day},{Hour,Min,Second}} =
         calendar:gregorian_seconds_to_datetime(Timestamp),
     Padding = <<0:64>>,
     DataBin = case (MSize < 1) of
-                  true  -> << Key/binary, Body/binary, Padding/binary >>;
-                  false -> << Key/binary, Body/binary, MBin/binary, Padding/binary >>
+                  true ->
+                      << Key/binary, Body/binary, Padding/binary >>;
+                  false ->
+                      << Key/binary, Body/binary, MBin/binary, Padding/binary >>
               end,
     Needle  = << Checksum:?BLEN_CHKSUM,
                  KSize:?BLEN_KSIZE,
@@ -719,6 +721,9 @@ create_needle(#?OBJECT{addr_id = AddrId,
                  CSize:?BLEN_CHUNK_SIZE,
                  CNum:?BLEN_CHUNK_NUM,
                  CIndex:?BLEN_CHUNK_INDEX,
+                 %% @TODO
+                 %% SSEC_KeyHash:?BLEN_SSEC_KEY_HASH,
+                 %% SSEC_IV:?BLEN_SSEC_IV,
                  0:?BLEN_BUF,
                  DataBin/binary >>,
     Needle.
@@ -747,8 +752,10 @@ put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key = Key,
                                           timestamp = Timestamp,
                                           del = DelFlag} = Object) ->
     Checksum_1 = case Checksum of
-                     0 -> leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin));
-                     _ -> Checksum
+                     0 ->
+                         leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin));
+                     _ ->
+                         Checksum
                  end,
     Object_1 = Object#?OBJECT{ksize = byte_size(Key),
                               checksum = Checksum_1},
@@ -771,9 +778,9 @@ put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key = Key,
     put_fun_3(MetaDBId, StorageInfo, Needle, Metadata).
 
 %% @private
-put_fun_3(MetaDBId, StorageInfo, Needle, #?METADATA{key      = Key,
-                                                    addr_id  = AddrId,
-                                                    offset   = Offset,
+put_fun_3(MetaDBId, StorageInfo, Needle, #?METADATA{key = Key,
+                                                    addr_id = AddrId,
+                                                    offset = Offset,
                                                     checksum = Checksum} = Meta) ->
     #backend_info{write_handler = WriteHandler,
                   avs_ver_cur   = AVSVsnBin} = StorageInfo,
@@ -789,20 +796,20 @@ put_fun_3(MetaDBId, StorageInfo, Needle, #?METADATA{key      = Key,
                 {'EXIT', Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING},
-                                            {function, "put_fun_3/2"},
+                                            {function, "put_fun_3/4"},
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause};
                 {error, Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING},
-                                            {function, "put_fun_3/2"},
+                                            {function, "put_fun_3/4"},
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause}
             end;
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
-                                    {function, "put_fun_3/2"},
+                                    {function, "put_fun_3/4"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
@@ -819,7 +826,7 @@ put_obj_to_new_cntnr(WriteHandler, Metadata, KeyBin, BodyBin) ->
         {ok, Offset} ->
             Metadata_1 = leo_object_storage_transformer:transform_metadata(Metadata),
             Object = leo_object_storage_transformer:metadata_to_object(Metadata_1),
-            Needle = create_needle(Object#?OBJECT{key  = KeyBin,
+            Needle = create_needle(Object#?OBJECT{key = KeyBin,
                                                   data = BodyBin,
                                                   offset = Offset}),
             case catch file:pwrite(WriteHandler, Offset, Needle) of
@@ -848,7 +855,6 @@ put_obj_to_new_cntnr(WriteHandler, Metadata, KeyBin, BodyBin) ->
 
 
 %% @doc Retrieve a file from object-container when compacting.
-%%
 -spec(get_obj_for_new_cntnr(pid()) ->
              {ok, #?METADATA{}, [any()]} |
              {skip, #compaction_skip_garbage{}, any()} |
