@@ -2,7 +2,7 @@
 %%
 %% Leo Object Storage
 %%
-%% Copyright (c) 2012-2017 Rakuten, Inc.
+%% Copyright (c) 2012-2018 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -20,7 +20,6 @@
 %%
 %%====================================================================
 -module(leo_object_transformer_tests).
--author('yosuke hara').
 
 -include_lib("eunit/include/eunit.hrl").
 -include("leo_object_storage.hrl").
@@ -62,8 +61,8 @@ transform() ->
     Preferred_R = 1,
     Preferred_W = 2,
     Preferred_D = 2,
-    SSE_KeyHash = crypto:strong_rand_bytes(32),
-    SSE_IV = crypto:strong_rand_bytes(32),
+    SSEC_KeyHash = crypto:strong_rand_bytes(32),
+    SSEC_IV = crypto:strong_rand_bytes(32),
     Ver = 1,
     Del = 0,
 
@@ -222,8 +221,8 @@ transform() ->
              preferred_r = Preferred_R,
              preferred_w = Preferred_W,
              preferred_d = Preferred_D,
-             sse_keyhash = SSE_KeyHash,
-             sse_iv = SSE_IV,
+             ssec_key_hash = SSEC_KeyHash,
+             ssec_iv = SSEC_IV,
              ver = Ver,
              del = Del} = leo_object_storage_transformer:metadata_to_object(#?METADATA{key = Key,
                                                                                        addr_id = AddrId,
@@ -244,8 +243,8 @@ transform() ->
                                                                                        preferred_r = Preferred_R,
                                                                                        preferred_w = Preferred_W,
                                                                                        preferred_d = Preferred_D,
-                                                                                       sse_keyhash = SSE_KeyHash,
-                                                                                       sse_iv = SSE_IV,
+                                                                                       ssec_key_hash = SSEC_KeyHash,
+                                                                                       ssec_iv = SSEC_IV,
                                                                                        ver = Ver,
                                                                                        del = Del}),
     ?debugVal("## Passed: metadata_to_object_test"),
@@ -373,8 +372,8 @@ transform() ->
                preferred_r = Preferred_R,
                preferred_w = Preferred_W,
                preferred_d = Preferred_D,
-               sse_keyhash = SSE_KeyHash,
-               sse_iv = SSE_IV,
+               ssec_key_hash = SSEC_KeyHash,
+               ssec_iv = SSEC_IV,
                ver = Ver,
                del = Del} = leo_object_storage_transformer:object_to_metadata(#?OBJECT{key = Key,
                                                                                        addr_id = AddrId,
@@ -395,8 +394,8 @@ transform() ->
                                                                                        preferred_r = Preferred_R,
                                                                                        preferred_w = Preferred_W,
                                                                                        preferred_d = Preferred_D,
-                                                                                       sse_keyhash = SSE_KeyHash,
-                                                                                       sse_iv = SSE_IV,
+                                                                                       ssec_key_hash = SSEC_KeyHash,
+                                                                                       ssec_iv = SSEC_IV,
                                                                                        ver = Ver,
                                                                                        del = Del}),
     ?debugVal("## Passed: object_to_metadata_test"),
