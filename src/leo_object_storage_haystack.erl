@@ -35,7 +35,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([open/1, open/2, close/2,
-         put/3, get/3, get/6, delete/3, datasync/1,
+         put/4, get/3, get/6, delete/4, datasync/1,
          head/2, head/3,
          fetch/4]).
 
@@ -183,12 +183,13 @@ datasync(WriteHandler) ->
 
 %% @doc Insert an object and a metadata into the object-storage
 %%
--spec(put(MetaDBId, StorageInfo, Object) ->
+-spec(put(MetaDBId, StorageInfo, Object, IsSync) ->
              {ok, integer()} | {error, any()} when MetaDBId::atom(),
                                                    StorageInfo::#backend_info{},
-                                                   Object::#?OBJECT{}).
-put(MetaDBId, StorageInfo, Object) ->
-    put_fun_1(MetaDBId, StorageInfo, Object).
+                                                   Object::#?OBJECT{},
+                                                   IsSync::boolean()).
+put(MetaDBId, StorageInfo, Object, IsSync) ->
+    put_fun_1(MetaDBId, StorageInfo, Object, IsSync).
 
 
 %% @doc Retrieve an object and a metadata
@@ -217,12 +218,13 @@ get(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck) ->
 
 %% @doc Remove an object and a metadata from the object-storage
 %%
--spec(delete(MetaDBId, StorageInfo, Object) ->
+-spec(delete(MetaDBId, StorageInfo, Object, IsSync) ->
              ok | {error, any()} when MetaDBId::atom(),
                                       StorageInfo::#backend_info{},
-                                      Object::#?OBJECT{}).
-delete(MetaDBId, StorageInfo, Object) ->
-    case put_fun_1(MetaDBId, StorageInfo, Object) of
+                                      Object::#?OBJECT{},
+                                      IsSync::boolean()).
+delete(MetaDBId, StorageInfo, Object, IsSync) ->
+    case put_fun_1(MetaDBId, StorageInfo, Object, IsSync) of
         {ok, _Checksum} ->
             ok;
         {error, Cause} ->
@@ -726,16 +728,16 @@ create_needle(#?OBJECT{addr_id = AddrId,
 
 %% @doc Insert an object into the object-storage
 %% @private
-put_fun_1(MetaDBId, StorageInfo, Object) ->
+put_fun_1(MetaDBId, StorageInfo, Object, IsSync) ->
     #backend_info{write_handler = ObjectStorageWriteHandler} = StorageInfo,
 
     case file:position(ObjectStorageWriteHandler, eof) of
         {ok, Offset} ->
-            put_fun_2(MetaDBId, StorageInfo, Object#?OBJECT{offset = Offset});
+            put_fun_2(MetaDBId, StorageInfo, Object#?OBJECT{offset = Offset}, IsSync);
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
-                                    {function, "put_fun_1/1"},
+                                    {function, "put_fun_1/4"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
@@ -745,7 +747,7 @@ put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key = Key,
                                           data = Bin,
                                           checksum = Checksum,
                                           timestamp = Timestamp,
-                                          del = DelFlag} = Object) ->
+                                          del = DelFlag} = Object, IsSync) ->
     Checksum_1 = case Checksum of
                      0 -> leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin));
                      _ -> Checksum
@@ -756,7 +758,7 @@ put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key = Key,
                    true ->
                        error_logger:error_msg("~p,~p,~p,~p~n",
                                               [{module, ?MODULE_STRING},
-                                               {function, "put_fun_2/3"},
+                                               {function, "put_fun_2/4"},
                                                {line, ?LINE}, {body, [{key, Key},
                                                                       {del, DelFlag},
                                                                       {timestamp, Timestamp},
@@ -768,18 +770,46 @@ put_fun_2(MetaDBId, StorageInfo, #?OBJECT{key = Key,
                end,
     Needle = create_needle(Object_2),
     Metadata = leo_object_storage_transformer:object_to_metadata(Object_2),
-    put_fun_3(MetaDBId, StorageInfo, Needle, Metadata).
+    put_fun_3(MetaDBId, StorageInfo, Needle, Metadata, IsSync).
 
 %% @private
 put_fun_3(MetaDBId, StorageInfo, Needle, #?METADATA{key      = Key,
                                                     addr_id  = AddrId,
                                                     offset   = Offset,
-                                                    checksum = Checksum} = Meta) ->
+                                                    checksum = Checksum} = Meta, IsSync) ->
     #backend_info{write_handler = WriteHandler,
                   avs_ver_cur   = AVSVsnBin} = StorageInfo,
 
     Key4BackendDB = ?gen_backend_key(AVSVsnBin, AddrId, Key),
     case file:pwrite(WriteHandler, Offset, Needle) of
+        ok when IsSync =:= true ->
+            case file:datasync(WriteHandler) of
+                ok ->
+                    case catch leo_backend_db_api:put(MetaDBId,
+                                                      Key4BackendDB,
+                                                      term_to_binary(Meta)) of
+                        ok ->
+                            {ok, Checksum};
+                        {'EXIT', Cause} ->
+                            error_logger:error_msg("~p,~p,~p,~p~n",
+                                                   [{module, ?MODULE_STRING},
+                                                    {function, "put_fun_3/5"},
+                                                    {line, ?LINE}, {body, Cause}]),
+                            {error, Cause};
+                        {error, Cause} ->
+                            error_logger:error_msg("~p,~p,~p,~p~n",
+                                                   [{module, ?MODULE_STRING},
+                                                    {function, "put_fun_3/5"},
+                                                    {line, ?LINE}, {body, Cause}]),
+                            {error, Cause}
+                    end;
+                {error, Cause} = Error ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING},
+                                            {function, "put_fun_3/5"},
+                                            {line, ?LINE}, {body, Cause}]),
+                    Error
+            end;
         ok ->
             case catch leo_backend_db_api:put(MetaDBId,
                                               Key4BackendDB,
@@ -789,20 +819,20 @@ put_fun_3(MetaDBId, StorageInfo, Needle, #?METADATA{key      = Key,
                 {'EXIT', Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING},
-                                            {function, "put_fun_3/2"},
+                                            {function, "put_fun_3/5"},
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause};
                 {error, Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING},
-                                            {function, "put_fun_3/2"},
+                                            {function, "put_fun_3/5"},
                                             {line, ?LINE}, {body, Cause}]),
                     {error, Cause}
             end;
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
-                                    {function, "put_fun_3/2"},
+                                    {function, "put_fun_3/5"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
     end.
