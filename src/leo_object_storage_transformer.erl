@@ -805,12 +805,18 @@ cmeta_bin_into_metadata(CustomMetadataBin, Metadata) ->
         Preferred_D = leo_misc:get_value(?PROP_CMETA_PREFERRED_D, CustomMetadata, 0),
         Ver = leo_misc:get_value(?PROP_CMETA_VER, CustomMetadata, 0),
         UDM =leo_misc:get_value(?PROP_CMETA_UDM, CustomMetadata, []),
+        %% Since v2.0.0
+        SSEC_KeyHash = leo_misc:get_value(?PROP_CMETA_SSEC_KEY_HASH, CustomMetadata, <<>>),
+        SSEC_IV = leo_misc:get_value(?PROP_CMETA_SSEC_IV, CustomMetadata, <<>>),
+
         {ok, {Metadata#?METADATA{cluster_id = ClusterId,
                                  num_of_replicas = NumOfReplicas,
                                  preferred_r = Preferred_R,
                                  preferred_w = Preferred_W,
                                  preferred_d = Preferred_D,
-                                 ver = Ver},
+                                 ver = Ver,
+                                 ssec_key_hash = SSEC_KeyHash,
+                                 ssec_iv = SSEC_IV},
               UDM}}
     catch
         _:_Cause ->
@@ -846,6 +852,9 @@ list_to_cmeta_bin(CustomMetadata) ->
     Preferred_D = leo_misc:get_value(?PROP_CMETA_PREFERRED_D, CustomMetadata, 0),
     Ver = leo_misc:get_value(?PROP_CMETA_VER, CustomMetadata, 0),
     UDM = leo_misc:get_value(?PROP_CMETA_UDM, CustomMetadata, []),
+    %% Since v2.0.0
+    SSEC_KeyHash = leo_misc:get_value(?PROP_CMETA_SSEC_KEY_HASH, CustomMetadata, <<>>),
+    SSEC_IV = leo_misc:get_value(?PROP_CMETA_SSEC_IV, CustomMetadata, <<>>),
 
     term_to_binary([{?PROP_CMETA_CLUSTER_ID, ClusterId},
                     {?PROP_CMETA_NUM_OF_REPLICAS, NumOfReplicas},
@@ -853,5 +862,7 @@ list_to_cmeta_bin(CustomMetadata) ->
                     {?PROP_CMETA_PREFERRED_W, Preferred_W},
                     {?PROP_CMETA_PREFERRED_D, Preferred_D},
                     {?PROP_CMETA_VER, Ver},
-                    {?PROP_CMETA_UDM, UDM}
+                    {?PROP_CMETA_UDM, UDM},
+                    {?PROP_CMETA_SSEC_KEY_HASH, SSEC_KeyHash},
+                    {?PROP_CMETA_SSEC_IV, SSEC_IV}
                    ]).
