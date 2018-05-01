@@ -729,6 +729,8 @@
 -define(PROP_CMETA_PREFERRED_D, 'preferred_d').
 -define(PROP_CMETA_VER, 'ver').
 -define(PROP_CMETA_UDM, 'udm'). %% user defined metadata: [{<KEY>, <VALUE>}]
+-define(PROP_CMETA_SSEC_KEY_HASH, 'ssec_key_hash').
+-define(PROP_CMETA_SSEC_IV, 'ssec_iv').
 
 
 %% @doc Generate a raw file path
