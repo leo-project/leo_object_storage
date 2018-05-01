@@ -585,8 +585,50 @@ get_fun_1(_MetaDBId,_StorageInfo, #?METADATA{} = Metadata, _,_,_) ->
     Object = leo_object_storage_transformer:metadata_to_object(Metadata),
     {ok, Metadata, Object#?OBJECT{data  = <<>>,
                                   dsize = 0}}.
-
 %% @private
+get_fun_2(StorageInfo, #?METADATA{ksize = KSize,
+                                  msize = MSize,
+                                  dsize = DSize,
+                                  offset = Offset,
+                                  checksum = Checksum} = Metadata,
+          StartPos, EndPos, true, true) ->
+    %% Retrieve the whole object to calc MD5
+    Offset_1 = Offset + erlang:round(?BLEN_HEADER/8) + KSize,
+    Length = DSize + MSize,
+    DSize_1 = Length - MSize,
+    #backend_info{read_handler = ReadHandler} = StorageInfo,
+
+    case leo_file:pread(ReadHandler, Offset_1, Length) of
+        {ok, Bin} ->
+            {ok, {Bin_1, CMetaBin}} = get_body_and_cmeta(Bin, Length, MSize),
+            case leo_hex:raw_binary_to_integer(crypto:hash(md5, Bin_1)) of
+                Checksum ->
+                    Metadata_1 = Metadata#?METADATA{meta = CMetaBin},
+                    %% Cut the range binary out
+                    RangeLen = EndPos - StartPos + 1,
+                    <<_Head:StartPos/binary, RangeBin:RangeLen/binary, _/binary>> = Bin_1,
+                    {ok, Metadata_1,
+                     leo_object_storage_transformer:metadata_to_object(RangeBin, Metadata_1)};
+                _ ->
+                    {error, invalid_object}
+            end;
+        eof = Cause ->
+            {error, Cause};
+        {error, Cause} ->
+            error_logger:error_msg(
+              "~p,~p,~p,~p~n",
+              [{module, ?MODULE_STRING},
+               {function, "get_fun_2/4"},
+               {line, ?LINE}, [{offset, Offset_1},
+                               {dsize, DSize_1},
+                               {body, Cause}]]),
+            case Cause of
+                unexpected_len ->
+                    {error, {abort, Cause}};
+                _ ->
+                    {error, Cause}
+            end
+    end;
 get_fun_2(StorageInfo, #?METADATA{ksize = KSize,
                                   msize = MSize,
                                   offset = Offset,
