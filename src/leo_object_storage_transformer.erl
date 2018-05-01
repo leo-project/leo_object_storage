@@ -729,61 +729,61 @@ is_invalid_header(_) ->
              #?METADATA{} | {error, invaid_record} when HeaderBin::binary()).
 header_bin_to_metadata(Bin) ->
     try
-        << Checksum:?BLEN_CHKSUM,
-           KSize:?BLEN_KSIZE,
-           DSize:?BLEN_DSIZE,
-           MSize:?BLEN_MSIZE,
-           Offset:?BLEN_OFFSET,
-           AddrId:?BLEN_ADDRID,
-           Clock:?BLEN_CLOCK,
-           Year:?BLEN_TS_Y,
-           Month:?BLEN_TS_M,
-           Day:?BLEN_TS_D,
-           Hour:?BLEN_TS_H,
-           Min:?BLEN_TS_N,
-           Second:?BLEN_TS_S,
-           Del:?BLEN_DEL,
-           CSize:?BLEN_CHUNK_SIZE,
-           CNum:?BLEN_CHUNK_NUM,
-           CIndex:?BLEN_CHUNK_INDEX,
-           _:?BLEN_BUF >> = Bin,
-        Timestamp = case catch calendar:datetime_to_gregorian_seconds(
-                                 {{Year, Month, Day}, {Hour, Min, Second}}) of
-                        {'EXIT',_} ->
-                            0;
-                        Val when Val < 63113904000;
-                                 Val > 66301199999 ->
-                            0;
-                        Val ->
-                            Val
-                    end,
-        case (Timestamp /= 0) of
-            true ->
-                Meta = #?METADATA{addr_id   = AddrId,
-                                  ksize = KSize,
-                                  msize = MSize,
-                                  dsize = DSize,
-                                  csize = CSize,
-                                  cnumber = CNum,
-                                  cindex = CIndex,
-                                  offset = Offset,
-                                  clock = Clock,
-                                  checksum = Checksum,
-                                  timestamp = Timestamp,
-                                  del = Del},
-                case is_invalid_header(Meta) of
+        case header_bin_to_metadata_1(Bin) of
+            {ok, #?METADATA{timestamp = Timestamp} = Metadata} ->
+                case (Timestamp /= 0) of
                     true ->
-                        {error, {invalid_format, over_limit}};
+                        case is_invalid_header(Metadata) of
+                            true ->
+                                {error, {invalid_format, over_limit}};
+                            false ->
+                                Metadata
+                        end;
                     false ->
-                        Meta
+                        {error, {invalid_format, unexpected_time_format}}
                 end;
-            false ->
-                {error, {invalid_format, unexpected_time_format}}
+            {error, Cause} ->
+                {error, Cause}
         end
     catch
         _:_Cause ->
             {error, {invalid_format,_Cause}}
     end.
+
+%% @private
+header_bin_to_metadata_1(<< Checksum:?BLEN_CHKSUM,
+                            KSize:?BLEN_KSIZE,
+                            DSize:?BLEN_DSIZE,
+                            MSize:?BLEN_MSIZE,
+                            Offset:?BLEN_OFFSET,
+                            AddrId:?BLEN_ADDRID,
+                            Clock:?BLEN_CLOCK,
+                            Year:?BLEN_TS_Y,
+                            Month:?BLEN_TS_M,
+                            Day:?BLEN_TS_D,
+                            Hour:?BLEN_TS_H,
+                            Min:?BLEN_TS_N,
+                            Second:?BLEN_TS_S,
+                            Del:?BLEN_DEL,
+                            CSize:?BLEN_CHUNK_SIZE,
+                            CNum:?BLEN_CHUNK_NUM,
+                            CIndex:?BLEN_CHUNK_INDEX,
+                            _:?BLEN_BUF >>) ->
+    {ok, #?METADATA{addr_id = AddrId,
+                    ksize = KSize,
+                    msize = MSize,
+                    dsize = DSize,
+                    csize = CSize,
+                    cnumber = CNum,
+                    cindex = CIndex,
+                    offset = Offset,
+                    clock = Clock,
+                    checksum = Checksum,
+                    timestamp = ?get_gregorian_seconds_from_datetime(
+                                   Year, Month, Day, Hour, Min, Second),
+                    del = Del}};
+header_bin_to_metadata_1(_) ->
+    {error, {invalid_format, unexpected_avs_version}}.
 
 
 %% @doc Set values from a custome-metadata
