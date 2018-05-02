@@ -2,7 +2,7 @@
 %%
 %% Leo Object Storage
 %%
-%% Copyright (c) 2012-2017 Rakuten, Inc.
+%% Copyright (c) 2012-2018 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -45,9 +45,9 @@
 
 
 -record(state, {
-          check_intervals = timer:minutes(1) :: pos_integer(),
-          avs_path_and_server_pairs = [] :: [{string(), atom()}]
-         }).
+                check_intervals = timer:minutes(1) :: pos_integer(),
+                avs_path_and_server_pairs = [] :: [{string(), atom()}]
+               }).
 
 -define(DEF_TIMEOUT, timer:seconds(30)).
 

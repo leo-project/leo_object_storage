@@ -2,7 +2,7 @@
 %%
 %% Leo Object Storage
 %%
-%% Copyright (c) 2012-2017 Rakuten, Inc.
+%% Copyright (c) 2012-2018 Rakuten, Inc.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -23,7 +23,6 @@
 %% @end
 %%======================================================================
 -module(leo_object_storage_transformer).
--author('Yosuke Hara').
 
 -include("leo_object_storage.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -45,7 +44,9 @@
 %%--------------------------------------------------------------------
 %% @doc Transform from a metadata to an object
 -spec(metadata_to_object(Metadata) ->
-             #?OBJECT{} | {error, invaid_record} when Metadata::#metadata{} | #metadata_1{} | #?METADATA{}).
+             #?OBJECT{} | {error, invaid_record} when Metadata::#metadata{} |
+                                                                #metadata_1{} | #metadata_2{} |
+                                                                #metadata_3{} | #?METADATA{}).
 metadata_to_object(#metadata{key = Key,
                              addr_id = AddrId,
                              ksize = KSize,
@@ -109,7 +110,6 @@ metadata_to_object(#metadata_1{} = Metadata) ->
              num_of_replicas = NumOfReplicas,
              ver = Ver,
              del = Del};
-
 metadata_to_object(#metadata_2{} = Metadata) ->
     #metadata_2{key = Key,
                 addr_id = AddrId,
@@ -147,29 +147,28 @@ metadata_to_object(#metadata_2{} = Metadata) ->
              num_of_replicas = NumOfReplicas,
              ver = Ver,
              del = Del};
-
-metadata_to_object(#?METADATA{} = Metadata) ->
-    #?METADATA{key = Key,
-               addr_id = AddrId,
-               ksize = KSize,
-               dsize = DSize,
-               meta = CMeta,
-               msize = MSize,
-               csize = CSize,
-               cnumber = CNum,
-               cindex = CIndex,
-               offset = Offset,
-               clock = Clock,
-               timestamp = Timestamp,
-               checksum = Checksum,
-               ring_hash = RingHash,
-               cluster_id = ClusterId,
-               num_of_replicas = NumOfReplicas,
-               preferred_r = Preferred_R,
-               preferred_w = Preferred_W,
-               preferred_d = Preferred_D,
-               ver = Ver,
-               del = Del} = Metadata,
+metadata_to_object(#metadata_3{} = Metadata) ->
+    #metadata_3{key = Key,
+                addr_id = AddrId,
+                ksize = KSize,
+                dsize = DSize,
+                meta = CMeta,
+                msize = MSize,
+                csize = CSize,
+                cnumber = CNum,
+                cindex = CIndex,
+                offset = Offset,
+                clock = Clock,
+                timestamp = Timestamp,
+                checksum = Checksum,
+                ring_hash = RingHash,
+                cluster_id = ClusterId,
+                num_of_replicas = NumOfReplicas,
+                preferred_r = Preferred_R,
+                preferred_w = Preferred_W,
+                preferred_d = Preferred_D,
+                ver = Ver,
+                del = Del} = Metadata,
     #?OBJECT{key = Key,
              addr_id = AddrId,
              ksize = KSize,
@@ -191,12 +190,58 @@ metadata_to_object(#?METADATA{} = Metadata) ->
              preferred_d = Preferred_D,
              ver = Ver,
              del = Del};
+metadata_to_object(#?METADATA{} = Metadata) ->
+    #?METADATA{key = Key,
+               addr_id = AddrId,
+               ksize = KSize,
+               dsize = DSize,
+               meta = CMeta,
+               msize = MSize,
+               csize = CSize,
+               cnumber = CNum,
+               cindex = CIndex,
+               offset = Offset,
+               clock = Clock,
+               timestamp = Timestamp,
+               checksum = Checksum,
+               ring_hash = RingHash,
+               cluster_id = ClusterId,
+               num_of_replicas = NumOfReplicas,
+               preferred_r = Preferred_R,
+               preferred_w = Preferred_W,
+               preferred_d = Preferred_D,
+               ssec_key_hash = SSEC_KeyHash,
+               ssec_iv = SSEC_IV,
+               ver = Ver,
+               del = Del} = Metadata,
+    #?OBJECT{key = Key,
+             addr_id = AddrId,
+             ksize = KSize,
+             dsize = DSize,
+             meta = CMeta,
+             msize = MSize,
+             csize = CSize,
+             cnumber = CNum,
+             cindex = CIndex,
+             offset = Offset,
+             clock = Clock,
+             timestamp = Timestamp,
+             checksum = Checksum,
+             ring_hash = RingHash,
+             cluster_id = ClusterId,
+             num_of_replicas = NumOfReplicas,
+             preferred_r = Preferred_R,
+             preferred_w = Preferred_W,
+             preferred_d = Preferred_D,
+             ssec_key_hash = SSEC_KeyHash,
+             ssec_iv = SSEC_IV,
+             ver = Ver,
+             del = Del};
 metadata_to_object(_M) ->
     {error, invaid_record}.
 
 
 %% @doc a metadata to an object info
-%%
 -spec(metadata_to_object(Bin, Metadata) ->
              Object when Bin::binary(),
                          Metadata::#?METADATA{},
@@ -216,7 +261,8 @@ metadata_to_object(Bin, Metadata) ->
 
 %% @doc Transfer object to metadata
 -spec(object_to_metadata(Object) ->
-             #?METADATA{} when Object::#object{}|#object_1{}).
+             #?METADATA{} when Object::#object{}|#object_1{}|
+                                       #object_2{}|#?OBJECT{}).
 object_to_metadata(#object{key = Key,
                            addr_id = AddrId,
                            ksize = KSize,
@@ -281,6 +327,48 @@ object_to_metadata(#object_1{key = Key,
                num_of_replicas = NumOfReplicas,
                ver = Ver,
                del = Del};
+object_to_metadata(#object_2{key = Key,
+                             addr_id = AddrId,
+                             ksize = KSize,
+                             dsize = DSize,
+                             meta = CMeta,
+                             msize = MSize,
+                             csize = CSize,
+                             cnumber = CNum,
+                             cindex = CIndex,
+                             offset = Offset,
+                             clock = Clock,
+                             timestamp = Timestamp,
+                             checksum = Checksum,
+                             ring_hash = RingHash,
+                             cluster_id = ClusterId,
+                             num_of_replicas = NumOfReplicas,
+                             preferred_r = Preferred_R,
+                             preferred_w = Preferred_W,
+                             preferred_d = Preferred_D,
+                             ver = Ver,
+                             del = Del}) ->
+    #?METADATA{key = Key,
+               addr_id = AddrId,
+               ksize = KSize,
+               dsize = DSize,
+               meta = CMeta,
+               msize = MSize,
+               csize = CSize,
+               cnumber = CNum,
+               cindex = CIndex,
+               offset = Offset,
+               clock = Clock,
+               timestamp = Timestamp,
+               checksum = Checksum,
+               ring_hash = RingHash,
+               cluster_id = ClusterId,
+               num_of_replicas = NumOfReplicas,
+               preferred_r = Preferred_R,
+               preferred_w = Preferred_W,
+               preferred_d = Preferred_D,
+               ver = Ver,
+               del = Del};
 object_to_metadata(#?OBJECT{key = Key,
                             addr_id = AddrId,
                             ksize = KSize,
@@ -300,6 +388,8 @@ object_to_metadata(#?OBJECT{key = Key,
                             preferred_r = Preferred_R,
                             preferred_w = Preferred_W,
                             preferred_d = Preferred_D,
+                            ssec_key_hash = SSEC_KeyHash,
+                            ssec_iv = SSEC_IV,
                             ver = Ver,
                             del = Del}) ->
     #?METADATA{key = Key,
@@ -321,6 +411,8 @@ object_to_metadata(#?OBJECT{key = Key,
                preferred_r = Preferred_R,
                preferred_w = Preferred_W,
                preferred_d = Preferred_D,
+               ssec_key_hash = SSEC_KeyHash,
+               ssec_iv = SSEC_IV,
                ver = Ver,
                del = Del};
 object_to_metadata(_) ->
@@ -433,6 +525,48 @@ transform_metadata(#metadata_2{key = Key,
                num_of_replicas = NumOfReplicas,
                ver = Ver,
                del = Del};
+transform_metadata(#metadata_3{key = Key,
+                               addr_id = AddrId,
+                               ksize = KSize,
+                               dsize = DSize,
+                               meta = CMeta,
+                               msize = MSize,
+                               csize = CSize,
+                               cnumber = CNum,
+                               cindex = CIndex,
+                               offset = Offset,
+                               clock = Clock,
+                               timestamp = Timestamp,
+                               checksum = Checksum,
+                               ring_hash = RingHash,
+                               cluster_id = ClusterId,
+                               num_of_replicas = NumOfReplicas,
+                               preferred_r = Preferred_R,
+                               preferred_w = Preferred_W,
+                               preferred_d = Preferred_D,
+                               ver = Ver,
+                               del = Del}) ->
+    #?METADATA{key = Key,
+               addr_id = AddrId,
+               ksize = KSize,
+               dsize = DSize,
+               meta = CMeta,
+               msize = MSize,
+               csize = CSize,
+               cnumber = CNum,
+               cindex = CIndex,
+               offset = Offset,
+               clock = Clock,
+               timestamp = Timestamp,
+               checksum = Checksum,
+               ring_hash = RingHash,
+               cluster_id = ClusterId,
+               num_of_replicas = NumOfReplicas,
+               preferred_r = Preferred_R,
+               preferred_w = Preferred_W,
+               preferred_d = Preferred_D,
+               ver = Ver,
+               del = Del};
 transform_metadata(#?METADATA{} = Metadata) ->
     Metadata;
 transform_metadata(_) ->
@@ -444,7 +578,8 @@ transform_metadata(_) ->
              #object_2{} |
              {error, invaid_record} when Object::#object{} |
                                                  #object_1{} |
-                                                 #object_2{}).
+                                                 #object_2{} |
+                                                 #object_3{}).
 transform_object(#object{method = Method,
                          key = Key,
                          addr_id = AddrId,
@@ -523,6 +658,54 @@ transform_object(#object_1{method = Method,
              num_of_replicas = MDCR_N,
              ver = Ver,
              del = Del};
+transform_object(#object_2{method = Method,
+                           key = Key,
+                           addr_id = AddrId,
+                           data = Data,
+                           meta = CMeta,
+                           ksize = KSize,
+                           dsize = DSize,
+                           msize = MSize,
+                           csize = CSize,
+                           cnumber = CNum,
+                           cindex = CIdx,
+                           offset = Offset,
+                           clock = Clock,
+                           timestamp = Timestamp,
+                           checksum = Checksum,
+                           ring_hash = RingHash,
+                           req_id= ReqId,
+                           cluster_id = ClusterId,
+                           num_of_replicas = MDCR_N,
+                           preferred_r = Preferred_R,
+                           preferred_w = Preferred_W,
+                           preferred_d = Preferred_D,
+                           ver = Ver,
+                           del = Del}) ->
+    #?OBJECT{method = Method,
+             key = Key,
+             addr_id = AddrId,
+             data = Data,
+             meta = CMeta,
+             ksize = KSize,
+             dsize = DSize,
+             msize = MSize,
+             csize = CSize,
+             cnumber = CNum,
+             cindex = CIdx,
+             offset = Offset,
+             clock = Clock,
+             timestamp = Timestamp,
+             checksum = Checksum,
+             ring_hash = RingHash,
+             req_id= ReqId,
+             cluster_id = ClusterId,
+             num_of_replicas = MDCR_N,
+             preferred_r = Preferred_R,
+             preferred_w = Preferred_W,
+             preferred_d = Preferred_D,
+             ver = Ver,
+             del = Del};
 transform_object(#?OBJECT{} = Object) ->
     Object;
 transform_object(_) ->
@@ -546,61 +729,61 @@ is_invalid_header(_) ->
              #?METADATA{} | {error, invaid_record} when HeaderBin::binary()).
 header_bin_to_metadata(Bin) ->
     try
-        << Checksum:?BLEN_CHKSUM,
-           KSize:?BLEN_KSIZE,
-           DSize:?BLEN_DSIZE,
-           MSize:?BLEN_MSIZE,
-           Offset:?BLEN_OFFSET,
-           AddrId:?BLEN_ADDRID,
-           Clock:?BLEN_CLOCK,
-           Year:?BLEN_TS_Y,
-           Month:?BLEN_TS_M,
-           Day:?BLEN_TS_D,
-           Hour:?BLEN_TS_H,
-           Min:?BLEN_TS_N,
-           Second:?BLEN_TS_S,
-           Del:?BLEN_DEL,
-           CSize:?BLEN_CHUNK_SIZE,
-           CNum:?BLEN_CHUNK_NUM,
-           CIndex:?BLEN_CHUNK_INDEX,
-           _:?BLEN_BUF >> = Bin,
-        Timestamp = case catch calendar:datetime_to_gregorian_seconds(
-                                 {{Year, Month, Day}, {Hour, Min, Second}}) of
-                        {'EXIT',_} ->
-                            0;
-                        Val when Val < 63113904000;
-                                 Val > 66301199999 ->
-                            0;
-                        Val ->
-                            Val
-                    end,
-        case (Timestamp /= 0) of
-            true ->
-                Meta = #?METADATA{addr_id   = AddrId,
-                                  ksize = KSize,
-                                  msize = MSize,
-                                  dsize = DSize,
-                                  csize = CSize,
-                                  cnumber = CNum,
-                                  cindex = CIndex,
-                                  offset = Offset,
-                                  clock = Clock,
-                                  checksum = Checksum,
-                                  timestamp = Timestamp,
-                                  del = Del},
-                case is_invalid_header(Meta) of
+        case header_bin_to_metadata_1(Bin) of
+            {ok, #?METADATA{timestamp = Timestamp} = Metadata} ->
+                case (Timestamp /= 0) of
                     true ->
-                        {error, {invalid_format, over_limit}};
+                        case is_invalid_header(Metadata) of
+                            true ->
+                                {error, {invalid_format, over_limit}};
+                            false ->
+                                Metadata
+                        end;
                     false ->
-                        Meta
+                        {error, {invalid_format, unexpected_time_format}}
                 end;
-            false ->
-                {error, {invalid_format, unexpected_time_format}}
+            {error, Cause} ->
+                {error, Cause}
         end
     catch
         _:_Cause ->
             {error, {invalid_format,_Cause}}
     end.
+
+%% @private
+header_bin_to_metadata_1(<< Checksum:?BLEN_CHKSUM,
+                            KSize:?BLEN_KSIZE,
+                            DSize:?BLEN_DSIZE,
+                            MSize:?BLEN_MSIZE,
+                            Offset:?BLEN_OFFSET,
+                            AddrId:?BLEN_ADDRID,
+                            Clock:?BLEN_CLOCK,
+                            Year:?BLEN_TS_Y,
+                            Month:?BLEN_TS_M,
+                            Day:?BLEN_TS_D,
+                            Hour:?BLEN_TS_H,
+                            Min:?BLEN_TS_N,
+                            Second:?BLEN_TS_S,
+                            Del:?BLEN_DEL,
+                            CSize:?BLEN_CHUNK_SIZE,
+                            CNum:?BLEN_CHUNK_NUM,
+                            CIndex:?BLEN_CHUNK_INDEX,
+                            _:?BLEN_BUF >>) ->
+    {ok, #?METADATA{addr_id = AddrId,
+                    ksize = KSize,
+                    msize = MSize,
+                    dsize = DSize,
+                    csize = CSize,
+                    cnumber = CNum,
+                    cindex = CIndex,
+                    offset = Offset,
+                    clock = Clock,
+                    checksum = Checksum,
+                    timestamp = ?get_gregorian_seconds_from_datetime(
+                                   Year, Month, Day, Hour, Min, Second),
+                    del = Del}};
+header_bin_to_metadata_1(_) ->
+    {error, {invalid_format, unexpected_avs_version}}.
 
 
 %% @doc Set values from a custome-metadata
@@ -622,12 +805,18 @@ cmeta_bin_into_metadata(CustomMetadataBin, Metadata) ->
         Preferred_D = leo_misc:get_value(?PROP_CMETA_PREFERRED_D, CustomMetadata, 0),
         Ver = leo_misc:get_value(?PROP_CMETA_VER, CustomMetadata, 0),
         UDM =leo_misc:get_value(?PROP_CMETA_UDM, CustomMetadata, []),
+        %% Since v2.0.0
+        SSEC_KeyHash = leo_misc:get_value(?PROP_CMETA_SSEC_KEY_HASH, CustomMetadata, <<>>),
+        SSEC_IV = leo_misc:get_value(?PROP_CMETA_SSEC_IV, CustomMetadata, <<>>),
+
         {ok, {Metadata#?METADATA{cluster_id = ClusterId,
                                  num_of_replicas = NumOfReplicas,
                                  preferred_r = Preferred_R,
                                  preferred_w = Preferred_W,
                                  preferred_d = Preferred_D,
-                                 ver = Ver},
+                                 ver = Ver,
+                                 ssec_key_hash = SSEC_KeyHash,
+                                 ssec_iv = SSEC_IV},
               UDM}}
     catch
         _:_Cause ->
@@ -663,6 +852,9 @@ list_to_cmeta_bin(CustomMetadata) ->
     Preferred_D = leo_misc:get_value(?PROP_CMETA_PREFERRED_D, CustomMetadata, 0),
     Ver = leo_misc:get_value(?PROP_CMETA_VER, CustomMetadata, 0),
     UDM = leo_misc:get_value(?PROP_CMETA_UDM, CustomMetadata, []),
+    %% Since v2.0.0
+    SSEC_KeyHash = leo_misc:get_value(?PROP_CMETA_SSEC_KEY_HASH, CustomMetadata, <<>>),
+    SSEC_IV = leo_misc:get_value(?PROP_CMETA_SSEC_IV, CustomMetadata, <<>>),
 
     term_to_binary([{?PROP_CMETA_CLUSTER_ID, ClusterId},
                     {?PROP_CMETA_NUM_OF_REPLICAS, NumOfReplicas},
@@ -670,5 +862,7 @@ list_to_cmeta_bin(CustomMetadata) ->
                     {?PROP_CMETA_PREFERRED_W, Preferred_W},
                     {?PROP_CMETA_PREFERRED_D, Preferred_D},
                     {?PROP_CMETA_VER, Ver},
-                    {?PROP_CMETA_UDM, UDM}
+                    {?PROP_CMETA_UDM, UDM},
+                    {?PROP_CMETA_SSEC_KEY_HASH, SSEC_KeyHash},
+                    {?PROP_CMETA_SSEC_IV, SSEC_IV}
                    ]).
