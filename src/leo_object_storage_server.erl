@@ -833,16 +833,8 @@ put_1(Key, Object, #obj_server_state{meta_db_id     = MetaDBId,
     case Ret of
         ok ->
             NewSize = leo_object_storage_haystack:calc_obj_size(Object),
-            Reply   = leo_object_storage_haystack:put(MetaDBId, StorageInfo, Object),
-            case Reply of
-                {ok, _} when SyncMode =:= ?SYNC_MODE_WRITETHROUGH ->
-                    #backend_info{
-                        write_handler = WriteHandler
-                    } = StorageInfo,
-                    leo_object_storage_haystack:datasync(WriteHandler);
-                _ ->
-                    nop
-            end,
+            IsSync = SyncMode =:= ?SYNC_MODE_WRITETHROUGH,
+            Reply   = leo_object_storage_haystack:put(MetaDBId, StorageInfo, Object, IsSync),
             State_1 = after_proc(Reply, State),
             {Reply, State_1#obj_server_state{
                       storage_stats = StorageStats#storage_stats{
@@ -871,18 +863,10 @@ delete_1(Key, Object, #obj_server_state{meta_db_id     = MetaDBId,
                 #?METADATA{del = DelFlag} = Meta,
                 case DelFlag of
                     ?DEL_FALSE ->
+                        IsSync = SyncMode =:= ?SYNC_MODE_WRITETHROUGH,
                         case leo_object_storage_haystack:delete(
-                               MetaDBId, StorageInfo, Object) of
+                               MetaDBId, StorageInfo, Object, IsSync) of
                             ok ->
-                                case SyncMode of
-                                    ?SYNC_MODE_WRITETHROUGH ->
-                                        #backend_info{
-                                            write_handler = WriteHandler
-                                        } = StorageInfo,
-                                        leo_object_storage_haystack:datasync(WriteHandler);
-                                    _ ->
-                                        nop
-                                end,
                                 {ok, 1, leo_object_storage_haystack:calc_obj_size(Meta), State};
                             {error, Cause} ->
                                 NewState = after_proc({error, Cause}, State),
