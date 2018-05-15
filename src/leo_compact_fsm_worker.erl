@@ -257,6 +257,7 @@ idling(#compaction_event_info{event = ?EVENT_RUN,
                 is_diagnosing = IsDiagnosing,
                 is_recovering = IsRecovering,
                 is_skipping_garbage = false,
+                skipped_bytes = 0,
                 error_pos     = 0,
                 set_errors    = sets:new(),
                 acc_errors    = [],
@@ -791,6 +792,8 @@ execute_1(ok = Ret, #compaction_worker_state{meta_db_id       = MetaDBId,
                                              obj_storage_info = StorageInfo,
                                              compaction_prms  = CompactionPrms,
                                              compaction_skip_garbage = SkipInfo,
+                                             skipped_bytes = SkippedBytes,
+                                             is_skipping_garbage = IsSkipping,
                                              is_recovering    = IsRecovering} = State, RetryTimes) ->
     ReadHandler = StorageInfo#backend_info.read_handler,
     NextOffset  = CompactionPrms#compaction_prms.next_offset,
@@ -827,6 +830,7 @@ execute_1(ok = Ret, #compaction_worker_state{meta_db_id       = MetaDBId,
                           error_pos  = 0,
                           set_errors = sets:new(),
                           is_skipping_garbage = false,
+                          skipped_bytes = 0,
                           compaction_skip_garbage =
                               SkipInfo#compaction_skip_garbage{
                                 is_skipping = false,
@@ -851,6 +855,7 @@ execute_1(ok = Ret, #compaction_worker_state{meta_db_id       = MetaDBId,
                            error_pos  = 0,
                            set_errors = sets:new(),
                            is_skipping_garbage = false,
+                           skipped_bytes = 0,
                            compaction_skip_garbage =
                               SkipInfo#compaction_skip_garbage{
                                 is_skipping = false,
@@ -884,9 +889,22 @@ execute_1(ok = Ret, #compaction_worker_state{meta_db_id       = MetaDBId,
         {skip, NewSkipInfo, Cause} ->
             SetErrors = sets:add_element(Cause,
                                          State#compaction_worker_state.set_errors),
+            SkippedBytesNew = case IsSkipping of
+                                  true ->
+                                      SkippedBytes + 1;
+                                  false ->
+                                      1
+                              end,
+            case SkippedBytes > ?env_compaction_force_quit_in_bytes() of
+                true ->
+                    erlang:error(garbage_too_long);
+                false ->
+                    nop
+            end,
             {ok, {next, State#compaction_worker_state{
                           set_errors = SetErrors,
                           is_skipping_garbage = true,
+                          skipped_bytes = SkippedBytesNew,
                           compaction_skip_garbage = NewSkipInfo,
                           compaction_prms =
                               CompactionPrms#compaction_prms{
@@ -902,10 +920,23 @@ execute_1(ok = Ret, #compaction_worker_state{meta_db_id       = MetaDBId,
                           end,
             SetErrors = sets:add_element(Cause,
                                          State#compaction_worker_state.set_errors),
+            SkippedBytesNew = case IsSkipping of
+                                  true ->
+                                      SkippedBytes + 1;
+                                  false ->
+                                      1
+                              end,
+            case SkippedBytes > ?env_compaction_force_quit_in_bytes() of
+                true ->
+                    erlang:error(garbage_too_long);
+                false ->
+                    nop
+            end,
             {ok, {next, State#compaction_worker_state{
                           error_pos  = ErrorPosNew,
                           set_errors = SetErrors,
                           is_skipping_garbage = true,
+                          skipped_bytes = SkippedBytesNew,
                           compaction_skip_garbage =
                               SkipInfo#compaction_skip_garbage{
                                 is_skipping = true

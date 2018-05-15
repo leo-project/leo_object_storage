@@ -277,6 +277,8 @@ recover() ->
 
 compact() ->
     %% Launch object-storage
+    ForceQuitInBytes = 1048576, %% set a lower value to speed up the test
+    application:set_env(leo_object_storage, force_quit_in_bytes, ForceQuitInBytes, [{persistent, true}]),
     leo_object_storage_api:start([{1, ?AVS_DIR_FOR_COMPACTION}]),
     ok = put_regular_bin(1, 50),
     ok = put_irregular_bin(),
@@ -320,6 +322,14 @@ compact() ->
                         }|_]} = Stats,
     ?assertEqual(151, TotalNum),
     ?assertEqual(TotalNum, ActiveNum),
+
+    %% Check if #549 is fixed
+    ok = put_fixed_irregular_bin(ForceQuitInBytes + 512), %% Additional Bytes Needed for the header
+    timer:sleep(1000),
+    ok = leo_compact_fsm_controller:run(TargetPids, 1, FunHasChargeOfNode),
+    %% This must be failed due to the too much size garbage
+    {error, compaction_failed} = check_status(),
+
     ok.
 
 compact_1() ->
@@ -437,13 +447,19 @@ check_status() ->
     %% shouldn't be blocked
     {_, _} = sys:get_state(ID),
     case leo_compact_fsm_controller:state() of
-        {ok, #compaction_stats{status = ?ST_IDLING}} ->
-            %% check pid_pairs is empty
-            {_, State} = sys:get_state(leo_compact_fsm_controller),
-            ?debugVal(State),
-            %% 1:record name, 2: id, 3: server_pairs, 4: pid_pairs
-            ?assertEqual([], erlang:element(4, State)),
-            ok;
+        {ok, #compaction_stats{status = ?ST_IDLING} = CStatus} ->
+            ResultList = [Report#compaction_report.result || Report <- CStatus#compaction_stats.acc_reports],
+            case lists:member(fail, ResultList) of
+                true ->
+                    {error, compaction_failed};
+                false ->
+                    %% check pid_pairs is empty
+                    {_, State} = sys:get_state(leo_compact_fsm_controller),
+                    ?debugVal(State),
+                    %% 1:record name, 2: id, 3: server_pairs, 4: pid_pairs
+                    ?assertEqual([], erlang:element(4, State)),
+                    ok
+            end;
         {ok, #compaction_stats{locked_targets = []}} ->
             check_status();
         {ok, #compaction_stats{locked_targets = LockedTargets}} ->
@@ -595,6 +611,14 @@ put_irregular_bin(Key, CMeta, CSize, Clock) ->
                       clock     = Clock
                      },
     leo_object_storage_api:put({AddrId, Key}, Object).
+
+put_fixed_irregular_bin(Size) ->
+    ?debugVal(Size),
+    Bin = crypto:strong_rand_bytes(Size),
+    _ = leo_object_storage_api:add_incorrect_data(Bin),
+    {ok, Offset} = leo_object_storage_api:get_eof_offset(Bin),
+    io:format(user, "[garbage] *** start:~p, end:~p~n", [Offset - byte_size(Bin), Offset]),
+    ok.
 
 %% @private
 delete_metadata(0) ->
