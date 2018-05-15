@@ -333,6 +333,8 @@ compact() ->
     ok.
 
 compact_1() ->
+    ForceQuitInBytes = ?DEF_COMPACTION_FQ_IN_BYTES,
+    application:set_env(leo_object_storage, force_quit_in_bytes, ForceQuitInBytes, [{persistent, true}]),
     %% Launch object-storage
     leo_object_storage_api:start([{1, ?AVS_DIR_FOR_COMPACTION}]),
     ok = put_regular_bin(1, 50),
@@ -367,6 +369,8 @@ compact_1() ->
     ok.
 
 compact_3() ->
+    ForceQuitInBytes = ?DEF_COMPACTION_FQ_IN_BYTES,
+    application:set_env(leo_object_storage, force_quit_in_bytes, ForceQuitInBytes, [{persistent, true}]),
     %% Launch object-storage
     leo_object_storage_api:start([{4, ?AVS_DIR_FOR_COMPACTION}]),
 
