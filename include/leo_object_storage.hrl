@@ -79,7 +79,7 @@
 -endif.
 
 -define(DEF_COMPACTION_SKIP_PS, 512).
-
+-define(DEF_COMPACTION_FQ_IN_BYTES, 10485760). %% 10MB = 1024 * 1024 * 10
 
 -undef(ST_IDLING).
 -undef(ST_RUNNING).
@@ -693,6 +693,14 @@
             end
         end).
 
+-define(env_compaction_force_quit_in_bytes(),
+        case application:get_env(?APP_NAME, force_quit_in_bytes) of
+            {ok, ForceQuitInBytes} ->
+                ForceQuitInBytes;
+            _ ->
+                ?DEF_COMPACTION_FQ_IN_BYTES
+        end).
+
 -define(get_object_storage_id(_TargetContainers),
         begin
             lists:flatten(
@@ -851,6 +859,7 @@
                                   %% compaction-info:
                                   compaction_prms = #compaction_prms{} :: #compaction_prms{},
                                   compaction_skip_garbage = #compaction_skip_garbage{} :: #compaction_skip_garbage{},
+                                  skipped_bytes = 0 :: non_neg_integer(),
                                   start_datetime = 0 :: non_neg_integer(),
                                   error_pos = 0 :: non_neg_integer(),
                                   set_errors :: otp_set(),
