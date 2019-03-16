@@ -88,8 +88,8 @@
 -define(ST_RUNNING, 'running').
 -define(ST_SUSPENDING, 'suspending').
 -type(compaction_state() :: ?ST_IDLING |
-?ST_RUNNING |
-?ST_SUSPENDING).
+                            ?ST_RUNNING |
+                            ?ST_SUSPENDING).
 
 
 -undef(EVENT_RUN).
@@ -111,61 +111,61 @@
 -define(EVENT_INCREASE, 'increase').
 -define(EVENT_DECREASE, 'decrease').
 -type(compaction_event() ::?EVENT_RUN |
-?EVENT_DIAGNOSE |
-?EVENT_LOCK |
-?EVENT_SUSPEND |
-?EVENT_RESUME |
-?EVENT_FINISH |
-?EVENT_STATE |
-?EVENT_INCREASE |
-?EVENT_DECREASE
-).
+                           ?EVENT_DIAGNOSE |
+                           ?EVENT_LOCK |
+                           ?EVENT_SUSPEND |
+                           ?EVENT_RESUME |
+                           ?EVENT_FINISH |
+                           ?EVENT_STATE |
+                           ?EVENT_INCREASE |
+                           ?EVENT_DECREASE
+     ).
 
 %% @doc Compaction related definitions
 -define(RET_SUCCESS, 'success').
 -define(RET_FAIL,    'fail').
 -type(compaction_ret() :: ?RET_SUCCESS |
-?RET_FAIL |
-undefined).
+                          ?RET_FAIL |
+                          undefined).
 
 -define(MAX_LEN_HIST, 50).
 -define(MAX_RETRY_TIMES, 2).
 -define(WAIT_TIME_AFTER_ERROR, 200). %% 200ms
 
 -record(compaction_report, {
-file_path = [] :: string(),
-avs_ver = <<>> :: binary(),
-num_of_active_objs = 0 :: non_neg_integer(),
-size_of_active_objs = 0 :: non_neg_integer(),
-total_num_of_objs = 0 :: non_neg_integer(),
-total_size_of_objs = 0 :: non_neg_integer(),
-start_datetime = [] :: string(),
-end_datetime = [] :: string(),
-errors = [] :: [{non_neg_integer(),non_neg_integer()}],
-duration = 0 :: non_neg_integer(),
-result :: atom()
-}).
+                            file_path = [] :: string(),
+                            avs_ver = <<>> :: binary(),
+                            num_of_active_objs = 0 :: non_neg_integer(),
+                            size_of_active_objs = 0 :: non_neg_integer(),
+                            total_num_of_objs = 0 :: non_neg_integer(),
+                            total_size_of_objs = 0 :: non_neg_integer(),
+                            start_datetime = [] :: string(),
+                            end_datetime = [] :: string(),
+                            errors = [] :: [{non_neg_integer(),non_neg_integer()}],
+                            duration = 0 :: non_neg_integer(),
+                            result :: atom()
+                           }).
 
 -record(compaction_hist, {
-start_datetime = 0 :: non_neg_integer(),
-end_datetime   = 0 :: non_neg_integer(),
-duration = 0 :: non_neg_integer(),
-result :: compaction_ret()
-}).
+                          start_datetime = 0 :: non_neg_integer(),
+                          end_datetime   = 0 :: non_neg_integer(),
+                          duration = 0 :: non_neg_integer(),
+                          result :: compaction_ret()
+                         }).
 
 -record(compaction_stats, {
-status = ?ST_IDLING :: compaction_state(),
-total_num_of_targets = 0 :: non_neg_integer(),
-num_of_reserved_targets = 0 :: non_neg_integer(),
-num_of_pending_targets = 0 :: non_neg_integer(),
-num_of_ongoing_targets = 0 :: non_neg_integer(),
-reserved_targets = [] :: [atom()],
-pending_targets = [] :: [atom()],
-ongoing_targets = [] :: [atom()],
-locked_targets = [] :: [atom()],
-latest_exec_datetime = 0 :: non_neg_integer(),
-acc_reports = [] :: [#compaction_report{}]
-}).
+                           status = ?ST_IDLING :: compaction_state(),
+                           total_num_of_targets = 0 :: non_neg_integer(),
+                           num_of_reserved_targets = 0 :: non_neg_integer(),
+                           num_of_pending_targets = 0 :: non_neg_integer(),
+                           num_of_ongoing_targets = 0 :: non_neg_integer(),
+                           reserved_targets = [] :: [atom()],
+                           pending_targets = [] :: [atom()],
+                           ongoing_targets = [] :: [atom()],
+                           locked_targets = [] :: [atom()],
+                           latest_exec_datetime = 0 :: non_neg_integer(),
+                           acc_reports = [] :: [#compaction_report{}]
+                          }).
 
 
 %% Error Constants
@@ -223,23 +223,23 @@ acc_reports = [] :: [#compaction_report{}]
 
 %% @doc Generate an key for backend db
 -define(gen_backend_key(_VSN, _AddrId, _Key),
-begin
-case _VSN of
-?AVS_HEADER_VSN_2_2 ->
-term_to_binary({_AddrId, _Key});
-?AVS_HEADER_VSN_2_4 ->
-_Key
-end
-end).
+        begin
+            case _VSN of
+                ?AVS_HEADER_VSN_2_2 ->
+                    term_to_binary({_AddrId, _Key});
+                ?AVS_HEADER_VSN_2_4 ->
+                    _Key
+            end
+        end).
 
 -define(AVS_HEADER_VSN,     <<?AVS_HEADER_VSN_TOBE/binary,13,10>>).
 -define(AVS_PART_OF_HEADER, <<"CHKSUM:128,KSIZE:16,BLEN_MSIZE:32,DSIZE:32,OFFSET:64,ADDRID:128,CLOCK:64,TIMESTAMP:42,DEL:1,BUF:437,CHUNK_SIZE:32,CHUNK_NUM:24,CHUNK_INDEX:24",13,10>>).
 -define(AVS_PART_OF_BODY,   <<"KEY/binary,DATA/binary",13,10>>).
 -define(AVS_PART_OF_FOOTER, <<"PADDING:64",13,10>>).
 -define(AVS_SUPER_BLOCK,    <<?AVS_HEADER_VSN/binary,
-?AVS_PART_OF_HEADER/binary,
-?AVS_PART_OF_BODY/binary,
-?AVS_PART_OF_FOOTER/binary>>).
+                              ?AVS_PART_OF_HEADER/binary,
+                              ?AVS_PART_OF_BODY/binary,
+                              ?AVS_PART_OF_FOOTER/binary>>).
 -define(AVS_SUPER_BLOCK_LEN, byte_size(?AVS_SUPER_BLOCK)).
 
 %% ------------------------ %%
@@ -276,185 +276,185 @@ end).
 %% Records
 %%--------------------------------------------------------------------
 -record(backend_info, {
-backend :: atom(),
-avs_ver_cur = <<>> :: binary(),
-avs_ver_prv = <<>> :: binary(), %% need to know during compaction
-linked_path = [] :: string(),
-file_path = [] :: string(),
-write_handler :: pid()|undefined,
-read_handler :: pid()|undefined
-}).
+                       backend :: atom(),
+                       avs_ver_cur = <<>> :: binary(),
+                       avs_ver_prv = <<>> :: binary(), %% need to know during compaction
+                       linked_path = [] :: string(),
+                       file_path = [] :: string(),
+                       write_handler :: pid()|undefined,
+                       read_handler :: pid()|undefined
+                      }).
 
 -record(metadata, { %% - leofs-v1.0.0-pre3
-key = <<>> :: binary(),        %% filename
-addr_id = 0 :: integer(),      %% ring-address id (MD5 > hex-to-integer)
-ksize = 0 :: integer(),        %% file-path size
-dsize = 0 :: integer(),        %% data size
-msize = 0 :: integer(),        %% custom-metadata size
-csize  = 0 :: integer(),       %% * chunked data size    (for large-object)
-cnumber = 0 :: integer(),      %% * # of chunked objects (for large-object)
-cindex = 0 :: integer(),       %% * chunked object index (for large-object)
-offset = 0 :: integer(),       %% object-container's offset
-clock = 0 :: integer(),        %% clock
-timestamp = 0 :: integer(),    %% timestamp
-checksum = 0 :: integer(),     %% checksum (MD5 > hex-to-integer)
-ring_hash = 0 :: integer(),    %% RING's Hash(CRC32) when write an object.
-del = ?DEL_FALSE :: del_flag() %% [{0,not_deleted}, {1,deleted}]
-}).
+                    key = <<>> :: binary(),        %% filename
+                    addr_id = 0 :: integer(),      %% ring-address id (MD5 > hex-to-integer)
+                    ksize = 0 :: integer(),        %% file-path size
+                    dsize = 0 :: integer(),        %% data size
+                    msize = 0 :: integer(),        %% custom-metadata size
+                    csize  = 0 :: integer(),       %% * chunked data size    (for large-object)
+                    cnumber = 0 :: integer(),      %% * # of chunked objects (for large-object)
+                    cindex = 0 :: integer(),       %% * chunked object index (for large-object)
+                    offset = 0 :: integer(),       %% object-container's offset
+                    clock = 0 :: integer(),        %% clock
+                    timestamp = 0 :: integer(),    %% timestamp
+                    checksum = 0 :: integer(),     %% checksum (MD5 > hex-to-integer)
+                    ring_hash = 0 :: integer(),    %% RING's Hash(CRC32) when write an object.
+                    del = ?DEL_FALSE :: del_flag() %% [{0,not_deleted}, {1,deleted}]
+                  }).
 
 -record(metadata_1, { %% leofs-v1.0.0 - v1.3.0
-key = <<>> :: binary(),           %% filename
-addr_id = 0 :: integer(),         %% ring-address id (MD5 > hex-to-integer)
-ksize = 0 :: integer(),           %% file-path size
-dsize = 0 :: integer(),           %% data size
-msize = 0 :: integer(),           %% custom-metadata size
-csize = 0 :: integer(),           %% * chunked data size    (for large-object)
-cnumber = 0 :: integer(),         %% * # of chunked objects (for large-object)
-cindex = 0 :: integer(),          %% * chunked object index (for large-object)
-offset = 0 :: integer(),          %% object-container's offset
-clock = 0 :: integer(),           %% clock
-timestamp = 0 :: integer(),       %% timestamp
-checksum = 0 :: integer(),        %% checksum (MD5 > hex-to-integer)
-ring_hash = 0 :: integer(),       %% RING's Hash(CRC32) when write an object.
-cluster_id :: atom(),             %% [+] cluster-id for the mdc-replication
-num_of_replicas = 0 :: integer(), %% [+] # of replicas for the mdc-replication
-ver = 0 :: integer(),             %% [+] version number
-del = ?DEL_FALSE :: del_flag()    %% [{0,not_deleted}, {1,deleted}]
-}).
+                      key = <<>> :: binary(),           %% filename
+                      addr_id = 0 :: integer(),         %% ring-address id (MD5 > hex-to-integer)
+                      ksize = 0 :: integer(),           %% file-path size
+                      dsize = 0 :: integer(),           %% data size
+                      msize = 0 :: integer(),           %% custom-metadata size
+                      csize = 0 :: integer(),           %% * chunked data size    (for large-object)
+                      cnumber = 0 :: integer(),         %% * # of chunked objects (for large-object)
+                      cindex = 0 :: integer(),          %% * chunked object index (for large-object)
+                      offset = 0 :: integer(),          %% object-container's offset
+                      clock = 0 :: integer(),           %% clock
+                      timestamp = 0 :: integer(),       %% timestamp
+                      checksum = 0 :: integer(),        %% checksum (MD5 > hex-to-integer)
+                      ring_hash = 0 :: integer(),       %% RING's Hash(CRC32) when write an object.
+                      cluster_id :: atom(),             %% [+] cluster-id for the mdc-replication
+                      num_of_replicas = 0 :: integer(), %% [+] # of replicas for the mdc-replication
+                      ver = 0 :: integer(),             %% [+] version number
+                      del = ?DEL_FALSE :: del_flag()    %% [{0,not_deleted}, {1,deleted}]
+                    }).
 
 -record(metadata_2, { %% leofs-v1.3.1 - v1.3.2.1
-key = <<>> :: binary(),           %% filename
-addr_id = 0 :: integer(),         %% ring-address id (MD5 > hex-to-integer)
-ksize = 0 :: integer(),           %% file-path size
-dsize = 0 :: integer(),           %% data size
-meta = <<>> :: binary(),          %% [+] custom-metadata (user defined metadata)
-msize = 0 :: integer(),           %% custom-metadata size
-csize = 0 :: integer(),           %% * chunked data size    (for large-object)
-cnumber = 0 :: integer(),         %% * # of chunked objects (for large-object)
-cindex  = 0 :: integer(),         %% * chunked object index (for large-object)
-offset  = 0 :: integer(),         %% object-container's offset
-clock = 0 :: integer(),           %% clock
-timestamp = 0 :: integer(),       %% timestamp
-checksum = 0 :: integer(),        %% checksum (MD5 > hex-to-integer)
-ring_hash = 0 :: integer(),       %% RING's Hash(CRC32) when write an object.
-cluster_id :: atom(),             %% cluster-id for the mdc-replication
-num_of_replicas = 0 :: integer(), %% # of replicas for the mdc-replication
-ver = 0 :: integer(),             %% version number
-del = ?DEL_FALSE :: del_flag()    %% [{0,not_deleted}, {1,deleted}]
-}).
+                      key = <<>> :: binary(),           %% filename
+                      addr_id = 0 :: integer(),         %% ring-address id (MD5 > hex-to-integer)
+                      ksize = 0 :: integer(),           %% file-path size
+                      dsize = 0 :: integer(),           %% data size
+                      meta = <<>> :: binary(),          %% [+] custom-metadata (user defined metadata)
+                      msize = 0 :: integer(),           %% custom-metadata size
+                      csize = 0 :: integer(),           %% * chunked data size    (for large-object)
+                      cnumber = 0 :: integer(),         %% * # of chunked objects (for large-object)
+                      cindex  = 0 :: integer(),         %% * chunked object index (for large-object)
+                      offset  = 0 :: integer(),         %% object-container's offset
+                      clock = 0 :: integer(),           %% clock
+                      timestamp = 0 :: integer(),       %% timestamp
+                      checksum = 0 :: integer(),        %% checksum (MD5 > hex-to-integer)
+                      ring_hash = 0 :: integer(),       %% RING's Hash(CRC32) when write an object.
+                      cluster_id :: atom(),             %% cluster-id for the mdc-replication
+                      num_of_replicas = 0 :: integer(), %% # of replicas for the mdc-replication
+                      ver = 0 :: integer(),             %% version number
+                      del = ?DEL_FALSE :: del_flag()    %% [{0,not_deleted}, {1,deleted}]
+                    }).
 
 -record(metadata_3, { %% leofs-v1.3.1 - the latest version
-key = <<>> :: binary(),                   %% filename
-addr_id = 0 :: integer(),                 %% ring-address id (MD5 > hex-to-integer)
-ksize = 0 :: integer(),                   %% file-path size
-dsize = 0 :: integer(),                   %% data size
-meta = <<>> :: binary(),                  %% custom-metadata (user defined metadata)
-msize = 0 :: integer(),                   %% custom-metadata size
-csize = 0 :: integer(),                   %% * chunked data size    (for large-object)
-cnumber = 0 :: integer(),                 %% * # of chunked objects (for large-object)
-cindex  = 0 :: integer(),                 %% * chunked object index (for large-object)
-offset  = 0 :: integer(),                 %% object-container's offset
-clock = 0 :: integer(),                   %% clock
-timestamp = 0 :: integer(),               %% timestamp
-checksum = 0 :: integer(),                %% checksum (MD5 > hex-to-integer)
-ring_hash = 0 :: integer(),               %% RING's Hash(CRC32) when write an object.
-cluster_id :: atom(),                     %% cluster-id for the mdc-replication
-num_of_replicas = 0 :: non_neg_integer(), %% [mdcr/bucket] # of replicas for the mdc-replication
-%%              - [0: no effects,
-%%                 1..*: preferred value of the data-replicatino]
-%%                  as well as preferred_r, preferred_w, preferred_d
-preferred_r = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful READ operation
-preferred_w = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful WRITE operation
-preferred_d = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful DELETE operation
-ver = 0 :: integer(),                     %% version number
-del = ?DEL_FALSE :: del_flag()            %% [{0,not_deleted}, {1,deleted}]
-}).
+                      key = <<>> :: binary(),                   %% filename
+                      addr_id = 0 :: integer(),                 %% ring-address id (MD5 > hex-to-integer)
+                      ksize = 0 :: integer(),                   %% file-path size
+                      dsize = 0 :: integer(),                   %% data size
+                      meta = <<>> :: binary(),                  %% custom-metadata (user defined metadata)
+                      msize = 0 :: integer(),                   %% custom-metadata size
+                      csize = 0 :: integer(),                   %% * chunked data size    (for large-object)
+                      cnumber = 0 :: integer(),                 %% * # of chunked objects (for large-object)
+                      cindex  = 0 :: integer(),                 %% * chunked object index (for large-object)
+                      offset  = 0 :: integer(),                 %% object-container's offset
+                      clock = 0 :: integer(),                   %% clock
+                      timestamp = 0 :: integer(),               %% timestamp
+                      checksum = 0 :: integer(),                %% checksum (MD5 > hex-to-integer)
+                      ring_hash = 0 :: integer(),               %% RING's Hash(CRC32) when write an object.
+                      cluster_id :: atom(),                     %% cluster-id for the mdc-replication
+                      num_of_replicas = 0 :: non_neg_integer(), %% [mdcr/bucket] # of replicas for the mdc-replication
+                      %%              - [0: no effects,
+                      %%                 1..*: preferred value of the data-replicatino]
+                      %%                  as well as preferred_r, preferred_w, preferred_d
+                      preferred_r = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful READ operation
+                      preferred_w = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful WRITE operation
+                      preferred_d = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful DELETE operation
+                      ver = 0 :: integer(),                     %% version number
+                      del = ?DEL_FALSE :: del_flag()            %% [{0,not_deleted}, {1,deleted}]
+                    }).
 -define(METADATA, 'metadata_3').
 
 -record(object, { %% - leofs-v1.0.0-pre3
-method :: atom(),
-key = <<>> :: binary(),        %% filename
-addr_id = 0 :: integer(),      %% ring-address id (MD5 > hex-to-integer)
-data = <<>> :: binary(),       %% file
-meta = <<>> :: binary(),       %% custom-metadata
-ksize = 0 :: integer(),        %% filename size
-dsize = 0 :: integer(),        %% data size
-msize = 0 :: integer(),        %% custom-metadata size
-csize = 0 :: integer(),        %% * chunked data size    (for large-object)
-cnumber = 0 :: integer(),      %% * # of chunked objects (for large-object)
-cindex = 0 :: integer(),       %% * chunked object index (for large-object)
-offset = 0 :: integer(),       %% object-container's offset
-clock = 0 :: integer(),        %% clock
-timestamp = 0 :: integer(),    %% timestamp
-checksum = 0 :: integer(),     %% checksum (MD5 > hex-to-integer)
-ring_hash = 0 :: integer(),    %% RING's Hash(CRC32) when write an object.
-req_id = 0 :: integer(),       %% request id
-del = ?DEL_FALSE :: del_flag() %% delete flag
-}).
+                  method :: atom(),
+                  key = <<>> :: binary(),        %% filename
+                  addr_id = 0 :: integer(),      %% ring-address id (MD5 > hex-to-integer)
+                  data = <<>> :: binary(),       %% file
+                  meta = <<>> :: binary(),       %% custom-metadata
+                  ksize = 0 :: integer(),        %% filename size
+                  dsize = 0 :: integer(),        %% data size
+                  msize = 0 :: integer(),        %% custom-metadata size
+                  csize = 0 :: integer(),        %% * chunked data size    (for large-object)
+                  cnumber = 0 :: integer(),      %% * # of chunked objects (for large-object)
+                  cindex = 0 :: integer(),       %% * chunked object index (for large-object)
+                  offset = 0 :: integer(),       %% object-container's offset
+                  clock = 0 :: integer(),        %% clock
+                  timestamp = 0 :: integer(),    %% timestamp
+                  checksum = 0 :: integer(),     %% checksum (MD5 > hex-to-integer)
+                  ring_hash = 0 :: integer(),    %% RING's Hash(CRC32) when write an object.
+                  req_id = 0 :: integer(),       %% request id
+                  del = ?DEL_FALSE :: del_flag() %% delete flag
+                }).
 
 -record(object_1, { %% leofs-v1.0.0 - v1.3.2.1
-method :: atom(),
-key = <<>>   :: binary(),         %% filename
-addr_id = 0 :: integer(),         %% ring-address id (MD5 > hex-to-integer)
-data = <<>> :: binary(),          %% file
-meta = <<>> :: binary(),          %% custom-metadata (user defined metadata)
-ksize = 0 :: integer(),           %% filename size
-dsize = 0 :: integer(),           %% data size
-msize = 0 :: integer(),           %% custom-metadata size
-csize = 0 :: integer(),           %% * chunked data size    (for large-object)
-cnumber = 0 :: integer(),         %% * # of chunked objects (for large-object)
-cindex = 0 :: integer(),          %% * chunked object index (for large-object)
-offset = 0 :: integer(),          %% object-container's offset
-clock = 0 :: integer(),           %% clock
-timestamp = 0 :: integer(),       %% timestamp
-checksum = 0 :: integer(),        %% checksum (MD5 > hex-to-integer)
-ring_hash = 0 :: integer(),       %% RING's Hash(CRC32) when write an object.
-req_id= 0 :: integer(),           %% request id
-cluster_id :: atom(),             %% [+] cluster-id for the mdc-replication
-num_of_replicas = 0 :: integer(), %% [+] # of replicas for the mdc-replication
-ver = 0 :: integer(),             %% [+] version number
-del = ?DEL_FALSE :: del_flag()    %% delete flag
-}).
+                    method :: atom(),
+                    key = <<>>   :: binary(),         %% filename
+                    addr_id = 0 :: integer(),         %% ring-address id (MD5 > hex-to-integer)
+                    data = <<>> :: binary(),          %% file
+                    meta = <<>> :: binary(),          %% custom-metadata (user defined metadata)
+                    ksize = 0 :: integer(),           %% filename size
+                    dsize = 0 :: integer(),           %% data size
+                    msize = 0 :: integer(),           %% custom-metadata size
+                    csize = 0 :: integer(),           %% * chunked data size    (for large-object)
+                    cnumber = 0 :: integer(),         %% * # of chunked objects (for large-object)
+                    cindex = 0 :: integer(),          %% * chunked object index (for large-object)
+                    offset = 0 :: integer(),          %% object-container's offset
+                    clock = 0 :: integer(),           %% clock
+                    timestamp = 0 :: integer(),       %% timestamp
+                    checksum = 0 :: integer(),        %% checksum (MD5 > hex-to-integer)
+                    ring_hash = 0 :: integer(),       %% RING's Hash(CRC32) when write an object.
+                    req_id= 0 :: integer(),           %% request id
+                    cluster_id :: atom(),             %% [+] cluster-id for the mdc-replication
+                    num_of_replicas = 0 :: integer(), %% [+] # of replicas for the mdc-replication
+                    ver = 0 :: integer(),             %% [+] version number
+                    del = ?DEL_FALSE :: del_flag()    %% delete flag
+                  }).
 
 -record(object_2, { %% leofs-v1.3.3 - the latest version
-method :: atom(),
-key = <<>>   :: binary(),         %% filename
-addr_id = 0 :: integer(),         %% ring-address id (MD5 > hex-to-integer)
-data = <<>> :: binary(),          %% file
-meta = <<>> :: binary(),          %% custom-metadata (user defined metadata)
-ksize = 0 :: integer(),           %% filename size
-dsize = 0 :: integer(),           %% data size
-msize = 0 :: integer(),           %% custom-metadata size
-csize = 0 :: integer(),           %% * chunked data size    (for large-object)
-cnumber = 0 :: integer(),         %% * # of chunked objects (for large-object)
-cindex = 0 :: integer(),          %% * chunked object index (for large-object)
-offset = 0 :: integer(),          %% object-container's offset
-clock = 0 :: integer(),           %% clock
-timestamp = 0 :: integer(),       %% timestamp
-checksum = 0 :: integer(),        %% checksum (MD5 > hex-to-integer)
-ring_hash = 0 :: integer(),       %% RING's Hash(CRC32) when write an object.
-req_id= 0 :: integer(),           %% request id
-cluster_id :: atom(),             %% cluster-id for the mdc-replication
-num_of_replicas = 0 :: non_neg_integer(), %% [mdcr/bucket] # of replicas for the mdc-replication
-%%              - [0: no effects,
-%%                 1..*: preferred value of the data-replicatino]
-%%                  as well as preferred_r, preferred_w, preferred_d
-preferred_r = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful READ operation
-preferred_w = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful WRITE operation
-preferred_d = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful DELETE operation
-ver = 0 :: integer(),                     %% version number
-del = ?DEL_FALSE :: del_flag()            %% delete flag
-}).
+                    method :: atom(),
+                    key = <<>>   :: binary(),         %% filename
+                    addr_id = 0 :: integer(),         %% ring-address id (MD5 > hex-to-integer)
+                    data = <<>> :: binary(),          %% file
+                    meta = <<>> :: binary(),          %% custom-metadata (user defined metadata)
+                    ksize = 0 :: integer(),           %% filename size
+                    dsize = 0 :: integer(),           %% data size
+                    msize = 0 :: integer(),           %% custom-metadata size
+                    csize = 0 :: integer(),           %% * chunked data size    (for large-object)
+                    cnumber = 0 :: integer(),         %% * # of chunked objects (for large-object)
+                    cindex = 0 :: integer(),          %% * chunked object index (for large-object)
+                    offset = 0 :: integer(),          %% object-container's offset
+                    clock = 0 :: integer(),           %% clock
+                    timestamp = 0 :: integer(),       %% timestamp
+                    checksum = 0 :: integer(),        %% checksum (MD5 > hex-to-integer)
+                    ring_hash = 0 :: integer(),       %% RING's Hash(CRC32) when write an object.
+                    req_id= 0 :: integer(),           %% request id
+                    cluster_id :: atom(),             %% cluster-id for the mdc-replication
+                    num_of_replicas = 0 :: non_neg_integer(), %% [mdcr/bucket] # of replicas for the mdc-replication
+                    %%              - [0: no effects,
+                    %%                 1..*: preferred value of the data-replicatino]
+                    %%                  as well as preferred_r, preferred_w, preferred_d
+                    preferred_r = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful READ operation
+                    preferred_w = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful WRITE operation
+                    preferred_d = 0 :: non_neg_integer(),     %% [+] [mdcr/bucket] # of replicas needed for a successful DELETE operation
+                    ver = 0 :: integer(),                     %% version number
+                    del = ?DEL_FALSE :: del_flag()            %% delete flag
+                  }).
 -define(OBJECT, 'object_2').
 
 -record(storage_stats, {
-file_path = [] :: string(),
-total_sizes = 0  :: non_neg_integer(),
-active_sizes = 0  :: non_neg_integer(),
-total_num = 0  :: non_neg_integer(),
-active_num = 0  :: non_neg_integer(),
-compaction_hist = [] :: [#compaction_hist{}]
-}).
+                        file_path = [] :: string(),
+                        total_sizes = 0  :: non_neg_integer(),
+                        active_sizes = 0  :: non_neg_integer(),
+                        total_num = 0  :: non_neg_integer(),
+                        active_num = 0  :: non_neg_integer(),
+                        compaction_hist = [] :: [#compaction_hist{}]
+                       }).
 
 
 -define(DEF_SYNC_INTERVAL, 1000).
@@ -462,204 +462,204 @@ compaction_hist = [] :: [#compaction_hist{}]
 -define(SYNC_MODE_PERIODIC, 'periodic').
 -define(SYNC_MODE_WRITETHROUGH, 'writethrough').
 -type(sync_mode() :: ?SYNC_MODE_NONE |
-?SYNC_MODE_PERIODIC |
-?SYNC_MODE_WRITETHROUGH).
+                     ?SYNC_MODE_PERIODIC |
+                     ?SYNC_MODE_WRITETHROUGH).
 -define(OBJ_PRV_READ_WRITE, 'read_and_write').
 -define(OBJ_PRV_READ_ONLY, 'read').
 -define(OBJ_PRV_WRITE_ONLY, 'write').
 -type(obj_privilege() :: ?OBJ_PRV_READ_WRITE |
-?OBJ_PRV_READ_ONLY |
-?OBJ_PRV_WRITE_ONLY).
+                         ?OBJ_PRV_READ_ONLY |
+                         ?OBJ_PRV_WRITE_ONLY).
 -record(obj_server_state, {
-id :: atom(),
-seq_num = 0 :: non_neg_integer(),
-privilege = ?OBJ_PRV_READ_WRITE :: obj_privilege(),
-meta_db_id :: atom(),
-compaction_worker_id :: atom(),
-diagnosis_logger_id :: atom(),
-root_path = [] :: string(),
-object_storage = #backend_info{}  :: #backend_info{},
-storage_stats  = #storage_stats{} :: #storage_stats{},
-state_filepath :: string(),
-sync_mode = ?SYNC_MODE_NONE :: sync_mode(),
-sync_interval_in_ms = ?DEF_SYNC_INTERVAL :: pos_integer(),
-is_strict_check = false :: boolean(),
-is_locked = false :: boolean(),
-is_del_blocked = false  :: boolean(),
-threshold_slow_processing = ?DEF_THRESHOLD_SLOW_PROC :: non_neg_integer(),
-is_able_to_write = true :: boolean()
-}).
+                           id :: atom(),
+                           seq_num = 0 :: non_neg_integer(),
+                           privilege = ?OBJ_PRV_READ_WRITE :: obj_privilege(),
+                           meta_db_id :: atom(),
+                           compaction_worker_id :: atom(),
+                           diagnosis_logger_id :: atom(),
+                           root_path = [] :: string(),
+                           object_storage = #backend_info{}  :: #backend_info{},
+                           storage_stats  = #storage_stats{} :: #storage_stats{},
+                           state_filepath :: string(),
+                           sync_mode = ?SYNC_MODE_NONE :: sync_mode(),
+                           sync_interval_in_ms = ?DEF_SYNC_INTERVAL :: pos_integer(),
+                           is_strict_check = false :: boolean(),
+                           is_locked = false :: boolean(),
+                           is_del_blocked = false  :: boolean(),
+                           threshold_slow_processing = ?DEF_THRESHOLD_SLOW_PROC :: non_neg_integer(),
+                           is_able_to_write = true :: boolean()
+                          }).
 
 %% apllication-env
 -define(env_metadata_db(),
-case application:get_env(?APP_NAME, metadata_storage) of
-{ok, EnvMetadataDB} ->
-EnvMetadataDB;
-_ ->
-?DEF_METADATA_DB
-end).
+        case application:get_env(?APP_NAME, metadata_storage) of
+            {ok, EnvMetadataDB} ->
+                EnvMetadataDB;
+            _ ->
+                ?DEF_METADATA_DB
+        end).
 
 -define(env_sync_mode(),
-case application:get_env(?APP_NAME, sync_mode) of
-{ok, SyncMode} ->
-SyncMode;
-_ ->
-?SYNC_MODE_NONE
-end).
+        case application:get_env(?APP_NAME, sync_mode) of
+            {ok, SyncMode} ->
+                SyncMode;
+            _ ->
+                ?SYNC_MODE_NONE
+        end).
 
 -define(env_sync_interval(),
-case application:get_env(?APP_NAME, sync_interval_in_ms) of
-{ok, SyncInterval} ->
-SyncInterval;
-_ ->
-?DEF_SYNC_INTERVAL
-end).
+        case application:get_env(?APP_NAME, sync_interval_in_ms) of
+            {ok, SyncInterval} ->
+                SyncInterval;
+            _ ->
+                ?DEF_SYNC_INTERVAL
+        end).
 
 -ifdef(TEST).
 -define(env_strict_check(), true).
 -else.
 -define(env_strict_check(),
-case application:get_env(?APP_NAME, is_strict_check) of
-{ok, EnvStrictCheck} ->
-EnvStrictCheck;
-_ ->
-false
-end).
+        case application:get_env(?APP_NAME, is_strict_check) of
+            {ok, EnvStrictCheck} ->
+                EnvStrictCheck;
+            _ ->
+                false
+        end).
 -endif.
 
 -define(env_enable_diagnosis_log(),
-case application:get_env(?APP_NAME,
-is_enable_diagnosis_log) of
-{ok, true} ->
-true;
-_ ->
-false
-end).
+        case application:get_env(?APP_NAME,
+                                 is_enable_diagnosis_log) of
+            {ok, true} ->
+                true;
+            _ ->
+                false
+        end).
 
 -define(env_num_of_obj_storage_read_procs(),
-case application:get_env(?APP_NAME,
-num_of_obj_storage_read_procs) of
-{ok, EnvNumOfObjStorageReadProcs} ->
-EnvNumOfObjStorageReadProcs;
-_ ->
-?DEF_NUM_OF_OBJ_STORAGE_READ_PROCS
-end).
+        case application:get_env(?APP_NAME,
+                                 num_of_obj_storage_read_procs) of
+            {ok, EnvNumOfObjStorageReadProcs} ->
+                EnvNumOfObjStorageReadProcs;
+            _ ->
+                ?DEF_NUM_OF_OBJ_STORAGE_READ_PROCS
+        end).
 
 -define(get_obj_storage_read_proc(_PidL,_AddrId),
-begin
-lists:nth((_AddrId rem erlang:length(_PidL)) + 1,_PidL)
-end).
+        begin
+            lists:nth((_AddrId rem erlang:length(_PidL)) + 1,_PidL)
+        end).
 
 
 -define(env_limit_num_of_compaction_procs(),
-case application:get_env(?APP_NAME,
-limit_num_of_compaction_procs) of
-{ok, EnvLimitCompactionProcs} when is_integer(EnvLimitCompactionProcs) ->
-EnvLimitCompactionProcs;
-_ ->
-?DEF_LIMIT_COMPACTION_PROCS
-end).
+        case application:get_env(?APP_NAME,
+                                 limit_num_of_compaction_procs) of
+            {ok, EnvLimitCompactionProcs} when is_integer(EnvLimitCompactionProcs) ->
+                EnvLimitCompactionProcs;
+            _ ->
+                ?DEF_LIMIT_COMPACTION_PROCS
+        end).
 
 -define(env_threshold_slow_processing(),
-case application:get_env(?APP_NAME,
-threshold_slow_processing) of
-{ok, EnvThresholdSlowProc} when is_integer(EnvThresholdSlowProc) ->
-EnvThresholdSlowProc;
-_ ->
-?DEF_THRESHOLD_SLOW_PROC
-end).
+        case application:get_env(?APP_NAME,
+                                 threshold_slow_processing) of
+            {ok, EnvThresholdSlowProc} when is_integer(EnvThresholdSlowProc) ->
+                EnvThresholdSlowProc;
+            _ ->
+                ?DEF_THRESHOLD_SLOW_PROC
+        end).
 
 %% [Interval between batch processes]
 -define(env_compaction_interval_reg(),
-case application:get_env(?APP_NAME,
-compaction_waiting_time_regular) of
-{ok, EnvRegCompactionWT} when is_integer(EnvRegCompactionWT) ->
-EnvRegCompactionWT;
-_ ->
-?DEF_REG_COMPACTION_WT
-end).
+        case application:get_env(?APP_NAME,
+                                 compaction_waiting_time_regular) of
+            {ok, EnvRegCompactionWT} when is_integer(EnvRegCompactionWT) ->
+                EnvRegCompactionWT;
+            _ ->
+                ?DEF_REG_COMPACTION_WT
+        end).
 
 -define(env_compaction_interval_max(),
-case application:get_env(?APP_NAME,
-compaction_waiting_time_max) of
-{ok, EnvMaxCompactionWT} when is_integer(EnvMaxCompactionWT) ->
-EnvMaxCompactionWT;
-_ ->
-?DEF_MAX_COMPACTION_WT
-end).
+        case application:get_env(?APP_NAME,
+                                 compaction_waiting_time_max) of
+            {ok, EnvMaxCompactionWT} when is_integer(EnvMaxCompactionWT) ->
+                EnvMaxCompactionWT;
+            _ ->
+                ?DEF_MAX_COMPACTION_WT
+        end).
 
 %% [Number of batch processes]
 -define(env_compaction_num_of_batch_procs_max(),
-case application:get_env(?APP_NAME,
-batch_procs_max) of
-{ok, EnvMaxCompactionBP} when is_integer(EnvMaxCompactionBP) ->
-EnvMaxCompactionBP;
-_ ->
-?DEF_MAX_COMPACTION_BP
-end).
+        case application:get_env(?APP_NAME,
+                                 batch_procs_max) of
+            {ok, EnvMaxCompactionBP} when is_integer(EnvMaxCompactionBP) ->
+                EnvMaxCompactionBP;
+            _ ->
+                ?DEF_MAX_COMPACTION_BP
+        end).
 
 -define(env_compaction_num_of_batch_procs_reg(),
-case application:get_env(?APP_NAME,
-batch_procs_regular) of
-{ok, EnvRegCompactionBP} when is_integer(EnvRegCompactionBP) ->
-EnvRegCompactionBP;
-_ ->
-?DEF_REG_COMPACTION_BP
-end).
+        case application:get_env(?APP_NAME,
+                                 batch_procs_regular) of
+            {ok, EnvRegCompactionBP} when is_integer(EnvRegCompactionBP) ->
+                EnvRegCompactionBP;
+            _ ->
+                ?DEF_REG_COMPACTION_BP
+        end).
 
 -define(env_compaction_skip_prefetch_size(),
-case application:get_env(?APP_NAME,
-skip_prefetch_size) of
-{ok, EnvPrefetchSize} when is_integer(EnvPrefetchSize) ->
-EnvPrefetchSize;
-_ ->
-?DEF_COMPACTION_SKIP_PS
-end).
+        case application:get_env(?APP_NAME,
+                                 skip_prefetch_size) of
+            {ok, EnvPrefetchSize} when is_integer(EnvPrefetchSize) ->
+                EnvPrefetchSize;
+            _ ->
+                ?DEF_COMPACTION_SKIP_PS
+        end).
 
 -define(num_of_compaction_concurrency(_PrmNumOfConcurrency),
-begin
-_EnvNumOfConcurrency = ?env_limit_num_of_compaction_procs(),
-case (_PrmNumOfConcurrency > _EnvNumOfConcurrency) of
-true  -> _EnvNumOfConcurrency;
-false -> _PrmNumOfConcurrency
-end
-end).
+        begin
+            _EnvNumOfConcurrency = ?env_limit_num_of_compaction_procs(),
+            case (_PrmNumOfConcurrency > _EnvNumOfConcurrency) of
+                true  -> _EnvNumOfConcurrency;
+                false -> _PrmNumOfConcurrency
+            end
+        end).
 
 -define(env_compaction_force_quit_in_bytes(),
-case application:get_env(?APP_NAME, force_quit_in_bytes) of
-{ok, ForceQuitInBytes} ->
-ForceQuitInBytes;
-_ ->
-?DEF_COMPACTION_FQ_IN_BYTES
-end).
+        case application:get_env(?APP_NAME, force_quit_in_bytes) of
+            {ok, ForceQuitInBytes} ->
+                ForceQuitInBytes;
+            _ ->
+                ?DEF_COMPACTION_FQ_IN_BYTES
+        end).
 
 -define(get_object_storage_id(_TargetContainers),
-begin
-lists:flatten(
-lists:map(
-fun(_Id) ->
-case leo_object_storage_api:get_object_storage_pid_by_container_id(_Id) of
-not_found -> [];
-_Pid -> _Pid
-end
-end,_TargetContainers))
-end).
+        begin
+            lists:flatten(
+              lists:map(
+                fun(_Id) ->
+                        case leo_object_storage_api:get_object_storage_pid_by_container_id(_Id) of
+                            not_found -> [];
+                            _Pid -> _Pid
+                        end
+                end,_TargetContainers))
+        end).
 
 -define(env_diskspace_check_intervals(),
-case application:get_env(?APP_NAME, diskspace_check_intervals) of
-{ok, EnvDiskSpaceCheckIntervals} ->
-EnvDiskSpaceCheckIntervals;
-_ ->
-timer:minutes(1)
-end).
+        case application:get_env(?APP_NAME, diskspace_check_intervals) of
+            {ok, EnvDiskSpaceCheckIntervals} ->
+                EnvDiskSpaceCheckIntervals;
+            _ ->
+                timer:minutes(1)
+        end).
 
 -define(env_enable_msg_collector(),
-case application:get_env(?APP_NAME, msg_collector) of
-{ok, true} ->
-true;
-_ ->
-false
-end).
+        case application:get_env(?APP_NAME, msg_collector) of
+            {ok, true} ->
+                true;
+            _ ->
+                false
+        end).
 
 %% custom-metadata's items for MDC-replication:
 -define(PROP_CMETA_CLUSTER_ID, 'cluster_id').
@@ -673,11 +673,11 @@ end).
 
 %% @doc Generate a raw file path
 -define(gen_raw_file_path(_FilePath),
-lists:append([_FilePath, "_", integer_to_list(leo_date:now())])).
+        lists:append([_FilePath, "_", integer_to_list(leo_date:now())])).
 
 %% @doc Retrieve object-storage info
 -define(get_obj_storage_info(_ObjStorageId),
-leo_object_storage_server:get_backend_info(_ObjStorageId, ?SERVER_OBJ_STORAGE)).
+        leo_object_storage_server:get_backend_info(_ObjStorageId, ?SERVER_OBJ_STORAGE)).
 
 
 %% @doc Diagnosis log-related definitions
@@ -690,116 +690,116 @@ leo_object_storage_server:get_backend_info(_ObjStorageId, ?SERVER_OBJ_STORAGE)).
 
 %% @doc Output diagnosis log
 -define(output_diagnosis_log(Metadata),
-begin
-#?METADATA{offset = _Offset,
-addr_id = _AddrId,
-key = _Key,
-dsize = _Dsize,
-clock = _Clock,
-timestamp = _Timestamp,
-del = _Del
-} = Metadata,
-_Path_1 = binary_to_list(_Key),
+        begin
+            #?METADATA{offset = _Offset,
+                       addr_id = _AddrId,
+                       key = _Key,
+                       dsize = _Dsize,
+                       clock = _Clock,
+                       timestamp = _Timestamp,
+                       del = _Del
+                      } = Metadata,
+            _Path_1 = binary_to_list(_Key),
 
-{_Path_2, _CIndex} =
-begin
-_Tokens = string:tokens(_Path_1, "\n"),
-case length(_Tokens) of
-1 ->
-{_Path_1, 0};
-_ ->
-[_ParentPath,_CNum|_] = _Tokens,
-case catch list_to_integer(_CNum) of
-{'EXIT',_} ->
-{_ParentPath, 0};
-_Num->
-{_ParentPath, _Num}
-end
-end
-end,
+            {_Path_2, _CIndex} =
+                begin
+                    _Tokens = string:tokens(_Path_1, "\n"),
+                    case length(_Tokens) of
+                        1 ->
+                            {_Path_1, 0};
+                        _ ->
+                            [_ParentPath,_CNum|_] = _Tokens,
+                            case catch list_to_integer(_CNum) of
+                                {'EXIT',_} ->
+                                    {_ParentPath, 0};
+                                _Num->
+                                    {_ParentPath, _Num}
+                            end
+                    end
+                end,
 
-leo_logger_client_base:append(
-{LoggerId, #message_log{format  = "~w\t~w\t~s\t~w\t~w\t~w\t~s\t~w~n",
-message = [_Offset,
-_AddrId,
-_Path_2,
-_CIndex,
-_Dsize,
-_Clock,
-leo_date:date_format(_Timestamp),
-_Del
-]}
-})
-end).
+            leo_logger_client_base:append(
+              {LoggerId, #message_log{format  = "~w\t~w\t~s\t~w\t~w\t~w\t~s\t~w~n",
+                                      message = [_Offset,
+                                                 _AddrId,
+                                                 _Path_2,
+                                                 _CIndex,
+                                                 _Dsize,
+                                                 _Clock,
+                                                 leo_date:date_format(_Timestamp),
+                                                 _Del
+                                                ]}
+              })
+        end).
 
 %% @doc Default value of step of a batch-processing
 -define(DEF_COMPACTION_NUM_OF_STEPS, 10).
 
 %% @doc Compaction-related records:
 -record(compaction_event_info, {
-id :: atom(),
-event = ?EVENT_RUN :: compaction_event(),
-controller_pid :: pid(),
-client_pid :: pid(),
-is_diagnosing = false :: boolean(),
-is_recovering = false :: boolean(),
-is_forced_run = false :: boolean(),
-callback :: function()
-}).
+                                id :: atom(),
+                                event = ?EVENT_RUN :: compaction_event(),
+                                controller_pid :: pid(),
+                                client_pid :: pid(),
+                                is_diagnosing = false :: boolean(),
+                                is_recovering = false :: boolean(),
+                                is_forced_run = false :: boolean(),
+                                callback :: function()
+                               }).
 
 -record(compaction_prms, {
-key_bin = <<>> :: binary(),
-body_bin = <<>> :: binary(),
-metadata = #?METADATA{} :: #?METADATA{},
-next_offset = 0 :: non_neg_integer()|eof,
-start_lock_offset = 0 :: non_neg_integer(),
-callback_fun :: function(),
-num_of_active_objs = 0  :: non_neg_integer(),
-size_of_active_objs = 0 :: non_neg_integer(),
-total_num_of_objs = 0 :: non_neg_integer(),
-total_size_of_objs = 0 :: non_neg_integer()
-}).
+                          key_bin = <<>> :: binary(),
+                          body_bin = <<>> :: binary(),
+                          metadata = #?METADATA{} :: #?METADATA{},
+                          next_offset = 0 :: non_neg_integer()|eof,
+                          start_lock_offset = 0 :: non_neg_integer(),
+                          callback_fun :: function(),
+                          num_of_active_objs = 0  :: non_neg_integer(),
+                          size_of_active_objs = 0 :: non_neg_integer(),
+                          total_num_of_objs = 0 :: non_neg_integer(),
+                          total_size_of_objs = 0 :: non_neg_integer()
+                         }).
 
 -record(compaction_skip_garbage, {
-buf = <<>> :: binary(),
-read_pos = 0 :: non_neg_integer(),
-prefetch_size = ?DEF_COMPACTION_SKIP_PS :: pos_integer(),
-is_skipping = false :: boolean(),
-is_close_eof = false :: boolean()
-}).
+                                  buf = <<>> :: binary(),
+                                  read_pos = 0 :: non_neg_integer(),
+                                  prefetch_size = ?DEF_COMPACTION_SKIP_PS :: pos_integer(),
+                                  is_skipping = false :: boolean(),
+                                  is_close_eof = false :: boolean()
+                                 }).
 
 -record(compaction_worker_state, {
-id :: atom(),
-obj_storage_id :: atom(),
-obj_storage_id_read :: atom(),
-meta_db_id :: atom(),
-obj_storage_info = #backend_info{} :: #backend_info{},
-compact_cntl_pid :: pid(),
-          diagnosis_log_id :: atom(),
-          status = ?ST_IDLING :: compaction_state(),
-          is_locked = false :: boolean(),
-          is_diagnosing = false :: boolean(),
-          is_recovering = false :: boolean(),
-          is_forced_suspending = false :: boolean(),
-          is_skipping_garbage = false :: boolean(),
-          %% interval_between_batch_procs:
-          interval = 0 :: non_neg_integer(),
-          max_interval = 0 :: non_neg_integer(),
-          %% batch-procs:
-          count_procs = 0 :: non_neg_integer(),
-          num_of_batch_procs = 0 :: non_neg_integer(),
-          max_num_of_batch_procs = 0 :: non_neg_integer(),
-          num_of_steps = ?DEF_COMPACTION_NUM_OF_STEPS :: pos_integer(),
-          %% compaction-info:
-          compaction_prms = #compaction_prms{} :: #compaction_prms{},
-          compaction_skip_garbage = #compaction_skip_garbage{} :: #compaction_skip_garbage{},
-          skipped_bytes = 0 :: non_neg_integer(),
-          start_datetime = 0 :: non_neg_integer(),
-          error_pos = 0 :: non_neg_integer(),
-          set_errors :: otp_set(),
-          acc_errors = [] :: [{pos_integer(), pos_integer()}],
-          result :: compaction_ret()
-         }).
+                                  id :: atom(),
+                                  obj_storage_id :: atom(),
+                                  obj_storage_id_read :: atom(),
+                                  meta_db_id :: atom(),
+                                  obj_storage_info = #backend_info{} :: #backend_info{},
+                                  compact_cntl_pid :: pid(),
+                                  diagnosis_log_id :: atom(),
+                                  status = ?ST_IDLING :: compaction_state(),
+                                  is_locked = false :: boolean(),
+                                  is_diagnosing = false :: boolean(),
+                                  is_recovering = false :: boolean(),
+                                  is_forced_suspending = false :: boolean(),
+                                  is_skipping_garbage = false :: boolean(),
+                                  %% interval_between_batch_procs:
+                                  interval = 0 :: non_neg_integer(),
+                                  max_interval = 0 :: non_neg_integer(),
+                                  %% batch-procs:
+                                  count_procs = 0 :: non_neg_integer(),
+                                  num_of_batch_procs = 0 :: non_neg_integer(),
+                                  max_num_of_batch_procs = 0 :: non_neg_integer(),
+                                  num_of_steps = ?DEF_COMPACTION_NUM_OF_STEPS :: pos_integer(),
+                                  %% compaction-info:
+                                  compaction_prms = #compaction_prms{} :: #compaction_prms{},
+                                  compaction_skip_garbage = #compaction_skip_garbage{} :: #compaction_skip_garbage{},
+                                  skipped_bytes = 0 :: non_neg_integer(),
+                                  start_datetime = 0 :: non_neg_integer(),
+                                  error_pos = 0 :: non_neg_integer(),
+                                  set_errors :: otp_set(),
+                                  acc_errors = [] :: [{pos_integer(), pos_integer()}],
+                                  result :: compaction_ret()
+                                 }).
 
 %% @doc Retrieve compaction-proc's step parameters
 -define(step_compaction_proc_values(_RegBatchProcs,_RegInterval,_NumOfSteps),
