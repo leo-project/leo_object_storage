@@ -1,6 +1,5 @@
 # leo_object_storage
 
-
 [![Build Status](https://secure.travis-ci.org/leo-project/leo_object_storage.png?branch=develop)](http://travis-ci.org/leo-project/leo_object_storage)
 
 ## Overview
