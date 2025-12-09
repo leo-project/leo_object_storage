@@ -22,11 +22,7 @@
 -compile(nowarn_deprecated_type).
 -define(APP_NAME, 'leo_object_storage').
 
--ifdef(namespaced_types).
 -type otp_set() :: sets:set().
--else.
--type otp_set() :: set().
--endif.
 
 %% Default Values
 -define(AVS_FILE_EXT, ".avs").
@@ -688,7 +684,7 @@
 -define(DIAGNOSIS_REP_SUFFIX, ".report").
 
 
-%% @doc Output diagnosis log
+%% @doc Output diagnosis log using OTP standard logger
 -define(output_diagnosis_log(Metadata),
         begin
             #?METADATA{offset = _Offset,
@@ -718,18 +714,16 @@
                     end
                 end,
 
-            leo_logger_client_base:append(
-              {LoggerId, #message_log{format  = "~w\t~w\t~s\t~w\t~w\t~w\t~s\t~w~n",
-                                      message = [_Offset,
-                                                 _AddrId,
-                                                 _Path_2,
-                                                 _CIndex,
-                                                 _Dsize,
-                                                 _Clock,
-                                                 leo_date:date_format(_Timestamp),
-                                                 _Del
-                                                ]}
-              })
+            leo_object_storage_diagnosis_log:append(
+              LoggerId,
+              #{offset => _Offset,
+                addr_id => _AddrId,
+                path => _Path_2,
+                chunk_index => _CIndex,
+                data_size => _Dsize,
+                clock => _Clock,
+                timestamp => leo_date:date_format(_Timestamp),
+                del => _Del})
         end).
 
 %% @doc Default value of step of a batch-processing

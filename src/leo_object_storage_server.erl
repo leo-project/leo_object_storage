@@ -379,12 +379,12 @@ init([ObjServerState]) ->
                                      read_handler = ObjectReadHandler,
                                      avs_ver_cur = AVSVsnBin},
 
-                    %% Launch the diagnosis logger
+                    %% Launch the diagnosis logger (using OTP standard logger)
                     case (Privilege == ?OBJ_PRV_READ_WRITE andalso
                           ?env_enable_diagnosis_log()) of
                         true ->
                             _ = leo_file:ensure_dir(LogFilePath),
-                            ok = leo_logger_client_base:new(
+                            ok = leo_object_storage_diagnosis_log:new(
                                    ?LOG_GROUP_ID_DIAGNOSIS,
                                    DiagnosisLogId,
                                    LogFilePath,

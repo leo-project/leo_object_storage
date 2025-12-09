@@ -139,23 +139,12 @@ start_child_1() ->
             Pid
     end.
 
-%% @doc Launch the logger
+%% @doc Initialize the diagnosis logger (using OTP standard logger)
 %% @private
 start_child_2() ->
-    case whereis(leo_logger_sup) of
-        undefined ->
-            ChildSpec = {leo_logger_sup,
-                         {leo_logger_sup, start_link, []},
-                         {permanent, 2}, 2000, supervisor, [leo_logger_sup]},
-            case supervisor2:start_child(?MODULE, ChildSpec) of
-                {ok, _Pid} ->
-                    ok;
-                {error, Cause} ->
-                    exit(Cause)
-            end;
-        _ ->
-            ok
-    end.
+    %% Standard OTP logger is used for diagnosis logs
+    %% No separate supervisor needed
+    ok.
 
 %% @doc Wait for Pids to retrieve AVSServerPairL and ServerPairList from spawned processes
 %% @private

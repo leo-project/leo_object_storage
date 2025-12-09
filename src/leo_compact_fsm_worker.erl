@@ -26,10 +26,9 @@
 
 -author('Yosuke Hara').
 
--behaviour(gen_fsm).
+-behaviour(gen_statem).
 
 -include("leo_object_storage.hrl").
--include_lib("leo_logger/include/leo_logger.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 %% API
@@ -44,18 +43,17 @@
          decrease/1
         ]).
 
-%% gen_fsm callbacks
+%% gen_statem callbacks
 -export([init/1,
-         handle_event/3,
-         handle_sync_event/4,
-         handle_info/3,
+         callback_mode/0,
+         handle_event/4,
          terminate/3,
          code_change/4,
-         format_status/2]).
+         format_status/1]).
 
--export([idling/2, idling/3,
-         running/2, running/3,
-         suspending/2, suspending/3]).
+-export([idling/3,
+         running/3,
+         suspending/3]).
 
 -define(DEF_TIMEOUT, timer:seconds(30)).
 
@@ -71,9 +69,9 @@
                                                MetaDBId::atom(),
                                                LoggerId::atom()).
 start_link(Id, ObjStorageId, ObjStorageIdRead, MetaDBId, LoggerId) ->
-    gen_fsm:start_link({local, Id}, ?MODULE,
-                       [Id, ObjStorageId, ObjStorageIdRead,
-                        MetaDBId, LoggerId], []).
+    gen_statem:start_link({local, Id}, ?MODULE,
+                          [Id, ObjStorageId, ObjStorageIdRead,
+                           MetaDBId, LoggerId], []).
 
 
 %% @doc Stop this server
@@ -84,7 +82,7 @@ stop(Id) ->
     error_logger:info_msg("~p,~p,~p,~p~n",
                           [{module, ?MODULE_STRING}, {function, "stop/1"},
                            {line, ?LINE}, {body, Id}]),
-    gen_fsm:sync_send_all_state_event(Id, stop, ?DEF_TIMEOUT).
+    gen_statem:call(Id, stop, ?DEF_TIMEOUT).
 
 
 %% @doc Run the process
@@ -94,10 +92,10 @@ stop(Id) ->
                                       IsDiagnosing::boolean(),
                                       IsRecovering::boolean()).
 run(Id, IsDiagnosing, IsRecovering) ->
-    gen_fsm:send_event(Id, #compaction_event_info{event = ?EVENT_RUN,
-                                                  is_diagnosing = IsDiagnosing,
-                                                  is_recovering = IsRecovering,
-                                                  is_forced_run = false}).
+    gen_statem:cast(Id, #compaction_event_info{event = ?EVENT_RUN,
+                                               is_diagnosing = IsDiagnosing,
+                                               is_recovering = IsRecovering,
+                                               is_forced_run = false}).
 
 -spec(run(Id, ControllerPid, IsDiagnosing, IsRecovering, CallbackFun) ->
              ok | {error, any()} when Id::atom(),
@@ -106,22 +104,22 @@ run(Id, IsDiagnosing, IsRecovering) ->
                                       IsRecovering::boolean(),
                                       CallbackFun::function()).
 run(Id, ControllerPid, IsDiagnosing, IsRecovering, CallbackFun) ->
-    gen_fsm:sync_send_event(Id, #compaction_event_info{event = ?EVENT_RUN,
-                                                       controller_pid = ControllerPid,
-                                                       is_diagnosing  = IsDiagnosing,
-                                                       is_recovering  = IsRecovering,
-                                                       is_forced_run  = false,
-                                                       callback = CallbackFun}, ?DEF_TIMEOUT).
+    gen_statem:call(Id, #compaction_event_info{event = ?EVENT_RUN,
+                                               controller_pid = ControllerPid,
+                                               is_diagnosing  = IsDiagnosing,
+                                               is_recovering  = IsRecovering,
+                                               is_forced_run  = false,
+                                               callback = CallbackFun}, ?DEF_TIMEOUT).
 
 -spec(forced_run(Id, IsDiagnosing, IsRecovering) ->
              ok | {error, any()} when Id::atom(),
                                       IsDiagnosing::boolean(),
                                       IsRecovering::boolean()).
 forced_run(Id, IsDiagnosing, IsRecovering) ->
-    gen_fsm:send_event(Id, #compaction_event_info{event = ?EVENT_RUN,
-                                                  is_diagnosing = IsDiagnosing,
-                                                  is_recovering = IsRecovering,
-                                                  is_forced_run = true}).
+    gen_statem:cast(Id, #compaction_event_info{event = ?EVENT_RUN,
+                                               is_diagnosing = IsDiagnosing,
+                                               is_recovering = IsRecovering,
+                                               is_forced_run = true}).
 
 
 %% @doc Retrieve an object from the object-storage
@@ -129,7 +127,7 @@ forced_run(Id, IsDiagnosing, IsRecovering) ->
 -spec(suspend(Id) ->
              ok | {error, any()} when Id::atom()).
 suspend(Id) ->
-    gen_fsm:send_event(Id, #compaction_event_info{event = ?EVENT_SUSPEND}).
+    gen_statem:cast(Id, #compaction_event_info{event = ?EVENT_SUSPEND}).
 
 
 %% @doc Remove an object from the object-storage - (logical-delete)
@@ -137,7 +135,7 @@ suspend(Id) ->
 -spec(resume(Id) ->
              ok | {error, any()} when Id::atom()).
 resume(Id) ->
-    gen_fsm:sync_send_event(Id, #compaction_event_info{event = ?EVENT_RESUME}, ?DEF_TIMEOUT).
+    gen_statem:call(Id, #compaction_event_info{event = ?EVENT_RESUME}, ?DEF_TIMEOUT).
 
 
 %% @doc Retrieve the storage stats specfied by Id
@@ -147,8 +145,8 @@ resume(Id) ->
              ok | {error, any()} when Id::atom(),
                                       Client::pid()).
 state(Id, Client) ->
-    gen_fsm:send_event(Id, #compaction_event_info{event = ?EVENT_STATE,
-                                                  client_pid = Client}).
+    gen_statem:cast(Id, #compaction_event_info{event = ?EVENT_STATE,
+                                               client_pid = Client}).
 
 
 %% @doc Increase performance of the data-compaction processing
@@ -156,7 +154,7 @@ state(Id, Client) ->
 -spec(increase(Id) ->
              ok when Id::atom()).
 increase(Id) ->
-    gen_fsm:send_event(Id, #compaction_event_info{event = ?EVENT_INCREASE}).
+    gen_statem:cast(Id, #compaction_event_info{event = ?EVENT_INCREASE}).
 
 
 %% @doc Decrease performance of the data-compaction processing
@@ -165,12 +163,16 @@ increase(Id) ->
 -spec(decrease(Id) ->
              ok when Id::atom()).
 decrease(Id) ->
-    gen_fsm:send_event(Id, #compaction_event_info{event = ?EVENT_DECREASE}).
+    gen_statem:cast(Id, #compaction_event_info{event = ?EVENT_DECREASE}).
 
 
 %%====================================================================
-%% GEN_SERVER CALLBACKS
+%% GEN_STATEM CALLBACKS
 %%====================================================================
+%% @doc Returns the callback mode
+callback_mode() ->
+    state_functions.
+
 %% @doc Initiates the server
 %%
 init([Id, ObjStorageId, ObjStorageIdRead,
@@ -193,22 +195,17 @@ init([Id, ObjStorageId, ObjStorageIdRead,
                                              num_of_active_objs = 0,
                                              size_of_active_objs = 0}}}.
 
-%% @doc Handle events
-handle_event(_Event, StateName, State) ->
-    {next_state, StateName, State}.
-
-%% @doc Handle 'status' event
-handle_sync_event(state, _From, StateName, State) ->
-    {reply, {ok, StateName}, StateName, State};
+%% @doc Handle events that are common to all states
+handle_event({call, From}, state, StateName, State) ->
+    {keep_state, State, [{reply, From, {ok, StateName}}]};
 
 %% @doc Handle 'stop' event
-handle_sync_event(stop, _From, _StateName, Status) ->
-    {stop, shutdown, ok, Status}.
-
+handle_event({call, From}, stop, _StateName, Status) ->
+    {stop_and_reply, shutdown, [{reply, From, ok}], Status};
 
 %% @doc Handling all non call/cast messages
-handle_info(_Info, StateName, State) ->
-    {next_state, StateName, State}.
+handle_event(info, _Info, _StateName, State) ->
+    {keep_state, State}.
 
 
 %% @doc This function is called by a gen_server when it is about to
@@ -225,10 +222,10 @@ terminate(Reason, _StateName, _State) ->
 code_change(_OldVsn, StateName, State, _Extra) ->
     {ok, StateName, State}.
 
-%% @doc This function is called by a gen_fsm when it should update
+%% @doc This function is called by a gen_statem when it should update
 %%      its internal state data during a release upgrade/downgrade
-format_status(_Opt, [_PDict, State]) ->
-    State.
+format_status(Status) ->
+    Status.
 
 
 %%====================================================================
@@ -236,17 +233,17 @@ format_status(_Opt, [_PDict, State]) ->
 %%====================================================================
 %% @doc State of 'idle'
 %%
--spec(idling(EventInfo, From, State) ->
+-spec(idling(EventType, EventInfo, State) ->
              {next_state, ?ST_IDLING | ?ST_RUNNING, State}
-                 when EventInfo::#compaction_event_info{},
-                      From::{pid(),Tag::atom()},
+                 when EventType::{call, From::gen_statem:from()} | cast | info,
+                      EventInfo::#compaction_event_info{},
                       State::#compaction_worker_state{}).
-idling(#compaction_event_info{event = ?EVENT_RUN,
-                              controller_pid = ControllerPid,
-                              is_diagnosing  = IsDiagnosing,
-                              is_recovering  = IsRecovering,
-                              is_forced_run  = false,
-                              callback = CallbackFun}, From,
+idling({call, From}, #compaction_event_info{event = ?EVENT_RUN,
+                                             controller_pid = ControllerPid,
+                                             is_diagnosing  = IsDiagnosing,
+                                             is_recovering  = IsRecovering,
+                                             is_forced_run  = false,
+                                             callback = CallbackFun},
        #compaction_worker_state{id = Id,
                                 compaction_skip_garbage = SkipInfo,
                                 compaction_prms = CompactionPrms} = State) ->
@@ -283,53 +280,56 @@ idling(#compaction_event_info{event = ?EVENT_RUN,
                 start_datetime = leo_date:now()},
     case prepare(State_1) of
         {ok, State_2} ->
-            gen_fsm:reply(From, ok),
             ok = run(Id, IsDiagnosing, IsRecovering),
-            {next_state, NextStatus, State_2};
+            {next_state, NextStatus, State_2, [{reply, From, ok}]};
         {{error, Cause}, #compaction_worker_state{obj_storage_info =
                                                       #backend_info{write_handler = WriteHandler,
                                                                     read_handler  = ReadHandler}}} ->
             catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
-            gen_fsm:reply(From, {error, Cause}),
-            {next_state, ?ST_IDLING, State_1}
+            {next_state, ?ST_IDLING, State_1, [{reply, From, {error, Cause}}]}
     end;
-idling(_, From, State) ->
-    gen_fsm:reply(From, {error, badstate}),
+idling({call, From}, #compaction_event_info{}, State) ->
     NextStatus = ?ST_IDLING,
-    {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}}.
+    {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}, [{reply, From, {error, badstate}}]};
 
--spec(idling(EventInfo, State) ->
-             {next_state, ?ST_IDLING, State} when EventInfo::#compaction_event_info{},
-                                                  State::#compaction_worker_state{}).
-idling(#compaction_event_info{event = ?EVENT_STATE,
-                              client_pid = Client}, State) ->
+idling({call, From}, state, State) ->
+    {keep_state, State, [{reply, From, {ok, ?ST_IDLING}}]};
+
+idling({call, From}, stop, State) ->
+    {stop_and_reply, shutdown, [{reply, From, ok}], State};
+
+%% @doc Handle cast events in idle state
+idling(cast, #compaction_event_info{event = ?EVENT_STATE,
+                                     client_pid = Client}, State) ->
     NextStatus = ?ST_IDLING,
     erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}};
 
-idling(#compaction_event_info{event = ?EVENT_INCREASE}, State) ->
+idling(cast, #compaction_event_info{event = ?EVENT_INCREASE}, State) ->
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}};
 
-idling(#compaction_event_info{event = ?EVENT_DECREASE}, State) ->
+idling(cast, #compaction_event_info{event = ?EVENT_DECREASE}, State) ->
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}};
-idling(_, State) ->
+idling(cast, _, State) ->
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}}.
 
 
 %% @doc State of 'running'
--spec(running(EventInfo, State) ->
-             {next_state, ?ST_RUNNING, State} when EventInfo::#compaction_event_info{},
-                                                   State::#compaction_worker_state{}).
-running(#compaction_event_info{event = ?EVENT_RUN},
+-spec(running(EventType, EventInfo, State) ->
+             {next_state, ?ST_RUNNING|?ST_IDLING|?ST_SUSPENDING, State}
+                 when EventType::{call, From::gen_statem:from()} | cast | info,
+                      EventInfo::#compaction_event_info{},
+                      State::#compaction_worker_state{}).
+running(cast, #compaction_event_info{event = ?EVENT_RUN},
         #compaction_worker_state{obj_storage_info = #backend_info{linked_path = []}} = State) ->
     NextStatus = ?ST_IDLING,
     {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}};
-running(#compaction_event_info{event = ?EVENT_RUN,
-                               is_diagnosing = IsDiagnosing,
-                               is_recovering = IsRecovering},
+running(cast, #compaction_event_info{event = ?EVENT_RUN,
+                                      is_diagnosing = IsDiagnosing,
+                                      is_recovering = IsRecovering},
         #compaction_worker_state{id = Id,
                                  obj_storage_id   = ObjStorageId,
                                  compact_cntl_pid = CompactCntlPid,
@@ -389,7 +389,7 @@ running(#compaction_event_info{event = ?EVENT_RUN,
             %% An unxepected error has occured
             {'EXIT', Cause} ->
                 error_logger:info_msg("~p,~p,~p,~p~n",
-                                      [{module, ?MODULE_STRING}, {function, "running/2"},
+                                      [{module, ?MODULE_STRING}, {function, "running/3"},
                                        {line, ?LINE}, {body, {Id, Cause}}]),
                 {ok, State_1} = after_execute({error, Cause},
                                               State#compaction_worker_state{result = ?RET_FAIL}),
@@ -402,7 +402,7 @@ running(#compaction_event_info{event = ?EVENT_RUN,
             %% An epected error has occured
             {{error, Cause}, State_1} ->
                 error_logger:info_msg("~p,~p,~p,~p~n",
-                                      [{module, ?MODULE_STRING}, {function, "running/2"},
+                                      [{module, ?MODULE_STRING}, {function, "running/3"},
                                        {line, ?LINE}, {body, {Id, Cause}}]),
                 {ok, State_2} = after_execute({error, Cause},
                                               State_1#compaction_worker_state{result = ?RET_FAIL}),
@@ -411,18 +411,18 @@ running(#compaction_event_info{event = ?EVENT_RUN,
     {next_state, NextStatus, State_3#compaction_worker_state{status = NextStatus,
                                                              count_procs = CountProcs_1}};
 
-running(#compaction_event_info{event = ?EVENT_SUSPEND}, State) ->
+running(cast, #compaction_event_info{event = ?EVENT_SUSPEND}, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#compaction_worker_state{status = NextStatus,
                                                            is_forced_suspending = true}};
 
-running(#compaction_event_info{event = ?EVENT_STATE,
-                               client_pid = Client}, State) ->
+running(cast, #compaction_event_info{event = ?EVENT_STATE,
+                                      client_pid = Client}, State) ->
     NextStatus = ?ST_RUNNING,
     erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}};
 
-running(#compaction_event_info{event = ?EVENT_INCREASE},
+running(cast, #compaction_event_info{event = ?EVENT_INCREASE},
         #compaction_worker_state{num_of_batch_procs = BatchProcs,
                                  max_num_of_batch_procs = MaxBatchProcs,
                                  interval = Interval,
@@ -440,7 +440,7 @@ running(#compaction_event_info{event = ?EVENT_INCREASE},
                                interval = Interval_1,
                                status = NextStatus}};
 
-running(#compaction_event_info{event = ?EVENT_DECREASE},
+running(cast, #compaction_event_info{event = ?EVENT_DECREASE},
         #compaction_worker_state{num_of_batch_procs = BatchProcs,
                                  interval = Interval,
                                  max_interval  = MaxInterval,
@@ -464,39 +464,43 @@ running(#compaction_event_info{event = ?EVENT_DECREASE},
                                interval = Interval_1,
                                status = NextStatus}};
 
-running(_, State) ->
+running(cast, _, State) ->
     NextStatus = ?ST_RUNNING,
-    {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}}.
+    {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}};
 
-
--spec(running( _, _, #compaction_worker_state{}) ->
-             {next_state, ?ST_SUSPENDING|?ST_RUNNING, #compaction_worker_state{}}).
-running(_, From, State) ->
-    gen_fsm:reply(From, {error, badstate}),
+running({call, From}, #compaction_event_info{}, State) ->
     NextStatus = ?ST_RUNNING,
-    {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}}.
+    {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}, [{reply, From, {error, badstate}}]};
+
+running({call, From}, state, State) ->
+    {keep_state, State, [{reply, From, {ok, ?ST_RUNNING}}]};
+
+running({call, From}, stop, State) ->
+    {stop_and_reply, shutdown, [{reply, From, ok}], State}.
 
 
 %% @doc State of 'suspend'
 %%
--spec(suspending(EventInfo, State) ->
-             {next_state, ?ST_SUSPENDING, State} when EventInfo::#compaction_event_info{},
-                                                      State::#compaction_worker_state{}).
-suspending(#compaction_event_info{event = ?EVENT_RUN}, State) ->
+-spec(suspending(EventType, EventInfo, State) ->
+             {next_state, ?ST_SUSPENDING | ?ST_RUNNING, State}
+                 when EventType::{call, From::gen_statem:from()} | cast | info,
+                      EventInfo::#compaction_event_info{},
+                      State::#compaction_worker_state{}).
+suspending(cast, #compaction_event_info{event = ?EVENT_RUN}, State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}};
 
-suspending(#compaction_event_info{event = ?EVENT_STATE,
-                                  client_pid = Client}, State) ->
+suspending(cast, #compaction_event_info{event = ?EVENT_STATE,
+                                         client_pid = Client}, State) ->
     NextStatus = ?ST_SUSPENDING,
     erlang:send(Client, NextStatus),
     {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}};
 
-suspending(#compaction_event_info{event = ?EVENT_INCREASE},
+suspending(cast, #compaction_event_info{event = ?EVENT_INCREASE},
            #compaction_worker_state{is_forced_suspending = true} = State) ->
     NextStatus = ?ST_SUSPENDING,
     {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}};
-suspending(#compaction_event_info{event = ?EVENT_INCREASE},
+suspending(cast, #compaction_event_info{event = ?EVENT_INCREASE},
            #compaction_worker_state{id = Id,
                                     is_diagnosing = IsDiagnosing,
                                     is_recovering = IsRecovering,
@@ -517,34 +521,31 @@ suspending(#compaction_event_info{event = ?EVENT_INCREASE},
                                num_of_batch_procs = BatchProcs_1,
                                interval = Interval_1,
                                status = NextStatus}};
-suspending(_, State) ->
+suspending(cast, _, State) ->
     NextStatus = ?ST_SUSPENDING,
-    {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}}.
+    {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}};
 
-
--spec(suspending(EventInfo, From, State) ->
-             {next_state, ?ST_SUSPENDING | ?ST_RUNNING, State}
-                 when EventInfo::#compaction_event_info{},
-                      From::{pid(),Tag::atom()},
-                      State::#compaction_worker_state{}).
-suspending(#compaction_event_info{event = ?EVENT_RESUME}, From,
+suspending({call, From}, #compaction_event_info{event = ?EVENT_RESUME},
            #compaction_worker_state{id = Id,
                                     is_diagnosing = IsDiagnosing,
                                     is_recovering = IsRecovering} = State) ->
     %% resume the data-compaction
-    gen_fsm:reply(From, ok),
-
     NextStatus = ?ST_RUNNING,
     timer:apply_after(
       timer:seconds(1), ?MODULE, run, [Id, IsDiagnosing, IsRecovering]),
     {next_state, NextStatus, State#compaction_worker_state{
                                status = NextStatus,
-                               is_forced_suspending = false}};
+                               is_forced_suspending = false}, [{reply, From, ok}]};
 
-suspending(_, From, State) ->
-    gen_fsm:reply(From, {error, badstate}),
+suspending({call, From}, #compaction_event_info{}, State) ->
     NextStatus = ?ST_SUSPENDING,
-    {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}}.
+    {next_state, NextStatus, State#compaction_worker_state{status = NextStatus}, [{reply, From, {error, badstate}}]};
+
+suspending({call, From}, state, State) ->
+    {keep_state, State, [{reply, From, {ok, ?ST_SUSPENDING}}]};
+
+suspending({call, From}, stop, State) ->
+    {stop_and_reply, shutdown, [{reply, From, ok}], State}.
 
 
 %%--------------------------------------------------------------------
@@ -1001,10 +1002,10 @@ after_execute(Ret, #compaction_worker_state{obj_storage_info = StorageInfo,
     WriteHandler = StorageInfo#backend_info.write_handler,
     catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
 
-    %% rotate the diagnosis-log
+    %% rotate the diagnosis-log (using OTP standard logger)
     case IsDiagnosing of
         true when LoggerId /= undefined ->
-            leo_logger_client_base:force_rotation(LoggerId);
+            leo_object_storage_diagnosis_log:force_rotation(LoggerId);
         _ ->
             void
     end,
