@@ -496,16 +496,22 @@ handle_call({fetch = Method, {AddrId, Key}, Fun, MaxKeys, InTime},
             _From, #obj_server_state{meta_db_id     = MetaDBId,
                                      object_storage = StorageInfo} = State) ->
     BackendKey = ?gen_backend_key(StorageInfo#backend_info.avs_ver_cur, AddrId, Key),
-    Reply = case catch leo_object_storage_haystack:fetch(
-                         MetaDBId, BackendKey, Fun, MaxKeys) of
-                {'EXIT', Cause} ->
-                    {error, Cause};
+    Reply = try leo_object_storage_haystack:fetch(
+                  MetaDBId, BackendKey, Fun, MaxKeys) of
                 not_found = Ret ->
                     Ret;
                 {ok, RetL} ->
                     {ok, RetL};
-                Other ->
-                    {error, Other}
+                {error, Cause} ->
+                    {error, Cause}
+            catch
+                _:Reason ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING},
+                                            {function, "handle_call/3"},
+                                            {line, ?LINE},
+                                            {body, {fetch_error, Reason}}]),
+                    {error, Reason}
             end,
     reply(Method, Key, Reply, InTime, State);
 
@@ -620,7 +626,7 @@ handle_call({switch_container, FilePath,
     #backend_info{
        write_handler = WriteHandler,
        read_handler  = ReadHandler} = ObjectStorage,
-    catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
+    ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
 
     %% Delete the old container
     case file:delete(ObjectStorage#backend_info.file_path) of
@@ -931,21 +937,52 @@ get_raw_path(object, ObjectStorageRootDir, SymLinkPath) ->
 %% @private
 close_storage(Id, MetaDBId, StateFilePath,
               StorageStats, WriteHandler, ReadHandler, Reason) when is_list(StateFilePath) ->
-    _ = leo_file:ensure_dir(StateFilePath),
-    _ = leo_file:file_unconsult(
-          StateFilePath,
-          [{id, Id},
-           {total_sizes,     StorageStats#storage_stats.total_sizes},
-           {active_sizes,    StorageStats#storage_stats.active_sizes},
-           {total_num,       StorageStats#storage_stats.total_num},
-           {active_num,      StorageStats#storage_stats.active_num},
-           {compaction_hist, StorageStats#storage_stats.compaction_hist}
-          ]),
-    catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
+    case leo_file:ensure_dir(StateFilePath) of
+        ok -> ok;
+        {error, EnsureDirError} ->
+            error_logger:warning_msg("~p,~p,~p,~p~n",
+                                     [{module, ?MODULE_STRING},
+                                      {function, "close_storage/7"},
+                                      {line, ?LINE},
+                                      {body, {ensure_dir_error, EnsureDirError}}])
+    end,
+    case leo_file:file_unconsult(
+           StateFilePath,
+           [{id, Id},
+            {total_sizes,     StorageStats#storage_stats.total_sizes},
+            {active_sizes,    StorageStats#storage_stats.active_sizes},
+            {total_num,       StorageStats#storage_stats.total_num},
+            {active_num,      StorageStats#storage_stats.active_num},
+            {compaction_hist, StorageStats#storage_stats.compaction_hist}
+           ]) of
+        ok -> ok;
+        {error, UnconsultError} ->
+            error_logger:warning_msg("~p,~p,~p,~p~n",
+                                     [{module, ?MODULE_STRING},
+                                      {function, "close_storage/7"},
+                                      {line, ?LINE},
+                                      {body, {file_unconsult_error, UnconsultError}}])
+    end,
+    ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
     case Reason of
         normal_shutdown ->
             % call leo_backend_db_server:close only when leo_storage stop
-            catch leo_backend_db_server:close(MetaDBId);
+            try leo_backend_db_server:close(MetaDBId) of
+                ok -> ok;
+                {error, CloseDbError} ->
+                    error_logger:warning_msg("~p,~p,~p,~p~n",
+                                             [{module, ?MODULE_STRING},
+                                              {function, "close_storage/7"},
+                                              {line, ?LINE},
+                                              {body, {backend_db_close_error, CloseDbError}}])
+            catch
+                _:DbCloseReason ->
+                    error_logger:warning_msg("~p,~p,~p,~p~n",
+                                             [{module, ?MODULE_STRING},
+                                              {function, "close_storage/7"},
+                                              {line, ?LINE},
+                                              {body, {backend_db_close_error, DbCloseReason}}])
+            end;
         _ ->
             nop
     end,

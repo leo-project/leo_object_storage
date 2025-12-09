@@ -291,27 +291,20 @@ fetch_by_key(Key, Fun, MaxKeys) ->
             not_found;
         List ->
             List_1 = [?get_obj_storage_read_proc(PidL, erlang:phash2(Key)) || {_, PidL} <- List],
-            case catch lists:foldl(
-                         fun(Id, Acc) ->
-                                 case catch ?SERVER_MODULE:fetch(Id, {0, Key}, Fun, MaxKeys) of
-                                     {ok, Values} ->
-                                         [Values|Acc];
-                                     not_found ->
-                                         Acc;
-                                     {_, Cause} when is_tuple(Cause) ->
-                                         erlang:error(element(1, Cause));
-                                     {_, Cause} ->
-                                         erlang:error(Cause)
-                                 end
-                         end, [], List_1) of
-                {'EXIT', Cause} ->
-                    Cause_1 = case is_tuple(Cause) of
-                                  true ->
-                                      element(1, Cause);
-                                  false ->
-                                      Cause
-                              end,
-                    {error, Cause_1};
+            try lists:foldl(
+                  fun(Id, Acc) ->
+                          try ?SERVER_MODULE:fetch(Id, {0, Key}, Fun, MaxKeys) of
+                              {ok, Values} ->
+                                  [Values|Acc];
+                              not_found ->
+                                  Acc;
+                              {error, Cause} ->
+                                  erlang:error(Cause)
+                          catch
+                              _:Reason ->
+                                  erlang:error(Reason)
+                          end
+                  end, [], List_1) of
                 Ret ->
                     Reply = lists:reverse(lists:flatten(Ret)),
                     case MaxKeys of
@@ -320,6 +313,14 @@ fetch_by_key(Key, Fun, MaxKeys) ->
                         _ ->
                             {ok, lists:sublist(Reply, MaxKeys)}
                     end
+            catch
+                error:Reason2 ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING},
+                                            {function, "fetch_by_key/3"},
+                                            {line, ?LINE},
+                                            {body, {fetch_error, Reason2}}]),
+                    {error, Reason2}
             end
     end.
 
@@ -404,17 +405,18 @@ fetcher_loop(ServerId, Key, Fun, MaxKeys, ReceiverPid) ->
                       end,
                       Acc_1
               end,
-    case catch ?SERVER_MODULE:fetch(ServerId, {0, Key}, WrapFun, MaxKeys) of
+    try ?SERVER_MODULE:fetch(ServerId, {0, Key}, WrapFun, MaxKeys) of
         {ok, Values} ->
             ReceiverPid ! {ok, self(), Values},
             exit(normal);
         not_found ->
             ReceiverPid ! {not_found, self()},
             exit(normal);
-        {_, Cause} when is_tuple(Cause) ->
-            exit(element(1, Cause));
-        {_, Cause} ->
+        {error, Cause} ->
             exit(Cause)
+    catch
+        _:Reason ->
+            exit(Reason)
     end.
 
 %% @doc Store metadata and data
@@ -666,10 +668,10 @@ start_app() ->
     case application:start(Module) of
         ok ->
             ok = leo_misc:init_env(),
-            catch ets:new(?ETS_CONTAINERS_TABLE,
-                          [named_table, ordered_set, public, {read_concurrency, true}]),
-            catch ets:new(?ETS_INFO_TABLE,
-                          [named_table, set, public, {read_concurrency, true}]),
+            ok = ensure_ets_table(?ETS_CONTAINERS_TABLE,
+                                  [named_table, ordered_set, public, {read_concurrency, true}]),
+            ok = ensure_ets_table(?ETS_INFO_TABLE,
+                                  [named_table, set, public, {read_concurrency, true}]),
             ok;
         {error, {already_started, Module}} ->
             ok;
@@ -679,6 +681,28 @@ start_app() ->
                                     {function, "start_app/0"},
                                     {line, ?LINE}, {body, Cause}]),
             {error, Cause}
+    end.
+
+%% @doc Ensure ETS table exists with proper error handling
+%% @private
+ensure_ets_table(TableName, Options) ->
+    try ets:new(TableName, Options) of
+        TableName ->
+            ok
+    catch
+        error:badarg ->
+            %% Table already exists, which is fine
+            case ets:info(TableName) of
+                undefined ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING},
+                                            {function, "ensure_ets_table/2"},
+                                            {line, ?LINE},
+                                            {body, {ets_creation_failed, TableName}}]),
+                    {error, ets_creation_failed};
+                _ ->
+                    ok
+            end
     end.
 
 

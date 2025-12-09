@@ -285,7 +285,7 @@ idling({call, From}, #compaction_event_info{event = ?EVENT_RUN,
         {{error, Cause}, #compaction_worker_state{obj_storage_info =
                                                       #backend_info{write_handler = WriteHandler,
                                                                     read_handler  = ReadHandler}}} ->
-            catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
+            ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
             {next_state, ?ST_IDLING, State_1, [{reply, From, {error, Cause}}]}
     end;
 idling({call, From}, #compaction_event_info{}, State) ->
@@ -1000,7 +1000,7 @@ after_execute(Ret, #compaction_worker_state{obj_storage_info = StorageInfo,
     %% Close file handlers
     ReadHandler  = StorageInfo#backend_info.read_handler,
     WriteHandler = StorageInfo#backend_info.write_handler,
-    catch leo_object_storage_haystack:close(WriteHandler, ReadHandler),
+    ok = leo_object_storage_haystack:close(WriteHandler, ReadHandler),
 
     %% rotate the diagnosis-log (using OTP standard logger)
     case IsDiagnosing of
@@ -1037,7 +1037,16 @@ after_execute_1({ok, #compaction_worker_state{
     %% Unlink the symbol
     LinkedPath = StorageInfo#backend_info.linked_path,
     FilePath   = StorageInfo#backend_info.file_path,
-    catch file:delete(LinkedPath),
+    case file:delete(LinkedPath) of
+        ok -> ok;
+        {error, enoent} -> ok;  %% File doesn't exist, which is fine
+        {error, DeleteReason} ->
+            error_logger:warning_msg("~p,~p,~p,~p~n",
+                                     [{module, ?MODULE_STRING},
+                                      {function, "after_execute_1/1"},
+                                      {line, ?LINE},
+                                      {body, {delete_symlink_error, LinkedPath, DeleteReason}}])
+    end,
 
     %% Migrate the filepath
     case file:make_symlink(FilePath, LinkedPath) of
@@ -1050,7 +1059,12 @@ after_execute_1({ok, #compaction_worker_state{
 
             ok = leo_backend_db_api:finish_compaction(MetaDBId, true),
             ok;
-        {error,_Cause} ->
+        {error, SymlinkCause} ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING},
+                                    {function, "after_execute_1/1"},
+                                    {line, ?LINE},
+                                    {body, {make_symlink_error, FilePath, LinkedPath, SymlinkCause}}]),
             leo_backend_db_api:finish_compaction(MetaDBId, false),
             ok
     end;
@@ -1061,7 +1075,17 @@ after_execute_1({_Error, #compaction_worker_state{
                             meta_db_id = MetaDBId,
                             obj_storage_info = StorageInfo}}) ->
     %% must reopen the original file when handling at another process:
-    catch file:delete(StorageInfo#backend_info.file_path),
+    FilePath = StorageInfo#backend_info.file_path,
+    case file:delete(FilePath) of
+        ok -> ok;
+        {error, enoent} -> ok;  %% File doesn't exist, which is fine
+        {error, DeleteReason} ->
+            error_logger:warning_msg("~p,~p,~p,~p~n",
+                                     [{module, ?MODULE_STRING},
+                                      {function, "after_execute_1/1"},
+                                      {line, ?LINE},
+                                      {body, {delete_tmp_file_error, FilePath, DeleteReason}}])
+    end,
     leo_backend_db_api:finish_compaction(MetaDBId, false),
     ok.
 

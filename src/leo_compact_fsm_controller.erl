@@ -920,12 +920,32 @@ operate(_,_) ->
 
 %% @private
 resume(_,0) ->
+    error_logger:error_msg("~p,~p,~p,~p~n",
+                           [{module, ?MODULE_STRING},
+                            {function, "resume/2"},
+                            {line, ?LINE},
+                            {body, resume_operation_failure}]),
     {error, resume_operation_failure};
 resume(WorkerId, RetryTimes) ->
-    case catch leo_compact_fsm_worker:resume(WorkerId) of
+    try leo_compact_fsm_worker:resume(WorkerId) of
         ok ->
             ok;
-        _ ->
+        {error, Reason} ->
+            error_logger:warning_msg("~p,~p,~p,~p~n",
+                                     [{module, ?MODULE_STRING},
+                                      {function, "resume/2"},
+                                      {line, ?LINE},
+                                      {body, {resume_failed, WorkerId, Reason, RetryTimes}}]),
+            timer:sleep(100),
+            resume(WorkerId, RetryTimes - 1)
+    catch
+        _:CatchReason ->
+            error_logger:warning_msg("~p,~p,~p,~p~n",
+                                     [{module, ?MODULE_STRING},
+                                      {function, "resume/2"},
+                                      {line, ?LINE},
+                                      {body, {resume_exception, WorkerId, CatchReason, RetryTimes}}]),
+            timer:sleep(100),
             resume(WorkerId, RetryTimes - 1)
     end.
 

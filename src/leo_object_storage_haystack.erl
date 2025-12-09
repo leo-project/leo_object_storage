@@ -152,18 +152,40 @@ open_read_handler(FilePath) ->
              ok when WriteHandler::port()|any(),
                      ReadHandler::port()|any()).
 close(WriteHandler, ReadHandler) ->
-    case WriteHandler of
-        undefined ->
-            void;
-        _ ->
-            catch file:close(WriteHandler)
-    end,
-    case ReadHandler of
-        undefined -> void;
-        _ ->
-            catch file:close(ReadHandler)
-    end,
-    ok.
+    WriteResult = case WriteHandler of
+                      undefined ->
+                          ok;
+                      _ ->
+                          case file:close(WriteHandler) of
+                              ok -> ok;
+                              {error, Reason} ->
+                                  error_logger:warning_msg("~p,~p,~p,~p~n",
+                                                           [{module, ?MODULE_STRING},
+                                                            {function, "close/2"},
+                                                            {line, ?LINE},
+                                                            {body, {write_handler_close_error, Reason}}]),
+                                  {error, Reason}
+                          end
+                  end,
+    ReadResult = case ReadHandler of
+                     undefined ->
+                         ok;
+                     _ ->
+                         case file:close(ReadHandler) of
+                             ok -> ok;
+                             {error, Reason2} ->
+                                 error_logger:warning_msg("~p,~p,~p,~p~n",
+                                                          [{module, ?MODULE_STRING},
+                                                           {function, "close/2"},
+                                                           {line, ?LINE},
+                                                           {body, {read_handler_close_error, Reason2}}]),
+                                 {error, Reason2}
+                         end
+                 end,
+    case {WriteResult, ReadResult} of
+        {ok, ok} -> ok;
+        _ -> ok  %% Return ok but log errors above
+    end.
 
 %% @doc datasync the given file handle.
 %%
@@ -238,7 +260,7 @@ delete(MetaDBId, StorageInfo, Object, IsSync) ->
              {ok, binary()} | not_found | {error, any()} when MetaDBId::atom(),
                                                               Key::binary()).
 head(MetaDBId, Key) ->
-    case catch leo_backend_db_api:get(MetaDBId, Key) of
+    try leo_backend_db_api:get(MetaDBId, Key) of
         {ok, MetadataBin} ->
             case leo_object_storage_transformer:transform_metadata(
                    binary_to_term(MetadataBin)) of
@@ -249,8 +271,16 @@ head(MetaDBId, Key) ->
             end;
         not_found = Cause ->
             Cause;
-        {_, Cause} ->
+        {error, Cause} ->
             {error, Cause}
+    catch
+        _:Reason ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING},
+                                    {function, "head/2"},
+                                    {line, ?LINE},
+                                    {body, {backend_db_error, Reason}}]),
+            {error, Reason}
     end.
 
 -spec(head(MetaDBId, StorageInfo, Key) ->
@@ -258,7 +288,7 @@ head(MetaDBId, Key) ->
                                                               StorageInfo::#backend_info{},
                                                               Key::binary()).
 head(MetaDBId, StorageInfo, Key) ->
-    case catch leo_backend_db_api:get(MetaDBId, Key) of
+    try leo_backend_db_api:get(MetaDBId, Key) of
         {ok, MetadataBin} ->
             case leo_object_storage_transformer:transform_metadata(
                    binary_to_term(MetadataBin)) of
@@ -280,8 +310,16 @@ head(MetaDBId, StorageInfo, Key) ->
             end;
         not_found = Cause ->
             Cause;
-        {_, Cause} ->
+        {error, Cause} ->
             {error, Cause}
+    catch
+        _:Reason ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING},
+                                    {function, "head/3"},
+                                    {line, ?LINE},
+                                    {body, {backend_db_error, Reason}}]),
+            {error, Reason}
     end.
 
 
@@ -318,7 +356,7 @@ head_with_calc_md5(MetaDBId, StorageInfo, Key, MD5Context) ->
                                  Key:: binary(),
                                  CheckMethod::atom()).
 head_with_check_avs(MetaDBId, StorageInfo, Key, check_header) ->
-    case catch leo_backend_db_api:get(MetaDBId, Key) of
+    try leo_backend_db_api:get(MetaDBId, Key) of
         {ok, MetadataBin} ->
             Metadata_1 = binary_to_term(MetadataBin),
             #backend_info{read_handler = ReadHandler} = StorageInfo,
@@ -326,16 +364,26 @@ head_with_check_avs(MetaDBId, StorageInfo, Key, check_header) ->
             case leo_file:pread(ReadHandler, Metadata_1#?METADATA.offset, HeaderSize) of
                 {ok, HeaderBin} ->
                     case leo_object_storage_transformer:header_bin_to_metadata(HeaderBin) of
-                        {error, _Cause} ->
-                            {error, _Cause};
+                        {error, Cause} ->
+                            {error, Cause};
                         _Metadata ->
                             {ok, MetadataBin}
                     end;
                 Other ->
                     Other
             end;
-        Error ->
-            Error
+        not_found ->
+            not_found;
+        {error, Cause} ->
+            {error, Cause}
+    catch
+        _:Reason ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING},
+                                    {function, "head_with_check_avs/4"},
+                                    {line, ?LINE},
+                                    {body, {backend_db_error, Reason}}]),
+            {error, Reason}
     end;
 head_with_check_avs(MetaDBId, StorageInfo, Key, check_md5) ->
     case get_fun(MetaDBId, StorageInfo, Key, -1, -1, false) of
@@ -436,32 +484,37 @@ modify_data(StorageInfo, Bin, Offset) ->
 %% @doc Create an object-container and metadata into the object-storage
 %% @private
 create_file(FilePath) ->
-    case catch file:open(FilePath, [raw, write,  binary, append]) of
+    try file:open(FilePath, [raw, write, binary, append]) of
         {ok, PutFileHandler} ->
-            case catch filelib:file_size(FilePath) of
-                {'EXIT', Cause} ->
-                    error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING},
-                                            {function, "create_file/1"},
-                                            {line, ?LINE}, {body, Cause}]),
-                    {error, Cause};
+            try filelib:file_size(FilePath) of
                 0 ->
                     put_super_block(PutFileHandler);
                 _FileSize ->
                     {ok, PutFileHandler}
+            catch
+                _:SizeError ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING},
+                                            {function, "create_file/1"},
+                                            {line, ?LINE},
+                                            {body, {file_size_error, SizeError}}]),
+                    {error, SizeError}
             end;
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
                                     {function, "create_file/1"},
-                                    {line, ?LINE}, {body, Cause}]),
-            {error, Cause};
-        {'EXIT', Cause} ->
+                                    {line, ?LINE},
+                                    {body, {file_open_error, Cause}}]),
+            {error, Cause}
+    catch
+        _:OpenError ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
                                     {function, "create_file/1"},
-                                    {line, ?LINE}, {body, Cause}]),
-            {error, Cause}
+                                    {line, ?LINE},
+                                    {body, {file_open_error, OpenError}}]),
+            {error, OpenError}
     end.
 
 
@@ -482,18 +535,17 @@ open_fun(FilePath, RetryTimes) ->
             timer:sleep(100)
     end,
 
-    case catch filelib:is_file(FilePath) of
-        {'EXIT', Cause} ->
-            {error, Cause};
+    try filelib:is_file(FilePath) of
         false ->
-            case file:open(FilePath, [raw, write,  binary, append]) of
+            case file:open(FilePath, [raw, write, binary, append]) of
                 {ok, FileHandler} ->
                     {ok, FileHandler};
                 {error, Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING},
                                             {function, "open_fun/2"},
-                                            {line, ?LINE}, {body, Cause}]),
+                                            {line, ?LINE},
+                                            {body, {file_open_error, Cause}}]),
                     % Output the error message to STDOUT as we may not have a file descriptor for logger
                     % when emfile happened before opening error log files.
                     io:format(user, "~s:open_fun error:~p~n", [?MODULE_STRING, Cause]),
@@ -507,12 +559,21 @@ open_fun(FilePath, RetryTimes) ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING},
                                             {function, "open_fun/2"},
-                                            {line, ?LINE}, {body, Cause}]),
+                                            {line, ?LINE},
+                                            {body, {file_open_error, Cause}}]),
                     % Output the error message to STDOUT as we may not have a file descriptor for logger
                     % when emfile happened before opening error log files.
                     io:format(user, "~s:open_fun error:~p~n", [?MODULE_STRING, Cause]),
                     open_fun(FilePath, RetryTimes+1)
             end
+    catch
+        _:Reason ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING},
+                                    {function, "open_fun/2"},
+                                    {line, ?LINE},
+                                    {body, {is_file_error, Reason}}]),
+            {error, Reason}
     end.
 
 
@@ -522,7 +583,7 @@ open_fun(FilePath, RetryTimes) ->
 %% @doc Retrieve an object from object-storage
 %% @private
 get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck) ->
-    case catch leo_backend_db_api:get(MetaDBId, Key) of
+    try leo_backend_db_api:get(MetaDBId, Key) of
         {ok, MetadataBin} ->
             Metadata_1 = binary_to_term(MetadataBin),
             Metadata_2 = leo_object_storage_transformer:transform_metadata(Metadata_1),
@@ -534,13 +595,18 @@ get_fun(MetaDBId, StorageInfo, Key, StartPos, EndPos, IsStrictCheck) ->
                 _ ->
                     not_found
             end;
-        Error ->
-            case Error of
-                not_found  ->
-                    Error;
-                {_, Cause} ->
-                    {error, Cause}
-            end
+        not_found ->
+            not_found;
+        {error, Cause} ->
+            {error, Cause}
+    catch
+        _:Reason ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING},
+                                    {function, "get_fun/6"},
+                                    {line, ?LINE},
+                                    {body, {backend_db_error, Reason}}]),
+            {error, Reason}
     end.
 
 
@@ -827,56 +893,47 @@ put_fun_3(MetaDBId, StorageInfo, Needle, #?METADATA{key      = Key,
         ok when IsSync =:= true ->
             case file:datasync(WriteHandler) of
                 ok ->
-                    case catch leo_backend_db_api:put(MetaDBId,
-                                                      Key4BackendDB,
-                                                      term_to_binary(Meta)) of
-                        ok ->
-                            {ok, Checksum};
-                        {'EXIT', Cause} ->
-                            error_logger:error_msg("~p,~p,~p,~p~n",
-                                                   [{module, ?MODULE_STRING},
-                                                    {function, "put_fun_3/5"},
-                                                    {line, ?LINE}, {body, Cause}]),
-                            {error, Cause};
-                        {error, Cause} ->
-                            error_logger:error_msg("~p,~p,~p,~p~n",
-                                                   [{module, ?MODULE_STRING},
-                                                    {function, "put_fun_3/5"},
-                                                    {line, ?LINE}, {body, Cause}]),
-                            {error, Cause}
-                    end;
+                    put_metadata(MetaDBId, Key4BackendDB, Meta, Checksum);
                 {error, Cause} = Error ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING},
                                             {function, "put_fun_3/5"},
-                                            {line, ?LINE}, {body, Cause}]),
+                                            {line, ?LINE},
+                                            {body, {datasync_error, Cause}}]),
                     Error
             end;
         ok ->
-            case catch leo_backend_db_api:put(MetaDBId,
-                                              Key4BackendDB,
-                                              term_to_binary(Meta)) of
-                ok ->
-                    {ok, Checksum};
-                {'EXIT', Cause} ->
-                    error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING},
-                                            {function, "put_fun_3/5"},
-                                            {line, ?LINE}, {body, Cause}]),
-                    {error, Cause};
-                {error, Cause} ->
-                    error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING},
-                                            {function, "put_fun_3/5"},
-                                            {line, ?LINE}, {body, Cause}]),
-                    {error, Cause}
-            end;
+            put_metadata(MetaDBId, Key4BackendDB, Meta, Checksum);
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
                                     {function, "put_fun_3/5"},
-                                    {line, ?LINE}, {body, Cause}]),
+                                    {line, ?LINE},
+                                    {body, {pwrite_error, Cause}}]),
             {error, Cause}
+    end.
+
+%% @doc Put metadata to backend db with proper error handling
+%% @private
+put_metadata(MetaDBId, Key4BackendDB, Meta, Checksum) ->
+    try leo_backend_db_api:put(MetaDBId, Key4BackendDB, term_to_binary(Meta)) of
+        ok ->
+            {ok, Checksum};
+        {error, Cause} ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING},
+                                    {function, "put_metadata/4"},
+                                    {line, ?LINE},
+                                    {body, {backend_db_put_error, Cause}}]),
+            {error, Cause}
+    catch
+        _:Reason ->
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING},
+                                    {function, "put_metadata/4"},
+                                    {line, ?LINE},
+                                    {body, {backend_db_put_error, Reason}}]),
+            {error, Reason}
     end.
 
 %%--------------------------------------------------------------------
@@ -894,27 +951,31 @@ put_obj_to_new_cntnr(WriteHandler, Metadata, KeyBin, BodyBin) ->
             Needle = create_needle(Object#?OBJECT{key  = KeyBin,
                                                   data = BodyBin,
                                                   offset = Offset}),
-            case catch file:pwrite(WriteHandler, Offset, Needle) of
+            try file:pwrite(WriteHandler, Offset, Needle) of
                 ok ->
                     {ok, Offset};
-                {'EXIT', Cause} ->
-                    error_logger:error_msg("~p,~p,~p,~p~n",
-                                           [{module, ?MODULE_STRING},
-                                            {function, "put_obj_to_new_cntnr/4"},
-                                            {line, ?LINE}, {body, Cause}]),
-                    {error, Cause};
                 {error, Cause} ->
                     error_logger:error_msg("~p,~p,~p,~p~n",
                                            [{module, ?MODULE_STRING},
                                             {function, "put_obj_to_new_cntnr/4"},
-                                            {line, ?LINE}, {body, Cause}]),
+                                            {line, ?LINE},
+                                            {body, {pwrite_error, Cause}}]),
                     {error, Cause}
+            catch
+                _:Reason ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING},
+                                            {function, "put_obj_to_new_cntnr/4"},
+                                            {line, ?LINE},
+                                            {body, {pwrite_error, Reason}}]),
+                    {error, Reason}
             end;
         {error, Cause} ->
             error_logger:error_msg("~p,~p,~p,~p~n",
                                    [{module, ?MODULE_STRING},
                                     {function, "put_obj_to_new_cntnr/4"},
-                                    {line, ?LINE}, {body, Cause}]),
+                                    {line, ?LINE},
+                                    {body, {file_position_error, Cause}}]),
             {error, Cause}
     end.
 
