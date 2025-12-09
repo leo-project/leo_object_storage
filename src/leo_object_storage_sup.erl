@@ -98,13 +98,16 @@ init([]) ->
 start_child(ObjectStorageInfo) ->
     %% initialize ets-tables
     ok = leo_misc:init_env(),
-    [catch ets:new(list_to_atom(?ETS_CONTAINERS_BY_DISK_TABLE ++ integer_to_list(Index)),
-                   [named_table, ordered_set, public, {read_concurrency, true}]) ||
-                   Index <- lists:seq(1, length(ObjectStorageInfo))],
-    catch ets:new(?ETS_CONTAINERS_TABLE,
-                  [named_table, ordered_set, public, {read_concurrency, true}]),
-    catch ets:new(?ETS_INFO_TABLE,
-                  [named_table, set, public, {read_concurrency, true}]),
+    ok = lists:foreach(
+           fun(Index) ->
+                   TableName = list_to_atom(?ETS_CONTAINERS_BY_DISK_TABLE ++ integer_to_list(Index)),
+                   ok = ensure_ets_table(TableName,
+                                         [named_table, ordered_set, public, {read_concurrency, true}])
+           end, lists:seq(1, length(ObjectStorageInfo))),
+    ok = ensure_ets_table(?ETS_CONTAINERS_TABLE,
+                          [named_table, ordered_set, public, {read_concurrency, true}]),
+    ok = ensure_ets_table(?ETS_INFO_TABLE,
+                          [named_table, set, public, {read_concurrency, true}]),
 
     MetadataDB = ?env_metadata_db(),
     IsStrictCheck = ?env_strict_check(),
@@ -133,29 +136,23 @@ start_child_1() ->
                 {ok, Pid} ->
                     Pid;
                 {error, Cause} ->
-                    exit(Cause)
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING},
+                                            {function, "start_child_1/0"},
+                                            {line, ?LINE},
+                                            {body, {backend_db_sup_start_failed, Cause}}]),
+                    exit({backend_db_sup_start_failed, Cause})
             end;
         Pid ->
             Pid
     end.
 
-%% @doc Launch the logger
+%% @doc Initialize the diagnosis logger (using OTP standard logger)
 %% @private
 start_child_2() ->
-    case whereis(leo_logger_sup) of
-        undefined ->
-            ChildSpec = {leo_logger_sup,
-                         {leo_logger_sup, start_link, []},
-                         {permanent, 2}, 2000, supervisor, [leo_logger_sup]},
-            case supervisor2:start_child(?MODULE, ChildSpec) of
-                {ok, _Pid} ->
-                    ok;
-                {error, Cause} ->
-                    exit(Cause)
-            end;
-        _ ->
-            ok
-    end.
+    %% Standard OTP logger is used for diagnosis logs
+    %% No separate supervisor needed
+    ok.
 
 %% @doc Wait for Pids to retrieve AVSServerPairL and ServerPairList from spawned processes
 %% @private
@@ -227,7 +224,12 @@ start_child_3_1(DeviceIndex, ContainerIndex, BackendDBSupPid, Props, Parent, Dic
             start_child_3_1(DeviceIndex, ContainerIndex - 1,
                             BackendDBSupPid, Props, Parent, Dict_1, [ServerPair|Acc]);
         {error, Cause} ->
-            exit(Cause)
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING},
+                                    {function, "start_child_3_1/7"},
+                                    {line, ?LINE},
+                                    {body, {add_container_failed, Id, Cause}}]),
+            exit({add_container_failed, Cause})
     end.
 
 
@@ -242,7 +244,12 @@ start_child_4(ServerPairL) ->
         {ok, _Pid} ->
             ok;
         {error, Cause} ->
-            exit(Cause)
+            error_logger:error_msg("~p,~p,~p,~p~n",
+                                   [{module, ?MODULE_STRING},
+                                    {function, "start_child_4/1"},
+                                    {line, ?LINE},
+                                    {body, {compact_fsm_controller_start_failed, Cause}}]),
+            exit({compact_fsm_controller_start_failed, Cause})
     end.
 
 
@@ -501,3 +508,26 @@ gen_id(obj_storage_read, Id, ChildIndex) ->
                                "_",
                                integer_to_list(ChildIndex)
                               ])).
+
+
+%% @doc Ensure ETS table exists with proper error handling
+%% @private
+ensure_ets_table(TableName, Options) ->
+    try ets:new(TableName, Options) of
+        TableName ->
+            ok
+    catch
+        error:badarg ->
+            %% Table already exists, which is fine
+            case ets:info(TableName) of
+                undefined ->
+                    error_logger:error_msg("~p,~p,~p,~p~n",
+                                           [{module, ?MODULE_STRING},
+                                            {function, "ensure_ets_table/2"},
+                                            {line, ?LINE},
+                                            {body, {ets_creation_failed, TableName}}]),
+                    exit({ets_creation_failed, TableName});
+                _ ->
+                    ok
+            end
+    end.

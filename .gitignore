@@ -9,3 +9,7 @@ leo_object_storage.png
 doc/
 rel/leo_object_storage
 package/
+_build/
+avs2/
+comaction_test/
+rebar3.crashdump

@@ -4,7 +4,7 @@
 %% Leo Object Storage
 %%
 %% Copyright (c) 2012-2018 Rakuten, Inc.
-%% Copyright (c) 2019 Lions Data, Ltd.
+%% Copyright (c) 2019-2025 Lions Data, Ltd.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -24,7 +24,7 @@
 {application, leo_object_storage,
  [
   {description, "Leo Object Storage"},
-  {vsn, "1.3.41"},
+  {vsn, "2.1.0"},
   {id, "leo_object_storage"},
   {registered,   []},
   {applications, [kernel, stdlib, crypto]},

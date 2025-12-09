@@ -1113,7 +1113,12 @@ compact_2() ->
     ?assertEqual({error,badstate}, leo_compact_fsm_controller:resume()),
 
     %% append incorrect data based on IS devenv's corrupted data
-    {ok, CorruptedDataBlock} = file:read_file("../test/broken_part.avs"),
+    %% Find test data file - works with both rebar and rebar3
+    TestDataPath = case filelib:is_file("../test/broken_part.avs") of
+                       true -> "../test/broken_part.avs";
+                       false -> "test/broken_part.avs"
+                   end,
+    {ok, CorruptedDataBlock} = file:read_file(TestDataPath),
     _ = leo_object_storage_api:add_incorrect_data(CorruptedDataBlock),
 
     ok = put_test_data(0,    <<"air/on/g/string/0">>, <<"JSB0-1">>),
